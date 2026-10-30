@@ -204,6 +204,10 @@ fn list_param(url: &str) -> Option<String> {
 ///
 /// A playlist with no more videos can answer with no actions at all; that is
 /// an empty last page.
+///
+/// Channel grid videos have no channel row, and this response does not name
+/// the channel anywhere, so their `channels` is empty. The caller knows the
+/// channel from the first page (`ChannelPage::info`) and must fill it in.
 pub fn continuation(response: &Value) -> Result<ItemPage> {
     let Some(actions) = response.get("onResponseReceivedActions") else {
         if response.get("responseContext").is_some() && response.get("contents").is_none() {
@@ -381,6 +385,16 @@ mod tests {
             collab.channels,
             [ChannelRef { id: None, name: "Linus Tech Tips and Zip Tie Tuning".into(), handle: None }]
         );
+    }
+
+    #[test]
+    fn channel_grid_continuation_names_no_channel() {
+        // Nothing in the response names the channel, so the caller fills it in.
+        let response = load("browse_channel_videos_cont1");
+        assert!(!response.to_string().contains("UCXuqSBlHAE6Xw-yeJA0Tunw"));
+        let page = continuation(&response).unwrap();
+        assert_eq!(page.items.len(), 30);
+        assert!(page.items.iter().all(|i| matches!(i, Item::Video(v) if v.channels.is_empty())));
     }
 
     #[test]

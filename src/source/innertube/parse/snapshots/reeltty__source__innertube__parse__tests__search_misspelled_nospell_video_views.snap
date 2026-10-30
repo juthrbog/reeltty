@@ -1,0 +1,17 @@
+---
+source: src/source/innertube/parse/mod.rs
+assertion_line: 254
+expression: summary(&parse_fixture(&name))
+---
+continuation: yes
+estimated results: Some(8)
+spelling: Some(DidYouMean { corrected: "rust programing language" })
+items: 8
+Normal BpPEoZW5IiY | Learn Rust Programming - Complete Course 🦀 | freeCodeCamp.org UC8butISFwT-Wl7EV0hUK0BQ @freecodecamp | 13:59:10 (50350s) | 1,290,198 views | 3 years ago | snippet, 2 thumbs
+Normal 4FdlyeUdhiY | RUST, or the future of system programming? | Coding With Armand UCJVofYShcBJdGxHG-vhG7wA @CodingWithArmand | 2:47 (167s) | 11,669 views | 2 years ago | snippet, 2 thumbs
+Normal L1keIt0YZWM | Learning About Nibbles | Rust Langauge | Learning Rust UC7OY971Es9P_AcXGYKms87A @learning_rust | 6:15 (375s) | 122 views | 2 years ago | snippet, 2 thumbs
+Normal iO1gCxyQqEs | Learn Functions in Rust | Create Custom Functions using the Rust Programming Langauge | Coding Cleverly UCEak_TSGMnAlh0kdqixjxgw @CodingCleverly | 10:59 (659s) | 60 views | 2 years ago | snippet, 2 thumbs
+PastStream _aFCWfNAh5Y | Starting a programming langauge that i always wanted Rust | FurnaceCraftYt UCnS39SfjkPEa6i45nnxbCpQ @FurnaceCraft-69 | 1:06:10 (3970s) | 7 views | Streamed 9 months ago | snippet, 2 thumbs
+PastStream b56X-Q10Jvk | Starting a programming langauge that i always wanted Rust | FurnaceCraftYt UCnS39SfjkPEa6i45nnxbCpQ @FurnaceCraft-69 | 18:10 (1090s) | 6 views | Streamed 9 months ago | snippet, 2 thumbs
+PastStream J8SdtXtQuSU | Starting a programming langauge that i always wanted Rust | FurnaceCraftYt UCnS39SfjkPEa6i45nnxbCpQ @FurnaceCraft-69 | 1:10:22 (4222s) | 5 views | Streamed 9 months ago | snippet, 2 thumbs
+Normal CwnDqKlFPdU | INTRODUCATION AND FEATURE OF RUST PROGRAMMING LANGAUGE | MACRO NEPAL UC7f7Wy0_PnuTRF0YsUrDyUw @wise9064 | 2:05 (125s) | 5 views | 2 years ago | 2 thumbs

@@ -1,0 +1,527 @@
+{
+  "_type": "playlist",
+  "id": "rust programming",
+  "title": "rust programming",
+  "entries": [
+    {
+      "_type": "url",
+      "id": "rQ_J9WH6CGk",
+      "title": "Rust Programming Full Course  | Learn ⚙️ in 2024 | #rustprogramming #rust",
+      "description": "Duration: 3 hours and 5 minutes Instructor: Amir Bekhit Support My Channel Through Patreon: ...",
+      "duration": 11104,
+      "channel_id": "UC7EVSn5inapL20oPSwAwEUg",
+      "channel": "BekBrace",
+      "uploader": "BekBrace",
+      "uploader_id": "@BekBrace",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/rQ_J9WH6CGk/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLAawD3A-RGpPblc9HlWs5ttkPvqaQ",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/rQ_J9WH6CGk/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLDVkrfoiihp9A723zxGLTnhtzspSA",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 659380,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "BpPEoZW5IiY",
+      "title": "Learn Rust Programming - Complete Course 🦀",
+      "description": "In this comprehensive Rust course for beginners, you will learn about the core concepts of the language and underlying ...",
+      "duration": 50350,
+      "channel_id": "UC8butISFwT-Wl7EV0hUK0BQ",
+      "channel": "freeCodeCamp.org",
+      "uploader": "freeCodeCamp.org",
+      "uploader_id": "@freecodecamp",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/BpPEoZW5IiY/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLAsFRfwZRm4r_etks4JWwEQJdPmVg",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/BpPEoZW5IiY/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLBvuT60v4uQ0oq7Zh1pftfxMnYEww",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 1290213,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "5C_HPTJg5ek",
+      "title": "Rust in 100 Seconds",
+      "description": "Rust is a memory-safe compiled programming language for building high-performance systems. It has the simplicity of high-level ...",
+      "duration": 149,
+      "channel_id": "UCsBjURrPoezykLs9EqgamOA",
+      "channel": "Fireship",
+      "uploader": "Fireship",
+      "uploader_id": "@Fireship",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/5C_HPTJg5ek/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLDGE2GXUKjYf6-HRHfYYc40FmpZMw",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/5C_HPTJg5ek/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLBcfa4UXiKt9mva1T5fl_YNQJDoQw",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 2622149,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "0y6RKiIk6cs",
+      "title": "Rust for Dummies in 12 Minutes",
+      "description": "Join our Rust Live Accelerator waitlist (free Rust Job-Ready Roadmap inside): https://letsgetrusty.com/join Let's Get Rusty is the ...",
+      "duration": 750,
+      "channel_id": "UCSp-OaMpsO8K0KkOqyBl7_w",
+      "channel": "Let's Get Rusty",
+      "uploader": "Let's Get Rusty",
+      "uploader_id": "@letsgetrusty",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/0y6RKiIk6cs/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLAmiqZe2RiANl6oI1U3pzvmOr-mUg",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/0y6RKiIk6cs/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLBfeGqXjPwdS5_T3y-TKRk3psBJgA",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 495565,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "IT0187cHGfI",
+      "title": "The biggest changes coming to Rust...",
+      "description": "Join the Rust Live Accelerator waitlist: https://letsgetrusty.com/join/wv-IT0187cHGfI What does the future of Rust look like?",
+      "duration": 416,
+      "channel_id": "UCSp-OaMpsO8K0KkOqyBl7_w",
+      "channel": "Let's Get Rusty",
+      "uploader": "Let's Get Rusty",
+      "uploader_id": "@letsgetrusty",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/IT0187cHGfI/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLDCOF5t-9iysn__zEfGcrjP2FwYUg",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/IT0187cHGfI/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLD0Xu-374_lrCzoinQ92nyR4ZiUYg",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 58575,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "br3GIIQeefY",
+      "title": "Rust for the impatient",
+      "description": "A 10-minute lightning talk taking you from zero to Rust! Get Rust training from Let's Get Rusty: ...",
+      "duration": 643,
+      "channel_id": "UCUMwY9iS8oMyWDYIe6_RmoA",
+      "channel": "No Boilerplate",
+      "uploader": "No Boilerplate",
+      "uploader_id": "@NoBoilerplate",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/br3GIIQeefY/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLAQ9Jszl7_Ahwpr_wLGT5n6l5uQAw",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/br3GIIQeefY/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCNHLLykFiUiJluToj76-zbMPizkg",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 1030524,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "cA7flwaBiC0",
+      "title": "Rust programming language explained | ThePrimeagen and Lex Fridman",
+      "description": "Lex Fridman Podcast full episode: https://www.youtube.com/watch?v=tNZnLkRBYA8 Thank you for listening ❤ Check out our ...",
+      "duration": 243,
+      "channel_id": "UCJIfeSCssxSC_Dhc5s7woww",
+      "channel": "Lex Clips",
+      "uploader": "Lex Clips",
+      "uploader_id": "@LexClips",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/cA7flwaBiC0/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLAZx9w_JJ6wwOuq6FSgpeJnJEydEg",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/cA7flwaBiC0/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLChm5rovdoO84qaXyLulGvNzrgN1A",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 127433,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "iu_ALBDtoHo",
+      "title": "Why Everyone's Rewriting Everything in Rust",
+      "description": "Everything is Rust. Try out Cursor! It's so good. https://jetty.to/cursor So Rust is over 10 years old. Nothing about the language ...",
+      "duration": 1537,
+      "channel_id": "UC2WHjPDvbE6O328n17ZGcfg",
+      "channel": "ForrestKnight",
+      "uploader": "ForrestKnight",
+      "uploader_id": "@fknight",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/iu_ALBDtoHo/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLBEvVez5kI6IF8A5LqCcExgbDyz6g",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/iu_ALBDtoHo/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLA5fOzcKBIDqDRkTB9sUu-pITNwGw",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 268483,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "T_KrYLW4jw8",
+      "title": "Rust Tutorial #1 - Introduction To Rust Programming",
+      "description": "Welcome to a brand new series on my channel! I'm super excited about this series because I am going to be covering the Rust ...",
+      "duration": 909,
+      "channel_id": "UC4JX40jDee_tINbkjycV4Sg",
+      "channel": "Tech With Tim",
+      "uploader": "Tech With Tim",
+      "uploader_id": "@TechWithTim",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/T_KrYLW4jw8/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLA2H9Bh9h3xyyVrnMjo4toxehgTcg",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/T_KrYLW4jw8/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCfzgIklgLtO8JYwsfNvZHsZmPmkQ",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 647667,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "MsocPEZBd-M",
+      "title": "Rust Programming Course for Beginners - Tutorial",
+      "description": "Learn the Rust programming language in this course for beginners. ✏️ Shaun Hamilton created this course. Rust Template ...",
+      "duration": 5137,
+      "channel_id": "UC8butISFwT-Wl7EV0hUK0BQ",
+      "channel": "freeCodeCamp.org",
+      "uploader": "freeCodeCamp.org",
+      "uploader_id": "@freecodecamp",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/MsocPEZBd-M/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLC2cD2iFaNsmUev4-Va_NGCikwfZw",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/MsocPEZBd-M/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLB5t-wm_sDE21FLq9skzwBz2jHbQw",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 367470,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "QQzAWxYKPSE",
+      "title": "Advanced Rust Programming Techniques • Florian Gilcher • GOTO 2024",
+      "description": "This presentation was recorded at GOTO Copenhagen 2024. #GOTOcon #GOTOcph https://gotocph.com Florian Gilcher ...",
+      "duration": 2380,
+      "channel_id": "UCs_tLP3AiwYKwdUHpltJPuA",
+      "channel": "GOTO Conferences",
+      "uploader": "GOTO Conferences",
+      "uploader_id": "@GOTO-",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/QQzAWxYKPSE/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLATWHfjlhd27aIvK_OsDST-c4Z6-Q",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/QQzAWxYKPSE/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCmRZMdeFEC_A-uxr5gvwkfCiVCWQ",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 41447,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "d9ahpl1gHVA",
+      "title": "Learn Rust the Easy Way",
+      "description": "Clip from a recent livestream where someone asked me how to learn Rust. This is my best advice on that topic. Have at it. Steps: 1 ...",
+      "duration": 127,
+      "channel_id": "UCRs5BtvLv1NkOWxLupTIVYw",
+      "channel": "Vasilios Syrakis",
+      "uploader": "Vasilios Syrakis",
+      "uploader_id": "@vsyrakis",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/d9ahpl1gHVA/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLDk-YKGCXcebedl5yxCiHDZYTcF1Q",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/d9ahpl1gHVA/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLAPrs6Z2bcIjZodMEPkweAKjlmO5A",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 43946,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "SIKj7i24SMg",
+      "title": "All Rust Syntax in 15 minutes – Tutorial",
+      "description": "Learn all of Rust as quickly as possible. Try MindsHub AI: ...",
+      "duration": 931,
+      "channel_id": "UCIuFRHmDktSjlHex7Hahcug",
+      "channel": "Beau Carnes",
+      "uploader": "Beau Carnes",
+      "uploader_id": "@beau",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/SIKj7i24SMg/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCkBasb-dn7Cc7TEJlz1ncNZW9Nsw",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/SIKj7i24SMg/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLD7jX3Ixupj3EQG9oA0gYUJ2f-0LA",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 18571,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "_2xQog4EBzg",
+      "title": "I Tried to Learn Rust",
+      "description": "Use code [LUKE] at the link below and get 60% off an annual plan: [https://incogni.com/luke] Thank you so much for watching!",
+      "duration": 662,
+      "channel_id": "UCaEY7-07ueVWVauAbJc5zgw",
+      "channel": "commonLuke",
+      "uploader": "commonLuke",
+      "uploader_id": "@commonLuke",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/_2xQog4EBzg/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLDlOWXvleleX7JaY6anVPGg0Eqiyg",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/_2xQog4EBzg/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLB_2_KGAWx-TwTblb9U8z6w46M5zg",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 464228,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "VXbRd5J0vNU",
+      "title": "Rust is the ugliest programming language invented in the last 40 years | DHH and Lex Fridman",
+      "description": "Lex Fridman Podcast full episode: https://www.youtube.com/watch?v=NYFGCESmikA Thank you for listening ❤ Check out our ...",
+      "duration": 97,
+      "channel_id": "UCJIfeSCssxSC_Dhc5s7woww",
+      "channel": "Lex Clips",
+      "uploader": "Lex Clips",
+      "uploader_id": "@LexClips",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/VXbRd5J0vNU/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLAyDXQUYIv-Wq0FPsVTom6ugL_BeQ",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/VXbRd5J0vNU/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCYI0XcZ8rnzigs9WIaiRVrTnL-Ow",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 17034,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "7wuaLanSqDs",
+      "title": "Stages of Learning Rust",
+      "description": "To try everything Brilliant has to offer—free—for a full 30 days, visit https://brilliant.org/bigboxSWE You'll also get 20% off an ...",
+      "duration": 227,
+      "channel_id": "UC5--wS0Ljbin1TjWQX6eafA",
+      "channel": "bigboxSWE",
+      "uploader": "bigboxSWE",
+      "uploader_id": "@bigboxSWE",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/7wuaLanSqDs/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCytK-x8WJcmnvti8guFcB1cU0ioQ",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/7wuaLanSqDs/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCBdS-Kt-z4cwu3cJ9riVnEoTcjbA",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 160270,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "meEXag1XCFw",
+      "title": "Why Everyone's Switching to Rust (And Why You Shouldn't)",
+      "description": "Rust is everywhere. Build, Upgrade, and Save All Month Long at Micro Center: https://micro.center/a8050d Sign-Up for VIP Days ...",
+      "duration": 884,
+      "channel_id": "UC2WHjPDvbE6O328n17ZGcfg",
+      "channel": "ForrestKnight",
+      "uploader": "ForrestKnight",
+      "uploader_id": "@fknight",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/meEXag1XCFw/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCPgHoTE4gGUGG4h7SMHS9lbHRGEA",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/meEXag1XCFw/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLC-koz1OvISJLsxpbl5bJI_6Gapdw",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 593847,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "NtYHC1KNGoc",
+      "title": "C is 50 Years Old. Should You Learn Rust?",
+      "description": "ITS A DEBATE AS OLD AS TIME. OR POSSIBLY 8 YEARS DEPENDING ON YOUR DEFINITION OF THE WORD \"YEAR\". There's ...",
+      "duration": 314,
+      "channel_id": "UC6biysICWOJ-C3P4Tyeggzg",
+      "channel": "Low Level",
+      "uploader": "Low Level",
+      "uploader_id": "@LowLevelTV",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/NtYHC1KNGoc/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCuzSMADeBC6R4PhAprPIDPnx4ROA",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/NtYHC1KNGoc/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLD6scIkP23vcbQMOtb9GRVLf5uoPQ",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 461074,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "R-tLX37Xgx8",
+      "title": "Why AI Infrastructure Is Moving To Rust",
+      "description": "The Copilot runtime was rewritten in Rust and starting a session fell from over five seconds to under 300 milliseconds. The Codex ...",
+      "duration": 384,
+      "channel_id": "UCkVfrGwV-iG9bSsgCbrNPxQ",
+      "channel": "Better Stack",
+      "uploader": "Better Stack",
+      "uploader_id": "@betterstack",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/R-tLX37Xgx8/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLBg-fHbfCPw0GY3aISiUnVcC_oTZw",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/R-tLX37Xgx8/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLC2wLlohnICveGKdDtjhKSUVfLAGA",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 302100,
+      "live_status": null
+    },
+    {
+      "_type": "url",
+      "id": "tCY7p6dVAGE",
+      "title": "impl Rust: One Billion Row Challenge",
+      "description": "I'm late to the party, but it's time we take a stab at the One Billion Row Challenge ( https://github.com/gunnarmorling/1brc ) in Rust.",
+      "duration": 38217,
+      "channel_id": "UC_iD0xppBwwsrM9DegC5cQQ",
+      "channel": "Jon Gjengset",
+      "uploader": "Jon Gjengset",
+      "uploader_id": "@jonhoo",
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/tCY7p6dVAGE/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLAjqSx-Si2jmFya0C3I5_6PDsWKKw",
+          "height": 202,
+          "width": 360
+        },
+        {
+          "url": "https://i.ytimg.com/vi/tCY7p6dVAGE/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLACNaparRdF-zVxZvxRdGgtAVOhiA",
+          "height": 404,
+          "width": 720
+        }
+      ],
+      "availability": null,
+      "view_count": 148341,
+      "live_status": null
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+---
+source: src/source/innertube/parse/mod.rs
+assertion_line: 254
+expression: summary(&parse_fixture(&name))
+---
+continuation: yes
+estimated results: Some(10273)
+spelling: None
+items: 20
+Course PLzMcBGfZo4-nyLTlSRBvo0zjSnCnqjHYQ | Rust Programming Tutorial | Tech With Tim UC4JX40jDee_tINbkjycV4Sg @TechWithTim | 9 lessons | first T_KrYLW4jw8 | 2 thumbs
+Playlist PLai5B987bZ9CoVR-QEIN9foz4QCJ0H2Y8 | The Rust Lang Book | Let's Get Rusty UCSp-OaMpsO8K0KkOqyBl7_w @letsgetrusty | 44 videos | first OX9HJsJUDxA | 2 thumbs
+Course PLO5VPQH6OWdXR8NlZt0jRbC39W_IyzS-v | Learn Rust | Smart Contract Programmer UCJWh7F3AFyQ_x01VKzr9eyA @smartcontractprogrammer | 64 lessons | first wq56EAYZqGg | 2 thumbs
+Course PLPoSdR46FgI412aItyJhj2bF66cudB6Qs | Rust Crash Course Tutorial for Beginners | Francesco Ciulla UCBRxDSTfr2aJVODDh4WG_7g @francescociulla | 54 lessons | first R33h77nrMqc | 2 thumbs
+Course PLAscMa3kKhHjBYOTrT20kpYMNQX95KU6i | Rust for beginners (2025) | Rustfully UCD8pB6QrFEAF1xAZ1dwl7qw @Rustfully | 85 lessons | first jpjo1HW5Fnk | 2 thumbs
+Course PLDbRgZ0OOEpUkWDGqp91ODn0dk7LPBAUL | Rust Programming Tutorial 🦀 | Trevor Sullivan UCGpJOTbsdZH_sBxihz6p_wg @TrevorSullivan | 40 lessons | first lTjGt17bQ3k | 2 thumbs
+Course PLinedj3B30sA_M0oxCRgFzPzEMX3CSfT5 | Rust Programming Language | Piyush Garg UCf9T51_FmMlfhiGpoes0yFA @piyushgargdev | 25 lessons | first unRhxbFULII | 2 thumbs
+Course PLlrxD0HtieHjbTjrchBwOVks_sr8EVW1x | Rust for Beginners | Microsoft Developer UCsMica-v34Irf9KVTh6xx-g @MicrosoftDeveloper | 35 lessons | first PpWR6zungUk | 2 thumbs
+Course PLFdNoRgzggbr7tkQsO4VrF1UGy0ji9sZl | Advanced Rust | Green Tea Coding UCwcTeMUlBWbPcgRlFWMHn0g @GreenTeaCoding | 14 lessons | first AnsRR-i5UWQ | 2 thumbs
+Course PLVvjrrRCBy2JSHf9tGxGKJ-bYAN_uDCUL | RUST PROGRAMMING TUTORIALS | dcode UCjX0FtIZBBVD3YoCcxnDC4g @dcode-software | 42 lessons | first vOMJlQ5B-M0 | 2 thumbs
+Course PLqbS7AVVErFiWDOAVrPt7aYmnuuOLYvOa | Crust of Rust | Jon Gjengset UC_iD0xppBwwsrM9DegC5cQQ @jonhoo | 15 lessons | first rAl-9HwD858 | 2 thumbs
+Course PLV3QhAYKd93s12-mwAUpwr8-PJul-vld- | Complete Rust Programming Course 2025 - From Beginner to Advanced | BlockDev UCN1iPCDX_p9_hVv_MZGlRfQ @blockdev-hadi | 23 lessons | first qOh0TK-Rt1U | 2 thumbs
+Playlist PLn3eTxaOtL2M-VkAeqk0p3Xn7byveJ9qX | Game Development in Rust | GetIntoGameDev UCMwKAqQBd4vBTkoR2UwHtVw @GetIntoGameDev | 24 videos | first O4ArTZvju9k | 2 thumbs
+Course PLTQzjZn0BgA5pQrp-6oiBR4qDIB9CEgWF | Rust Programming | Shiv Shankar Dayal UCkVSDKHD3tvxQ5dt6RczKrQ @ShivShankarDayal | 75 lessons | first IiL4m4TH2YY | 2 thumbs
+Playlist PLinedj3B30sAnCkwmMb5Ape5Ibqp0R5bP | The Rust Book | Rust Programming Language 🦀 | Piyush Garg UCf9T51_FmMlfhiGpoes0yFA @piyushgargdev | 25 videos | first unRhxbFULII | 2 thumbs
+Playlist PLJbE2Yu2zumDD5vy2BuSHvFZU0a6RDmgb | Rust Projects | Tensor Programming UCYqCZOwHbnPwyjawKfE21wg @TensorProgramming | 25 videos | first -Jp7sabBCp4 | 1 thumbs
+Playlist PL5dTjWUk_cPYuhHm9_QImW7_u4lr5d6zO | 50 RUST Projects | Akhil Sharma UCgMjDy6Y7WISZ529S4VyXUg @AkhilSharmaTech | 41 videos | first cSD3HzkvQoI | 2 thumbs
+Course PLj_VrUwyDuXS4K3n7X4U4qmkjpuA8rJ76 | Creating a new programming language with Rust | CodeScope UCNDiqceZkVrsxW6rMIrwvZw @codescope6903 | 48 lessons | first WpOivQLjhJA | 2 thumbs
+Course PL_UrKDEhALdJS0VrLPn7dqC5A4W1vCAUT | Rust wgpu Graphics Programming Tutorial | Practical Programming with Dr. Xu UCg14XfqXim0vpgabU3T7tRg @PracticalProgrammingwithDrXu | 18 lessons | first i6WMfY-XTZE | 2 thumbs
+Playlist PLHXQLZu1TC19OgOtj11SXYz88UTu9jTRq | Rust Programming | burmese coder UChmI_4HXNEIeQErypTmmB4A @burmeseprogrammer | 9 videos | first oGjPEDuFdgE | 2 thumbs

@@ -1,0 +1,29 @@
+---
+source: src/source/innertube/parse/mod.rs
+assertion_line: 254
+expression: summary(&parse_fixture(&name))
+---
+continuation: yes
+estimated results: Some(55256)
+spelling: None
+items: 20
+Channel UC_iD0xppBwwsrM9DegC5cQQ | Jon Gjengset | @jonhoo | 111K subscribers | snippet, 2 thumbs
+Channel UC0jzvznwtnsdXYIp415oC9g | Rust Foundation | @rustfoundation | 7.29K subscribers | snippet, 2 thumbs
+Channel UCaYhcUwRBNscFNUKTjgPFiA | Rust Programming Language | @RustVideos | 70.3K subscribers | 2 thumbs
+Channel UC7OY971Es9P_AcXGYKms87A | Learning Rust | @learning_rust | 2.29K subscribers | snippet, 2 thumbs
+Channel UC9sLTozvg2SJme_W1in5s9Q | RustNL | @rustnederlandrustnl | 6.77K subscribers | snippet, 2 thumbs
+Channel UCL-0h1ipMRkTkB38vDEmTbw | Scientific Computing in Rust | @ScientificComputinginRust | 2.94K subscribers | snippet, 2 thumbs
+Channel UCK0U2zrJDzqe8WwFYQSck_g | Tokyo Rust | @tokyo-rust-org | 2.13K subscribers | snippet, 2 thumbs
+Channel UCLksRXfBiEITZMUo2ssjSdA | Rust Nation UK | @rustnationuk | 10.2K subscribers | snippet, 2 thumbs
+Channel UCBdn2g49kLEyjlssavwbxdQ | RustLab Conference | @rustlabconference3671 | 5.34K subscribers | snippet, 2 thumbs
+Channel UCBRxDSTfr2aJVODDh4WG_7g | Francesco Ciulla | @francescociulla | 342K subscribers | verified, snippet, 2 thumbs
+Channel UCn5Fjl6LXMVTF8I5kdLeU8Q | Rust It Over | @RustItOver | 722 subscribers | snippet, 2 thumbs
+Channel UCSp-OaMpsO8K0KkOqyBl7_w | Let's Get Rusty | @letsgetrusty | 176K subscribers | snippet, 2 thumbs
+Channel UCitt3zFHK2jDetDh6ezI05A | bestia-dev Tutorials for Rust programming language | @bestia-dev-tutorials | 56 subscribers | snippet, 2 thumbs
+Channel UC-fA79xMOv74wekKai4MPYg | Rust Formal Methods IG | @rustformalmethods | 948 subscribers | snippet, 2 thumbs
+Channel UCcQWoBTNG__OwfZk9znWgCQ | The Rusty Bits | @therustybits | 33K subscribers | snippet, 2 thumbs
+Channel UCZSy_LFJOtOPPcsE64KxDkw | RustCast | @RustCast | 1.91K subscribers | snippet, 2 thumbs
+Channel UC2j-4ne8Mf5qvkhtxJ7hERQ | Rust Malayalam | @rustmalayalam | 72 subscribers | snippet, 2 thumbs
+Channel UCRkcLkhqa0UZ8LsoC-vSVpA | Rust Programming Language | @RustProgrammingLanguage | 4 subscribers | snippet, 2 thumbs
+Channel UCZ_EWaQZCZuGGfnuqUoHujw | corrode | @corrode-dev | 6.77K subscribers | snippet, 2 thumbs
+Channel UChepNPajN1D0mAubaBv5fsw | Programming in RUST | @rust-programming-01 | 29 subscribers | 2 thumbs

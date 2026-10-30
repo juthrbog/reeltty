@@ -40,7 +40,7 @@ Request base body:
 
 - `clientVersion`: read `"INNERTUBE_CLIENT_VERSION":"..."` from the `https://www.youtube.com/` HTML. Value on 2026-10-29: `2.20261029.01.00`. Keep a hard-coded fallback.
 - An old version (`2.20240101.00.00`) still works and returns the **same new view models** (`browse_playlist_oldclient.json`). The server chooses the renderer format. Pinning an old version does not bring back old renderers.
-- API key: `INNERTUBE_API_KEY` = `AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8`. **Not needed.** All requests without `key=` returned 200. Do not send it.
+- API key: the home page also has an `INNERTUBE_API_KEY` value. **Not needed.** All requests without `key=` returned 200. Do not send it.
 - `hl` controls UI text (tab titles, "views", "ago"). The parser rules below assume `hl=en`. Always send `hl=en` (see Parser risks).
 
 ### 1.4 visitorData

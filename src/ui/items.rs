@@ -32,13 +32,16 @@ pub fn draw_list(items: &[Item], selection: Selection, thumbnails: &Thumbnails, 
     let offset = draw_rows(items.iter().map(rows_of).collect(), selection, f, text);
     let Some(pictures) = pictures else { return };
     for (n, item) in items.iter().skip(offset).enumerate() {
-        let Some(y) = u16::try_from(n).ok().and_then(|n| n.checked_mul(slot.rows)).filter(|y| *y < pictures.height)
+        // The List draws only whole items, so a picture is drawn only where it fits whole.
+        let Some(y) = u16::try_from(n)
+            .ok()
+            .and_then(|n| n.checked_mul(slot.rows))
+            .filter(|y| y.saturating_add(slot.rows) <= pictures.height)
         else {
             break;
         };
         if let Some(id) = thumbnails.image(item) {
-            let height = slot.rows.min(pictures.height - y);
-            draw_image(f.buffer_mut(), Rect { y: pictures.y + y, height, ..pictures }, id);
+            draw_image(f.buffer_mut(), Rect { y: pictures.y + y, height: slot.rows, ..pictures }, id);
         }
     }
 }
@@ -64,8 +67,7 @@ pub fn draw_rows(rows: Vec<Vec<Line<'static>>>, selection: Selection, f: &mut Fr
     state.offset()
 }
 
-/// Fills `area` with the placeholder cells of image `id`. Rows of the image
-/// below `area` are cut off.
+/// Fills `area` with the placeholder cells of image `id`.
 fn draw_image(buf: &mut Buffer, area: Rect, id: u32) {
     let (r, g, b) = kitty::id_color(id);
     let style = Style::reset().fg(Color::Rgb(r, g, b));

@@ -27,7 +27,16 @@ impl TerminalFrontend {
         let graphics = detect::detect();
         tracing::info!(?graphics, "terminal graphics");
         let terminal = ratatui::init();
-        Self { terminal, graphics, uploads: Uploads::default() }
+        let uploads = Uploads::default();
+        // ratatui's panic hook leaves the alternate screen. Images live on the
+        // alternate screen, so they must be deleted before that.
+        let cleanup = uploads.panic_cleanup();
+        let restore = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            cleanup();
+            restore(info);
+        }));
+        Self { terminal, graphics, uploads }
     }
 }
 

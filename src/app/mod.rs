@@ -412,6 +412,9 @@ impl App {
             return vec![Effect::Quit];
         }
         let action = self.keymap.action(key);
+        if action == Some(Action::Refresh) {
+            self.thumbnails.forget_failed();
+        }
         if self.show_help {
             match action {
                 Some(Action::Help | Action::Back) => self.show_help = false,

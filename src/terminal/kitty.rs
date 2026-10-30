@@ -5,6 +5,8 @@
 //! See <https://sw.kovidgoyal.net/kitty/graphics-protocol/#unicode-placeholders>.
 
 use std::collections::HashSet;
+use std::io::Write as _;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use base64::Engine as _;
 
@@ -50,21 +52,40 @@ pub fn id_color(id: u32) -> (u8, u8, u8) {
 /// The images that the terminal holds.
 #[derive(Debug, Default)]
 pub struct Uploads {
+    /// Shared with the panic hook, which must delete the images before the
+    /// alternate screen goes away.
+    held: Arc<Mutex<Held>>,
+    counter: u64,
+}
+
+#[derive(Debug, Default)]
+struct Held {
     sent: HashSet<u32>,
     /// Shared memory objects that the terminal did not read yet.
     unread: Vec<String>,
-    counter: u64,
+}
+
+impl Held {
+    fn clear(&mut self, out: &mut String) {
+        for id in self.sent.drain() {
+            out.push_str(&delete(id));
+        }
+        for name in self.unread.drain(..) {
+            shm::unlink(&name);
+        }
+    }
 }
 
 impl Uploads {
     /// Sends the images in `wanted` that the terminal does not have, and
     /// deletes the ones it has that are not in `wanted`. The escapes go into `out`.
     pub fn sync<'a>(&mut self, wanted: impl IntoIterator<Item = (u32, &'a Picture)>, out: &mut String) {
-        self.unread.retain(|name| shm::exists(name));
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        held.unread.retain(|name| shm::exists(name));
         let mut keep = HashSet::new();
         for (id, picture) in wanted {
             keep.insert(id);
-            if self.sent.contains(&id) {
+            if held.sent.contains(&id) {
                 continue;
             }
             self.counter += 1;
@@ -72,13 +93,13 @@ impl Uploads {
             match shm::write(&name, &picture.rgba) {
                 Ok(()) => {
                     out.push_str(&transmit(id, &name, picture));
-                    self.unread.push(name);
-                    self.sent.insert(id);
+                    held.unread.push(name);
+                    held.sent.insert(id);
                 }
                 Err(e) => tracing::warn!("cannot send thumbnail {id}: {e:#}"),
             }
         }
-        self.sent.retain(|id| {
+        held.sent.retain(|id| {
             let k = keep.contains(id);
             if !k {
                 out.push_str(&delete(*id));
@@ -89,11 +110,20 @@ impl Uploads {
 
     /// Deletes every image and removes the objects that the terminal did not read.
     pub fn clear(&mut self, out: &mut String) {
-        for id in self.sent.drain() {
-            out.push_str(&delete(id));
-        }
-        for name in self.unread.drain(..) {
-            shm::unlink(&name);
+        self.held.lock().unwrap_or_else(PoisonError::into_inner).clear(out);
+    }
+
+    /// A function for a panic hook that deletes every image, like `clear`,
+    /// and writes the escapes to stdout. It does nothing if `sync` holds the
+    /// lock, so it can never deadlock.
+    pub fn panic_cleanup(&self) -> impl Fn() + Send + Sync + 'static {
+        let held = Arc::clone(&self.held);
+        move || {
+            let Ok(mut held) = held.try_lock() else { return };
+            let mut out = String::new();
+            held.clear(&mut out);
+            let mut stdout = std::io::stdout().lock();
+            let _ = stdout.write_all(out.as_bytes()).and_then(|()| stdout.flush());
         }
     }
 }
@@ -122,7 +152,7 @@ mod tests {
         let mut out = String::new();
         u.sync([(300, &p), (301, &p)], &mut out);
         assert_eq!(out.matches("a=T").count(), 2);
-        let names = u.unread.clone();
+        let names = u.held.lock().unwrap().unread.clone();
         out.clear();
         u.sync([(301, &p)], &mut out);
         assert_eq!(out, delete(300));

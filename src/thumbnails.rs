@@ -72,12 +72,15 @@ pub fn pick(thumbnails: &[Thumbnail], width: u32) -> Option<&str> {
 }
 
 /// Only `https:` URLs on YouTube's image hosts are downloaded.
+/// The URL is parsed the same way reqwest parses it, so the host checked is
+/// the host contacted.
 pub fn allowed(url: &str) -> bool {
-    let Some(rest) = url.strip_prefix("https://") else { return false };
-    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    if host.contains(['@', ':']) {
+    let Ok(url) = reqwest::Url::parse(url) else { return false };
+    if url.scheme() != "https" || url.port().is_some() || !url.username().is_empty() || url.password().is_some() {
         return false;
     }
+    // Lowercase and IDNA-normalized. An IP address never matches a host name.
+    let Some(host) = url.host_str() else { return false };
     HOSTS.iter().any(|h| host == *h || host.strip_suffix(h).is_some_and(|sub| sub.ends_with('.')))
 }
 
@@ -255,6 +258,9 @@ mod tests {
         assert!(!allowed("https://ytimg.com.evil.example/x.jpg"));
         assert!(!allowed("https://i.ytimg.com:8443/x.jpg"));
         assert!(!allowed("https://user@i.ytimg.com/x.jpg"));
+        // The url crate ends the host at a backslash, so this goes to evil.example.
+        assert!(!allowed("https://evil.example\\.ytimg.com/x.jpg"));
+        assert!(allowed("https://I.YTIMG.COM/x.jpg"), "hosts are compared in lowercase");
     }
 
     #[test]

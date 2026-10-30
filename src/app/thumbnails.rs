@@ -143,8 +143,16 @@ impl Thumbnails {
         };
     }
 
+    /// Lets the failed thumbnails load again, for example after a network error.
+    pub fn forget_failed(&mut self) {
+        self.entries.retain(|_, e| !matches!(e.state, State::Failed));
+    }
+
     /// Forgets the thumbnails that were not visible for the longest time.
-    /// A thumbnail that is loading stays, so that its reply has a place to go.
+    /// Two kinds always stay: the ones the last `want` asked for (they are on
+    /// screen or come next), and the ones that are loading, so that their
+    /// replies have a place to go. So the count can go above `MAX_ENTRIES`
+    /// for a while.
     fn evict(&mut self) {
         let over = self.entries.len().saturating_sub(MAX_ENTRIES);
         if over == 0 {
@@ -153,7 +161,7 @@ impl Thumbnails {
         let mut old: Vec<(u64, String)> = self
             .entries
             .iter()
-            .filter(|(_, e)| !matches!(e.state, State::Loading))
+            .filter(|(_, e)| e.used < self.clock && !matches!(e.state, State::Loading))
             .map(|(url, e)| (e.used, url.clone()))
             .collect();
         old.sort_unstable();
@@ -231,6 +239,42 @@ mod tests {
         assert_eq!(t.entries.len(), MAX_ENTRIES);
         assert_eq!(t.image(&items[0]), None);
         assert!(t.image(&items[MAX_ENTRIES + 9]).is_some());
+    }
+
+    #[test]
+    fn never_evicts_wanted_thumbnails() {
+        let mut t = Thumbnails::new(true);
+        let slot = t.slot();
+        let visible: Vec<Item> = (0..20).map(video).collect();
+        t.want(&visible);
+        for item in &visible {
+            t.loaded(t.url(item).unwrap(), slot, Ok(picture()));
+        }
+        // Many slow downloads for items that were scrolled past, then back
+        // to the first items. Their thumbnails may load once more.
+        let passed: Vec<Item> = (100..100 + MAX_ENTRIES).map(video).collect();
+        t.want(&passed);
+        for e in t.want(&visible) {
+            let Effect::LoadThumbnail { url, .. } = e else { panic!("{e:?}") };
+            t.loaded(&url, slot, Ok(picture()));
+        }
+        // The downloads are still pending, but the visible thumbnails stay
+        // and are not asked for again.
+        for _ in 0..3 {
+            assert!(t.want(&visible).is_empty(), "the visible thumbnails stay");
+        }
+        assert!(visible.iter().all(|i| t.image(i).is_some()));
+    }
+
+    #[test]
+    fn failed_thumbnails_load_again_after_forget_failed() {
+        let mut t = Thumbnails::new(true);
+        let items = [video(1)];
+        t.want(&items);
+        t.loaded(t.url(&items[0]).unwrap(), t.slot(), Err("timeout".into()));
+        assert!(t.want(&items).is_empty());
+        t.forget_failed();
+        assert_eq!(t.want(&items).len(), 1);
     }
 
     #[test]

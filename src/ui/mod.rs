@@ -289,7 +289,37 @@ mod tests {
         assert_eq!(buf[(2, first + 1)].symbol(), kitty::cell(1, 1).unwrap());
         let (r, g, b) = kitty::id_color(app.thumbnails.image(&app.search.results[0]).unwrap());
         assert_eq!(buf[(1, first)].fg, Color::Rgb(r, g, b));
-        assert!(!buf[(1, first)].modifier.contains(Modifier::REVERSED), "the highlight leaves images alone");
+
+        // Item 1 is selected. The highlight covers its text but not its image.
+        let selected = first + 3;
+        assert!(buf[(13, selected)].modifier.contains(Modifier::REVERSED), "the text is highlighted");
+        assert!(buf[(1, selected)].symbol().is_empty() || buf[(1, selected)].symbol() == " ");
+        app.update(Message::ThumbnailLoaded { url: urls[1].clone(), slot, result: Ok(Arc::new(picture.clone())) });
+        let buf = buffer(&app, 70, 20);
+        let (r, g, b) = kitty::id_color(app.thumbnails.image(&app.search.results[1]).unwrap());
+        for x in 1..=slot.cols {
+            let cell = &buf[(x, selected)];
+            assert!(cell.symbol().starts_with(kitty::PLACEHOLDER));
+            assert!(!cell.modifier.contains(Modifier::REVERSED), "the highlight leaves images alone");
+            assert_eq!(cell.fg, Color::Rgb(r, g, b));
+        }
+    }
+
+    #[test]
+    fn partial_items_get_no_picture() {
+        // The list has 11 rows: three whole items and two rows of a fourth.
+        let (mut app, effects) = search_app(16, true);
+        let slot = app.thumbnails.slot();
+        let rgba = vec![0; (slot.width * slot.height * 4) as usize];
+        let picture = Picture { width: slot.width, height: slot.height, cols: slot.cols, rows: slot.rows, rgba };
+        for e in effects {
+            if let Effect::LoadThumbnail { url, .. } = e {
+                app.update(Message::ThumbnailLoaded { url, slot, result: Ok(Arc::new(picture.clone())) });
+            }
+        }
+        let buf = buffer(&app, 70, 16);
+        let rows_with_pictures = (0..16).filter(|y| buf[(1, *y)].symbol().starts_with(kitty::PLACEHOLDER)).count();
+        assert_eq!(rows_with_pictures, 9);
     }
 
     #[test]

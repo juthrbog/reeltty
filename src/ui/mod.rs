@@ -9,7 +9,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style, Stylize as _};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph, Row, Table, Tabs, Wrap};
+use ratatui::widgets::{Block, Clear, Paragraph, Row, Table, Tabs};
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::app::{App, Tab};
@@ -43,15 +43,13 @@ fn draw_body(app: &App, f: &mut Frame, area: Rect) {
     if let Some(screen) = app.screens.last() {
         return screens::draw(app, screen, f, area);
     }
-    let text = match app.tab {
-        Tab::Search => return search::draw(app, f, area),
-        Tab::Subscriptions => return screens::draw_subscriptions(app, f, area),
-        Tab::Playlists => return screens::draw_saved(app, f, area),
-        Tab::Queue => return screens::draw_queue(app, f, area),
-        Tab::History => "No watch history yet.".to_string(),
-    };
-    let block = Block::bordered().title(app.tab.title());
-    f.render_widget(Paragraph::new(text).dim().block(block).wrap(Wrap { trim: true }), area);
+    match app.tab {
+        Tab::Search => search::draw(app, f, area),
+        Tab::Subscriptions => screens::draw_subscriptions(app, f, area),
+        Tab::Playlists => screens::draw_saved(app, f, area),
+        Tab::Queue => screens::draw_queue(app, f, area),
+        Tab::History => screens::draw_history(app, f, area),
+    }
 }
 
 fn draw_status(app: &App, f: &mut Frame, area: Rect) {
@@ -516,6 +514,9 @@ mod tests {
             expires_at: None,
             format: FormatInfo { width: Some(1280), height: Some(720), ..FormatInfo::default() },
             chapters: Vec::new(),
+            channel: None,
+            duration_secs: None,
+            live: false,
             qualities: Vec::new(),
             captions: Vec::new(),
         };
@@ -558,6 +559,9 @@ mod tests {
             expires_at: None,
             format: crate::source::streams::FormatInfo::default(),
             chapters: Vec::new(),
+            channel: None,
+            duration_secs: None,
+            live: false,
             qualities: Vec::new(),
             captions: Vec::new(),
         };
@@ -595,6 +599,9 @@ mod tests {
             expires_at: None,
             format: FormatInfo { width: Some(1280), height: Some(720), ..FormatInfo::default() },
             chapters: vec![Chapter { title: "Intro".into(), start_secs: 0 }],
+            channel: None,
+            duration_secs: None,
+            live: false,
             qualities: [360, 720].into_iter().map(|res| Quality { res, url: String::new() }).collect(),
             captions: vec![Caption { lang: "en".into(), name: "English".into(), url: String::new(), auto: false }],
         };
@@ -646,5 +653,26 @@ mod tests {
         app.update(Message::RelatedLoaded { session: 1, result: Ok(videos) });
         app.update(Message::Player { session: 1, event: PlayerEvent::Ended });
         insta::assert_snapshot!(render(&app, 60, 12));
+    }
+
+    #[test]
+    fn history_tab() {
+        use crate::store::HistoryEntry;
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        press(&mut app, "shift-tab");
+        insta::assert_snapshot!("history_tab_empty", render(&app, 60, 8));
+        let entry = |id: &str, position_secs, finished, duration_secs| HistoryEntry {
+            video_id: id.into(),
+            title: format!("Video {id}"),
+            channel_id: None,
+            channel_name: Some("Fireship".into()),
+            duration_secs,
+            position_secs,
+            finished,
+            watched_at: 1_793_373_867,
+        };
+        app.history =
+            vec![entry("a", 252, false, Some(635)), entry("b", 0, true, Some(100)), entry("c", 70, false, None)];
+        insta::assert_snapshot!("history_tab", render(&app, 60, 10));
     }
 }

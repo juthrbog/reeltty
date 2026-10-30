@@ -271,6 +271,9 @@ mod player {
             expires_at: None,
             format: FormatInfo::default(),
             chapters: Vec::new(),
+            channel: None,
+            duration_secs: None,
+            live: false,
             qualities: Vec::new(),
             captions: Vec::new(),
         }

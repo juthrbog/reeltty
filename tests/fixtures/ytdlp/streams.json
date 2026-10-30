@@ -257,5 +257,9 @@
         "name": "French"
       }
     ]
-  }
+  },
+  "channel": "3Blue1Brown",
+  "channel_id": "UCYO_jab_esuFRV4b17AJtAw",
+  "uploader_id": "@3blue1brown",
+  "is_live": false
 }

@@ -8,6 +8,7 @@ use ratatui::widgets::{Block, Paragraph, Wrap};
 
 use super::items::{self, truncate};
 use crate::app::list::{ItemList, Loading};
+use crate::app::player::clock;
 use crate::app::screens::{ChannelScreen, PlaylistScreen, Screen, VideoScreen};
 use crate::app::{App, SCREEN_HEADER_ROWS};
 use crate::source::model::{Description, Item, VideoDetails};
@@ -233,6 +234,51 @@ pub fn draw_subscriptions(app: &App, f: &mut Frame, area: Rect) {
     items::draw_rows(rows, app.subscriptions_selection, f, inner);
 }
 
+pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
+    let block = Block::bordered().title(format!("History ({})", app.history.len()));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    if app.history.is_empty() {
+        let text = "No watch history yet. Videos you play show here, and play again from where you stopped.";
+        f.render_widget(Paragraph::new(text).dim().wrap(Wrap { trim: true }), inner);
+        return;
+    }
+    let width = usize::from(inner.width).saturating_sub(2);
+    let rows = app
+        .history
+        .iter()
+        .map(|e| {
+            let mut parts: Vec<String> = e.channel_name.iter().cloned().collect();
+            parts.push(match (e.finished, e.duration_secs) {
+                (true, _) => "watched".to_string(),
+                (false, Some(d)) => format!("{} of {}", clock(e.position_secs), clock(d)),
+                (false, None) => format!("stopped at {}", clock(e.position_secs)),
+            });
+            parts.push(date(e.watched_at));
+            vec![
+                Line::from(e.title.clone()).bold(),
+                Line::from(format!("  {}", items::truncate(&parts.join(" · "), width))).dim(),
+            ]
+        })
+        .collect();
+    items::draw_rows(rows, app.history_selection, f, inner);
+}
+
+/// `2026-10-30` from Unix seconds, in UTC.
+fn date(unix: i64) -> String {
+    // Howard Hinnant's civil_from_days.
+    let z = unix.div_euclid(86_400) + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year}-{month:02}-{day:02}")
+}
+
 pub fn draw_queue(app: &App, f: &mut Frame, area: Rect) {
     let block = Block::bordered().title(format!("Queue ({})", app.queue.len()));
     let inner = block.inner(area);
@@ -306,5 +352,16 @@ mod tests {
     fn durations() {
         assert_eq!(duration(5), "0:05");
         assert_eq!(duration(3723), "1:02:03");
+    }
+}
+
+#[cfg(test)]
+mod date_tests {
+    #[test]
+    fn dates_from_unix_time() {
+        assert_eq!(super::date(0), "1970-01-01");
+        assert_eq!(super::date(951_782_400), "2000-02-29");
+        assert_eq!(super::date(1_793_373_867), "2026-10-30");
+        assert_eq!(super::date(-86_400), "1969-12-31");
     }
 }

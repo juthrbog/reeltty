@@ -166,11 +166,12 @@ pub enum Action {
     Channel,
     Toggle,
     Enqueue,
+    Delete,
     Help,
 }
 
 impl Action {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::Quit,
         Self::Up,
         Self::Down,
@@ -189,6 +190,7 @@ impl Action {
         Self::Channel,
         Self::Toggle,
         Self::Enqueue,
+        Self::Delete,
         Self::Help,
     ];
 
@@ -212,6 +214,7 @@ impl Action {
             Self::Channel => "go to the channel",
             Self::Toggle => "subscribe or save",
             Self::Enqueue => "add to the queue",
+            Self::Delete => "delete an entry",
             Self::Help => "show or hide help",
         }
     }
@@ -236,6 +239,7 @@ impl Action {
             Self::Channel => &["c"],
             Self::Toggle => &["s"],
             Self::Enqueue => &["a"],
+            Self::Delete => &["d"],
             Self::Help => &["?"],
         }
     }

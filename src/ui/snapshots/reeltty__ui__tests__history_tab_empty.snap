@@ -1,0 +1,12 @@
+---
+source: src/ui/mod.rs
+expression: "render(&app, 60, 8)"
+---
+ Search   Subscriptions   Playlists   Queue   History       
+┌History (0)───────────────────────────────────────────────┐
+│No watch history yet. Videos you play show here, and play │
+│again from where you stopped.                             │
+│                                                          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+                                  ? help  / search  q quit

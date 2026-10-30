@@ -56,6 +56,7 @@ fn run_tui(paths: &Paths) -> Result<()> {
     let store = Store::open(&paths.database)?;
     let subscriptions = store.subscriptions()?;
     let saved_playlists = store.saved_playlists()?;
+    let history = store.history()?;
 
     let ytdlp = YtDlp { program: config.yt_dlp_program() };
     let source: Arc<dyn Source> = match InnerTube::new() {
@@ -75,6 +76,7 @@ fn run_tui(paths: &Paths) -> Result<()> {
         app.captions_on = config.captions.on;
         app.autoplay = config.autoplay.0;
         app.saved_playlists = saved_playlists;
+        app.history = history;
         let thumbnails = (config.thumbnails.0 && app.graphics.is_available())
             .then(|| start_thumbnails(&paths.thumbnail_cache))
             .flatten();

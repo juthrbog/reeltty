@@ -15,8 +15,8 @@ expression: "render(&app, 100, 20)"
 │  │half a page up       ctrl-u, pgup             go to the channel    c                        │  │
 │  │half a page down     ctrl-d, pgdn             subscribe or save    s                        │  │
 │  │open                 enter, l                 add to the queue     a                        │  │
-│  │go back              esc, h                   show or hide help    ?                        │  │
-│  │search               /                                                                      │  │
+│  │go back              esc, h                   delete an entry      d                        │  │
+│  │search               /                        show or hide help    ?                        │  │
 │  └────────────────────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                                  │
 │                                                                                                  │

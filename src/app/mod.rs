@@ -274,8 +274,12 @@ pub struct App {
     pub queue_selection: Selection,
     /// When a video ends, play the next one from the queue or the related videos.
     pub autoplay: bool,
-    /// The videos played before the one that plays now, oldest first.
+    /// The videos played before the one that plays now, oldest first. It
+    /// lasts until the player closes.
     played: Vec<Video>,
+    /// The videos that "previous video" went back from, the latest last.
+    /// "Next video" plays them again before the queue.
+    forward: Vec<Video>,
     pub width: u16,
     pub height: u16,
     /// The pixel size of one cell, or 0 x 0 if the terminal does not say.
@@ -308,6 +312,7 @@ impl App {
             queue_selection: Selection::default(),
             autoplay: true,
             played: Vec::new(),
+            forward: Vec::new(),
             width: 80,
             height: 24,
             cell: (0, 0),
@@ -633,6 +638,13 @@ impl App {
                         let (id, title) = (s.id.clone(), s.title.clone());
                         return self.play(id, title);
                     }
+                    Action::Enqueue => {
+                        let video = match &s.details {
+                            Some(d) => player::details_video(d),
+                            None => player::plain_video(&s.id, &s.title),
+                        };
+                        self.toggle_queued(&video);
+                    }
                     _ => {}
                 }
                 Vec::new()
@@ -815,11 +827,7 @@ impl App {
         }
         let v = self.queue.get(self.queue_selection.index)?.clone();
         match action {
-            Action::Open => {
-                self.queue.remove(self.queue_selection.index);
-                self.queue_selection.clamp(self.queue.len(), rows);
-                Some(self.play(v.id, v.title))
-            }
+            Action::Open => Some(self.play(v.id, v.title)),
             Action::Enqueue => {
                 self.toggle_queued(&v);
                 Some(Vec::new())
@@ -1412,5 +1420,22 @@ mod tests {
         key(&mut a, "q");
         key(&mut a, "a");
         assert!(a.queue.is_empty());
+    }
+
+    #[test]
+    fn queue_keeps_a_video_that_cannot_play_and_details_can_queue() {
+        let mut a = App::new(KeyMap::default(), Graphics::Unavailable("tmux".into()));
+        a.queue = vec![match video("v1") {
+            Item::Video(v) => v,
+            _ => unreachable!(),
+        }];
+        a.tab = Tab::Queue;
+        assert!(key(&mut a, "enter").is_empty());
+        assert_eq!(a.queue.len(), 1);
+
+        let mut a = app();
+        a.open(Target::Video { id: "v9".into(), title: "Video v9".into() });
+        key(&mut a, "a");
+        assert_eq!(a.queue.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(), ["v9"]);
     }
 }

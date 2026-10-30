@@ -10,7 +10,7 @@
 
 use super::{App, Effect};
 use crate::keymap::{Action, KeyPress, PlayerAction};
-use crate::source::model::{Chapter, Video, VideoKind};
+use crate::source::model::{Chapter, Video, VideoDetails, VideoKind};
 use crate::source::streams::{Caption, Quality, Streams, pick_caption, rung};
 use crate::terminal::kitty::MAX_CELLS;
 
@@ -29,6 +29,8 @@ const VOLUME_STEP: i8 = 2;
 pub const AUTOPLAY_SECS: u8 = 5;
 /// The most videos in the up next list.
 const UP_NEXT_MAX: usize = 10;
+/// The most videos that "previous video" can go back.
+const PLAYED_MAX: usize = 50;
 /// Going to the previous chapter in the first seconds of a chapter goes to
 /// the one before it, as in mpv.
 const CHAPTER_GRACE_MS: u64 = 2000;
@@ -324,11 +326,19 @@ impl App {
         if let Some(p) = &self.player {
             if remember {
                 self.played.push(plain_video(&p.id, &p.title));
+                if self.played.len() > PLAYED_MAX {
+                    self.played.remove(0);
+                }
             }
             effects.push(Effect::Player(PlayerCommand::Stop));
+        } else {
+            // A new run of the player: the history of the last one does not count.
+            self.played.clear();
+            self.forward.clear();
         }
         // A video in the queue that plays now leaves the queue, however it started.
         self.queue.retain(|v| v.id != id);
+        self.forward.retain(|v| v.id != id);
         self.queue_selection.clamp(self.queue.len(), self.plain_rows());
         self.session += 1;
         let geometry = Geometry::fit(self.width, self.height, self.cell, DEFAULT_ASPECT);
@@ -372,16 +382,25 @@ impl App {
             Ok(related) => p.related = related,
             Err(e) => tracing::debug!("no related videos: {e}"),
         }
+        // They came after the end: fill in the up next list.
+        if p.phase == Phase::Ended {
+            return self.show_up_next(session);
+        }
         Vec::new()
     }
 
-    /// The videos that can play next: the queue, then related videos that
-    /// did not play yet. Live streams never play by themselves.
+    /// The videos that can play next: the ones that "previous video" went
+    /// back from, the queue, then related videos that did not play yet. Live
+    /// streams never play by themselves.
     fn next_videos(&self, p: &PlayerState) -> Vec<Video> {
-        let seen = |id: &str| id == p.id || self.played.iter().any(|v| v.id == id);
-        let queued = |id: &str| self.queue.iter().any(|v| v.id == id);
-        let related = p.related.iter().filter(|v| v.kind != VideoKind::Live && !seen(&v.id) && !queued(&v.id));
-        self.queue.iter().chain(related).take(UP_NEXT_MAX).cloned().collect()
+        let listed = |id: &str| {
+            id == p.id
+                || self.played.iter().any(|v| v.id == id)
+                || self.forward.iter().any(|v| v.id == id)
+                || self.queue.iter().any(|v| v.id == id)
+        };
+        let related = p.related.iter().filter(|v| v.kind != VideoKind::Live && !listed(&v.id));
+        self.forward.iter().rev().chain(&self.queue).chain(related).take(UP_NEXT_MAX).cloned().collect()
     }
 
     /// Plays a video from the up next list.
@@ -390,16 +409,27 @@ impl App {
     }
 
     fn on_ended(&mut self, session: u64) -> Vec<Effect> {
-        let Some(p) = self.player.as_ref().filter(|p| p.session == session && p.is_running()) else {
-            return Vec::new();
-        };
-        let videos = self.next_videos(p);
-        let countdown = (self.autoplay && !videos.is_empty()).then_some(AUTOPLAY_SECS);
-        let Some(p) = self.player_of(session) else { return Vec::new() };
+        let Some(p) = self.player_of(session).filter(|p| p.is_running()) else { return Vec::new() };
         p.set_phase(Phase::Ended);
+        self.show_up_next(session)
+    }
+
+    /// Fills in the up next list after the end, and starts the countdown if
+    /// it is new. A list that is there already keeps its selection.
+    fn show_up_next(&mut self, session: u64) -> Vec<Effect> {
+        let Some(p) = self.player.as_ref().filter(|p| p.session == session) else { return Vec::new() };
+        let videos = self.next_videos(p);
+        let autoplay = self.autoplay;
+        let Some(p) = self.player_of(session) else { return Vec::new() };
         if videos.is_empty() {
             return Vec::new();
         }
+        if let Some(up) = &mut p.up_next {
+            up.selection = up.selection.min(videos.len() - 1);
+            up.videos = videos;
+            return Vec::new();
+        }
+        let countdown = autoplay.then_some(AUTOPLAY_SECS);
         p.up_next = Some(UpNext { videos, selection: 0, countdown });
         match countdown {
             Some(count) => vec![Effect::Ticks { session, count }],
@@ -566,7 +596,9 @@ impl App {
             self.player = None;
             return vec![Effect::Player(PlayerCommand::Stop)];
         }
-        if self.player.as_ref().is_some_and(|p| p.phase == Phase::Ended && p.up_next.is_some()) {
+        if action != Some(PlayerAction::PrevVideo)
+            && self.player.as_ref().is_some_and(|p| p.phase == Phase::Ended && p.up_next.is_some())
+        {
             return self.on_up_next_key(key, action);
         }
         match action {
@@ -583,9 +615,10 @@ impl App {
                     self.status = Some("No video played before this one.".into());
                     return Vec::new();
                 };
-                // The video that plays now comes next again.
+                // The video that plays now comes next again, before the queue.
                 if let Some(p) = &self.player {
-                    self.queue.insert(0, plain_video(&p.id, &p.title));
+                    let current = plain_video(&p.id, &p.title);
+                    self.forward.push(current);
                 }
                 return self.play_video(prev.id, prev.title, false);
             }
@@ -688,8 +721,22 @@ impl App {
     }
 }
 
+/// The video of a details page, for the queue.
+pub(super) fn details_video(d: &VideoDetails) -> Video {
+    let mut v = plain_video(&d.id, &d.title);
+    v.channels.extend(d.channel.clone());
+    v.duration_secs = d.duration_secs;
+    v.duration_text = d.duration_secs.map(|s| format!("{}:{:02}", s / 60, s % 60));
+    v.views_text.clone_from(&d.views_text);
+    v.thumbnails.clone_from(&d.thumbnails);
+    if d.live {
+        v.kind = VideoKind::Live;
+    }
+    v
+}
+
 /// A video known only by its ID and title.
-fn plain_video(id: &str, title: &str) -> Video {
+pub(super) fn plain_video(id: &str, title: &str) -> Video {
     Video {
         id: id.into(),
         title: title.into(),
@@ -1181,9 +1228,9 @@ mod tests {
         assert!(a.status.as_deref().unwrap().starts_with("Nothing to play next"));
         a.update(Message::RelatedLoaded { session: 1, result: Ok(related(&["r1"])) });
         assert!(resolves(&key(&mut a, ">"), "r1"));
-        // Back to v1. r1 goes to the front of the queue, so > comes back to it.
+        // Back to v1. r1 comes next again, and the user's queue stays as it was.
         assert!(resolves(&key(&mut a, "<"), "v1"));
-        assert_eq!(a.queue.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(), ["r1"]);
+        assert!(a.queue.is_empty());
         assert!(key(&mut a, "<").is_empty());
         assert_eq!(a.status.as_deref(), Some("No video played before this one."));
         assert!(resolves(&key(&mut a, ">"), "r1"));
@@ -1203,5 +1250,42 @@ mod tests {
         a.update(Message::RelatedLoaded { session: 0, result: Ok(related(&["r1"])) });
         event(&mut a, PlayerEvent::FileLoaded);
         assert!(event(&mut a, PlayerEvent::Ended).is_empty());
+    }
+
+    #[test]
+    fn the_history_lasts_until_the_player_closes() {
+        let mut a = playing(false);
+        a.update(Message::RelatedLoaded { session: 1, result: Ok(related(&["r1"])) });
+        key(&mut a, ">");
+        key(&mut a, "q");
+        a.play("x".into(), "Video x".into());
+        assert!(key(&mut a, "<").is_empty());
+        assert_eq!(a.status.as_deref(), Some("No video played before this one."));
+    }
+
+    #[test]
+    fn previous_works_in_up_next() {
+        let mut a = playing(false);
+        a.update(Message::RelatedLoaded { session: 1, result: Ok(related(&["r1", "r2"])) });
+        key(&mut a, ">");
+        let session = a.player.as_ref().unwrap().session;
+        a.update(Message::RelatedLoaded { session, result: Ok(related(&["r2"])) });
+        a.update(Message::StreamsResolved { session, now: 0, result: Ok(streams(None)) });
+        a.update(Message::Player { session, event: PlayerEvent::FileLoaded });
+        a.update(Message::Player { session, event: PlayerEvent::Ended });
+        assert!(a.player.as_ref().unwrap().up_next.is_some());
+        assert!(resolves(&key(&mut a, "<"), "v1"));
+        // r1 comes first in the up next list of v1, before the related videos.
+        assert!(resolves(&key(&mut a, ">"), "r1"));
+    }
+
+    #[test]
+    fn related_videos_after_the_end_make_the_up_next_list() {
+        let mut a = playing(false);
+        event(&mut a, PlayerEvent::FileLoaded);
+        assert!(event(&mut a, PlayerEvent::Ended).is_empty());
+        let effects = a.update(Message::RelatedLoaded { session: 1, result: Ok(related(&["r1"])) });
+        assert_eq!(effects, [Effect::Ticks { session: 1, count: AUTOPLAY_SECS }]);
+        assert_eq!(up_next_ids(&a), ["r1"]);
     }
 }

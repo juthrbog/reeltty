@@ -332,9 +332,10 @@ mod player {
         player.command(&PlayerCommand::TogglePause);
         wait_for(&rx, |e| *e == PlayerEvent::Paused(true));
         screen.wait_for("s=64,v=36");
-        // The terminal is slow: two frames wait, so the last size is dropped.
+        // The terminal is slow and reads nothing. After the first frame and
+        // one resize, at least two frames wait, so the next size is dropped.
         player.command(&PlayerCommand::Resize(geometry(48, 26)));
-        screen.wait_for("s=48,v=26");
+        std::thread::sleep(Duration::from_millis(300));
         player.command(&PlayerCommand::Resize(geometry(32, 18)));
         std::thread::sleep(Duration::from_millis(300));
         assert!(!screen.text().contains("s=32,v=18"));

@@ -13,7 +13,7 @@ pub mod ytdlp;
 use futures::future::BoxFuture;
 
 pub use filters::SearchQuery;
-pub use model::SearchPage;
+pub use model::{ChannelPage, ItemPage, PlaylistPage, SearchPage, VideoDetails};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
@@ -40,6 +40,30 @@ pub trait Source: Send + Sync {
 
     /// The page after the one that returned `continuation`.
     fn search_more<'a>(&'a self, continuation: &'a str) -> BoxFuture<'a, Result<SearchPage>>;
+
+    /// A channel and the first page of its videos. `id` is `UC...`.
+    fn channel<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<ChannelPage>> {
+        let _ = id;
+        Box::pin(async { Err(SourceError::Unsupported(format!("{} cannot open channels", self.name()))) })
+    }
+
+    /// A playlist and its first page of videos. `id` is `PL...`, without `VL`.
+    fn playlist<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<PlaylistPage>> {
+        let _ = id;
+        Box::pin(async { Err(SourceError::Unsupported(format!("{} cannot open playlists", self.name()))) })
+    }
+
+    /// The next page of a channel's videos or of a playlist.
+    fn browse_more<'a>(&'a self, continuation: &'a str) -> BoxFuture<'a, Result<ItemPage>> {
+        let _ = continuation;
+        Box::pin(async { Err(SourceError::Unsupported(format!("{} cannot load more", self.name()))) })
+    }
+
+    /// The details of one video.
+    fn video<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<VideoDetails>> {
+        let _ = id;
+        Box::pin(async { Err(SourceError::Unsupported(format!("{} cannot show video details", self.name()))) })
+    }
 }
 
 /// Uses `primary`. If it fails, uses `secondary` and says so in `SearchPage::note`.
@@ -84,12 +108,51 @@ impl<A: Source, B: Source> Source for Fallback<A, B> {
         // the fallback gives none.
         self.primary.search_more(continuation)
     }
+
+    fn channel<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<ChannelPage>> {
+        Box::pin(self.either("channel", move |s| s.channel(id)))
+    }
+
+    fn playlist<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<PlaylistPage>> {
+        Box::pin(self.either("playlist", move |s| s.playlist(id)))
+    }
+
+    fn browse_more<'a>(&'a self, continuation: &'a str) -> BoxFuture<'a, Result<ItemPage>> {
+        // As with search, only the primary source gives continuation tokens.
+        self.primary.browse_more(continuation)
+    }
+
+    fn video<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<VideoDetails>> {
+        Box::pin(self.either("video", move |s| s.video(id)))
+    }
+}
+
+impl<A: Source, B: Source> Fallback<A, B> {
+    /// Runs `call` on the primary source, and on the secondary if that fails.
+    /// `what` names the call in the log.
+    async fn either<'a, T>(
+        &'a self,
+        what: &str,
+        call: impl Fn(&'a dyn Source) -> BoxFuture<'a, Result<T>>,
+    ) -> Result<T> {
+        match call(&self.primary).await {
+            Ok(value) => Ok(value),
+            Err(first) => {
+                tracing::warn!("{} {what} failed: {first}", self.primary.name());
+                call(&self.secondary).await.map_err(|second| {
+                    tracing::warn!("{} {what} failed: {second}", self.secondary.name());
+                    SourceError::Program(format!("{} failed: {first}. {second}", self.primary.name()))
+                })
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::source::filters::SearchFilters;
+    use crate::source::model::{ChannelInfo, Description, PlaylistInfo};
 
     struct Fixed(&'static str, bool, Option<&'static str>);
 
@@ -108,6 +171,60 @@ mod tests {
         }
         fn search_more<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<SearchPage>> {
             Box::pin(async { Err(SourceError::Unsupported("no".into())) })
+        }
+        fn channel<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<ChannelPage>> {
+            let info = ChannelInfo {
+                id: id.into(),
+                name: self.0.into(),
+                handle: None,
+                subscribers_text: None,
+                videos_text: None,
+                description: None,
+                verified: false,
+                avatar: Vec::new(),
+            };
+            self.answer(ChannelPage { info, videos: ItemPage::default() })
+        }
+        fn playlist<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<PlaylistPage>> {
+            let info = PlaylistInfo {
+                id: id.into(),
+                title: self.0.into(),
+                channel: None,
+                videos_text: None,
+                views_text: None,
+                updated_text: None,
+                description: None,
+                thumbnails: Vec::new(),
+            };
+            self.answer(PlaylistPage { info, videos: ItemPage::default() })
+        }
+        fn browse_more<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<ItemPage>> {
+            self.answer(ItemPage { items: Vec::new(), continuation: Some(self.0.into()) })
+        }
+        fn video<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<VideoDetails>> {
+            self.answer(VideoDetails {
+                id: id.into(),
+                title: self.0.into(),
+                channel: None,
+                subscribers_text: None,
+                views_text: None,
+                date_text: None,
+                publish_date: None,
+                duration_secs: None,
+                likes_text: None,
+                live: false,
+                description: Description::default(),
+                chapters: Vec::new(),
+                thumbnails: Vec::new(),
+            })
+        }
+    }
+
+    impl Fixed {
+        /// `value` if this source works, else a network error.
+        fn answer<T: Send + 'static>(&self, value: T) -> BoxFuture<'static, Result<T>> {
+            let works = self.1;
+            Box::pin(async move { if works { Ok(value) } else { Err(SourceError::Network("down".into())) } })
         }
     }
 
@@ -137,5 +254,38 @@ mod tests {
         let f = Fallback { primary: Fixed("a", false, None), secondary: Fixed("b", false, None) };
         let err = f.search(&query()).await.unwrap_err();
         assert_eq!(err.to_string(), "a failed: network: down. network: down");
+    }
+
+    fn pair(a: bool, b: bool) -> Fallback<Fixed, Fixed> {
+        Fallback { primary: Fixed("a", a, None), secondary: Fixed("b", b, None) }
+    }
+
+    #[tokio::test]
+    async fn channel_playlist_and_video_fall_back() {
+        for (a, b, from) in [(true, true, "a"), (true, false, "a"), (false, true, "b")] {
+            let f = pair(a, b);
+            let channel = f.channel("UCx").await.unwrap();
+            assert_eq!((channel.info.id.as_str(), channel.info.name.as_str()), ("UCx", from));
+            let playlist = f.playlist("PLx").await.unwrap();
+            assert_eq!((playlist.info.id.as_str(), playlist.info.title.as_str()), ("PLx", from));
+            let video = f.video("v").await.unwrap();
+            assert_eq!((video.id.as_str(), video.title.as_str()), ("v", from));
+        }
+    }
+
+    #[tokio::test]
+    async fn channel_playlist_and_video_fail_when_both_fail() {
+        let f = pair(false, false);
+        let want = "a failed: network: down. network: down";
+        assert_eq!(f.channel("UCx").await.unwrap_err().to_string(), want);
+        assert_eq!(f.playlist("PLx").await.unwrap_err().to_string(), want);
+        assert_eq!(f.video("v").await.unwrap_err().to_string(), want);
+    }
+
+    #[tokio::test]
+    async fn browse_more_uses_only_the_primary() {
+        let page = pair(true, true).browse_more("t").await.unwrap();
+        assert_eq!(page.continuation.as_deref(), Some("a"));
+        assert!(matches!(pair(false, true).browse_more("t").await, Err(SourceError::Network(_))));
     }
 }

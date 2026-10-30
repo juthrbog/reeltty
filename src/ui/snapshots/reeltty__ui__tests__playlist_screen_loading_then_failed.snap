@@ -1,0 +1,21 @@
+---
+source: src/ui/mod.rs
+assertion_line: 316
+expression: "format!(\"{loading}{}\", render(&app, 70, 8))"
+---
+ Search   Subscriptions   Playlists   History                         
+┌Playlist: Crust of Rust─────────────────────────────────────────────┐
+│                                                                    │
+│                                                                    │
+│Loading...                                                          │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+Loading...                        ? help  / search  esc back  q quit  
+ Search   Subscriptions   Playlists   History                         
+┌Playlist: Crust of Rust─────────────────────────────────────────────┐
+│                                                                    │
+│                                                                    │
+│Could not load: HTTP 404: Not Found                                 │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+Could not load: HTTP 404: Not Found

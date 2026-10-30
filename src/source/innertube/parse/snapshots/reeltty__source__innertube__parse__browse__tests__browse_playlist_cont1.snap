@@ -1,0 +1,7 @@
+---
+source: src/source/innertube/parse/browse.rs
+assertion_line: 351
+expression: continuation_summary(&continuation(&load(name)).unwrap())
+---
+continuation: no
+items: 0

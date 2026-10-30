@@ -1,5 +1,7 @@
 //! Draws the `App` state. Pure: the same state always gives the same frame.
 
+mod items;
+mod screens;
 mod search;
 
 use ratatui::Frame;
@@ -34,10 +36,13 @@ fn draw_tabs(app: &App, f: &mut Frame, area: Rect) {
 }
 
 fn draw_body(app: &App, f: &mut Frame, area: Rect) {
+    if let Some(screen) = app.screens.last() {
+        return screens::draw(app, screen, f, area);
+    }
     let text = match app.tab {
         Tab::Search => return search::draw(app, f, area),
-        Tab::Subscriptions => "No subscriptions yet.".to_string(),
-        Tab::Playlists => "No saved playlists yet.".to_string(),
+        Tab::Subscriptions => return screens::draw_subscriptions(app, f, area),
+        Tab::Playlists => return screens::draw_saved(app, f, area),
         Tab::History => "No watch history yet.".to_string(),
     };
     let block = Block::bordered().title(app.tab.title());
@@ -49,7 +54,9 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect) {
         app.keymap.first_key(a).map(|k| vec![Span::from(k.to_string()).bold(), Span::from(format!(" {label}  "))])
     };
     let mut wanted = vec![(Action::Help, "help"), (Action::Search, "search")];
-    if app.tab == Tab::Search {
+    if !app.screens.is_empty() {
+        wanted.push((Action::Back, "back"));
+    } else if app.tab == Tab::Search {
         wanted.push((Action::Filters, "filters"));
     }
     wanted.push((Action::Quit, "quit"));
@@ -59,7 +66,10 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect) {
         .status
         .clone()
         .map(|m| (m, false))
-        .or_else(|| (app.tab == Tab::Search).then(|| search::status(&app.search)).flatten())
+        .or_else(|| match app.screens.last() {
+            Some(screen) => screens::status(screen),
+            None => (app.tab == Tab::Search).then(|| search::status(&app.search)).flatten(),
+        })
         .or_else(|| app.graphics.message().map(|m| (m, false)));
     // A message that does not fit next to the hints gets the whole bar.
     let hints_width = u16::try_from(hints.width()).unwrap_or(u16::MAX);
@@ -87,11 +97,22 @@ fn draw_help(app: &App, f: &mut Frame, area: Rect) {
             Row::new([action.description().to_string(), keys])
         })
         .collect();
-    let height = u16::try_from(rows.len()).unwrap_or(u16::MAX).saturating_add(2);
-    let popup = centered(area, 48, height);
-    let table = Table::new(rows, [Constraint::Length(20), Constraint::Min(0)]).block(Block::bordered().title("Keys"));
+    // Two columns when one does not fit.
+    let columns = if rows.len() + 2 > usize::from(area.height) { 2 } else { 1 };
+    let per_column = rows.len().div_ceil(columns);
+    let height = u16::try_from(per_column).unwrap_or(u16::MAX).saturating_add(2);
+    let width = 46 * u16::try_from(columns).unwrap_or(1) + 2;
+    let popup = centered(area, width, height);
+    let block = Block::bordered().title("Keys");
+    let inner = block.inner(popup);
     f.render_widget(Clear, popup);
-    f.render_widget(table, popup);
+    f.render_widget(block, popup);
+    let areas = Layout::horizontal(vec![Constraint::Ratio(1, 2); columns]).split(inner);
+    let mut rows = rows.into_iter();
+    for column in areas.iter() {
+        let chunk: Vec<Row> = rows.by_ref().take(per_column).collect();
+        f.render_widget(Table::new(chunk, [Constraint::Length(20), Constraint::Min(0)]), *column);
+    }
 }
 
 pub(crate) fn centered(area: Rect, width: u16, height: u16) -> Rect {
@@ -103,9 +124,14 @@ pub(crate) fn centered(area: Rect, width: u16, height: u16) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::screens::Target;
     use crate::app::{Input, Message};
     use crate::keymap::{KeyCode, KeyMap, KeyPress};
-    use crate::source::model::{Channel, ChannelRef, Item, Playlist, PlaylistKind, SearchPage, Video, VideoKind};
+    use crate::source::model::{
+        Channel, ChannelInfo, ChannelPage, ChannelRef, Chapter, Description, Item, ItemPage, Link, LinkTarget,
+        Playlist, PlaylistKind, SearchPage, Video, VideoDetails, VideoKind,
+    };
+    use crate::store::Subscription;
     use crate::terminal::detect::Graphics;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -145,7 +171,7 @@ mod tests {
     fn help_overlay() {
         let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
         press(&mut app, "?");
-        insta::assert_snapshot!(render(&app, 60, 20));
+        insta::assert_snapshot!(render(&app, 100, 20));
     }
 
     fn sample_results() -> Vec<Item> {
@@ -250,6 +276,116 @@ mod tests {
         let generation = app.search.generation;
         app.update(Message::SearchResult { generation, append: false, result: Err("network: timed out".into()) });
         insta::assert_snapshot!(render(&app, 70, 8));
+    }
+
+    fn channel_info() -> ChannelInfo {
+        ChannelInfo {
+            id: "UCjon".into(),
+            name: "Jon Gjengset".into(),
+            handle: Some("@jonhoo".into()),
+            subscribers_text: Some("111K subscribers".into()),
+            videos_text: Some("120 videos".into()),
+            description: Some("\nRust streams and videos.\nMore text.".into()),
+            verified: true,
+            avatar: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn channel_screen() {
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.update(Message::Input(Input::Resize { width: 70, height: 12 }));
+        app.open(Target::Channel { id: "UCjon".into(), name: "Jon".into() });
+        app.subscriptions.push(Subscription {
+            channel_id: "UCjon".into(),
+            name: "Jon".into(),
+            handle: None,
+            subscribed_at: 0,
+        });
+        let videos = ItemPage { items: sample_results().into_iter().take(2).collect(), continuation: Some("t".into()) };
+        app.update(Message::ChannelLoaded { request: 1, result: Ok(ChannelPage { info: channel_info(), videos }) });
+        insta::assert_snapshot!(render(&app, 70, 12));
+    }
+
+    #[test]
+    fn playlist_screen_loading_then_failed() {
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.open(Target::Playlist { id: "PLx".into(), title: "Crust of Rust".into() });
+        let loading = render(&app, 70, 8);
+        app.update(Message::PlaylistLoaded { request: 1, result: Err("HTTP 404: Not Found".into()) });
+        insta::assert_snapshot!(format!("{loading}{}", render(&app, 70, 8)));
+    }
+
+    #[test]
+    fn video_details_screen() {
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.open(Target::Video { id: "aircAruvnKk".into(), title: "But what is a neural network?".into() });
+        let text = "Learn more: 3b1b.co/nn\n0:00 Intro\nThanks!".to_string();
+        let details = VideoDetails {
+            id: "aircAruvnKk".into(),
+            title: "But what is a neural network?".into(),
+            channel: Some(ChannelRef { id: Some("UCYO".into()), name: "3Blue1Brown".into(), handle: None }),
+            subscribers_text: Some("8.73M subscribers".into()),
+            views_text: Some("25,037,755 views".into()),
+            date_text: Some("Oct 5, 2017".into()),
+            publish_date: None,
+            duration_secs: Some(1112),
+            likes_text: Some("568K".into()),
+            live: false,
+            description: Description {
+                text,
+                links: vec![
+                    Link { start: 12, len: 10, target: LinkTarget::Url("https://3b1b.co/nn".into()) },
+                    Link {
+                        start: 23,
+                        len: 4,
+                        target: LinkTarget::Video { id: "aircAruvnKk".into(), start_secs: Some(0) },
+                    },
+                ],
+            },
+            chapters: vec![
+                Chapter { title: "Introduction".into(), start_secs: 0 },
+                Chapter { title: "Series preview".into(), start_secs: 67 },
+            ],
+            thumbnails: Vec::new(),
+        };
+        app.update(Message::VideoLoaded { request: 1, result: Ok(details) });
+        insta::assert_snapshot!(render(&app, 70, 18));
+
+        // At 10 rows the text is taller than the screen. G goes to the end,
+        // and j cannot go past it.
+        render(&app, 70, 10);
+        press(&mut app, "G");
+        press(&mut app, "j");
+        let Some(crate::app::screens::Screen::Video(s)) = app.screens.last() else { panic!("no video screen") };
+        let max = s.max_scroll.get();
+        assert!(max > 0 && max < 20, "max {max}");
+        assert_eq!(s.scroll, max);
+        press(&mut app, "k");
+        let Some(crate::app::screens::Screen::Video(s)) = app.screens.last() else { panic!("no video screen") };
+        assert_eq!(s.scroll, max - 1);
+    }
+
+    #[test]
+    fn subscriptions_tab() {
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.subscriptions = vec![
+            Subscription {
+                channel_id: "UC1".into(),
+                name: "3Blue1Brown".into(),
+                handle: Some("@3blue1brown".into()),
+                subscribed_at: 0,
+            },
+            Subscription {
+                channel_id: "UC2".into(),
+                name: "Jon Gjengset".into(),
+                handle: Some("@jonhoo".into()),
+                subscribed_at: 0,
+            },
+        ];
+        press(&mut app, "tab");
+        press(&mut app, "j");
+        insta::assert_snapshot!(render(&app, 70, 10));
     }
 
     #[test]

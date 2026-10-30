@@ -4,12 +4,14 @@
 //! and logged at debug level. Only a page with no result list at all is an
 //! error.
 
+mod browse;
 mod renderers;
 mod text;
+mod video;
 
 use serde_json::Value;
 
-use crate::source::model::{Item, SearchPage, Spelling};
+use crate::source::model::{ChannelPage, Item, ItemPage, PlaylistPage, SearchPage, Spelling, VideoDetails};
 use crate::source::{Result, SourceError};
 use text::{array, continuation_token, str_at, text_at};
 
@@ -134,6 +136,26 @@ fn dispatch(key: &str, value: &Value) -> Option<Vec<Item>> {
 
 fn keys(v: &Value) -> Vec<&str> {
     v.as_object().map(|o| o.keys().map(String::as_str).collect()).unwrap_or_default()
+}
+
+/// A channel `browse` response for the Videos tab.
+pub fn channel_page(response: &Value) -> Result<ChannelPage> {
+    browse::channel_page(response)
+}
+
+/// A playlist `browse` response (`VL...`).
+pub fn playlist_page(response: &Value) -> Result<PlaylistPage> {
+    browse::playlist_page(response)
+}
+
+/// A `browse` continuation response, for a channel grid or a playlist.
+pub fn browse_continuation(response: &Value) -> Result<ItemPage> {
+    browse::continuation(response)
+}
+
+/// The `next` response, and the `player` response if it was read, for one video.
+pub fn video_details(next: &Value, player: Option<&Value>) -> Result<VideoDetails> {
+    video::details(next, player)
 }
 
 #[cfg(test)]
@@ -521,7 +543,8 @@ mod tests {
             {"metadataBadgeRenderer": {"label": "8 products"}},
             {"metadataBadgeRenderer": {"label": "1 product"}},
             {"metadataBadgeRenderer": {"label": "4K"}},
-            {"metadataBadgeRenderer": {"label": "Top 10 products"}}
+            {"metadataBadgeRenderer": {"label": "Top 10 products"}},
+            {"metadataBadgeRenderer": {"label": "Fundraiser"}}
         ]}}));
         assert_eq!(v.badges, ["4K", "Top 10 products"]);
     }

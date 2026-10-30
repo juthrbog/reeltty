@@ -1,0 +1,67 @@
+---
+source: src/source/innertube/parse/video.rs
+assertion_line: 281
+expression: summary(&d)
+---
+id: aircAruvnKk
+title: But what is a neural network? | Deep learning chapter 1
+channel: Some(ChannelRef { id: Some("UCYO_jab_esuFRV4b17AJtAw"), name: "3Blue1Brown", handle: Some("@3blue1brown") })
+subscribers: 8.73M subscribers
+views: 25,037,755 views
+date: Oct 5, 2017
+publish date: 2017-10-05T08:11:25-07:00
+duration: Some(1120)
+likes: 568K
+live: false
+description: 3301 chars
+"What are the neurons, why are there layers, and what is the math underlying it?\nHelp fund future projects: \u{a0}\u{a0}/\u{a0}3blue1brown\u{a0}\u{a0}\nWritten/interactive form of this series: https://www.3blue1brown.com/topics"
+links: 30
+  107+17 "\u{a0}\u{a0}/\u{a0}3blue1brown\u{a0}\u{a0}" -> Url("https://www.patreon.com/3blue1brown")
+  166+40 "https://www.3blue1brown.com/topics/ne..." -> Url("https://www.3blue1brown.com/topics/neural-networks")
+  410+21 "https://goo.gl/Zmczdy" -> Url("https://goo.gl/Zmczdy")
+  792+40 "https://github.com/mnielsen/neural-ne..." -> Url("https://github.com/mnielsen/neural-networks-and-deep-learning")
+  877+23 "http://colah.github.io/" -> Url("http://colah.github.io/")
+  979+45 "\u{a0}\u{a0}\u{a0}•\u{a0}Learning\u{a0}To\u{a0}See\u{a0}[Part\u{a0}1:\u{a0}Introduction]\u{a0}\u{a0}" -> Video { id: "i8D90DkCLhI", start_secs: Some(0) }
+  1025+52 "\u{a0}\u{a0}\u{a0}•\u{a0}Neural\u{a0}Networks\u{a0}Demystified\u{a0}[Part\u{a0}1:\u{a0}Data\u{a0}...\u{a0}\u{a0}" -> Video { id: "bxe2T-V8XRs", start_secs: Some(0) }
+  1256+20 "https://distill.pub/" -> Url("https://distill.pub/")
+  1542+4 "0:00" -> Video { id: "aircAruvnKk", start_secs: Some(0) }
+  1570+4 "1:07" -> Video { id: "aircAruvnKk", start_secs: Some(67) }
+  1592+4 "2:42" -> Video { id: "aircAruvnKk", start_secs: Some(162) }
+  1617+4 "3:35" -> Video { id: "aircAruvnKk", start_secs: Some(215) }
+  1643+4 "5:31" -> Video { id: "aircAruvnKk", start_secs: Some(331) }
+  1662+4 "8:38" -> Video { id: "aircAruvnKk", start_secs: Some(518) }
+  1692+5 "11:34" -> Video { id: "aircAruvnKk", start_secs: Some(694) }
+  1728+5 "12:30" -> Video { id: "aircAruvnKk", start_secs: Some(750) }
+  1757+5 "13:26" -> Video { id: "aircAruvnKk", start_secs: Some(806) }
+  1793+5 "15:17" -> Video { id: "aircAruvnKk", start_secs: Some(917) }
+  1807+5 "16:27" -> Video { id: "aircAruvnKk", start_secs: Some(987) }
+  1832+5 "17:03" -> Video { id: "aircAruvnKk", start_secs: Some(1023) }
+  1868+5 "14:45" -> Video { id: "aircAruvnKk", start_secs: Some(885) }
+  2021+29 "https://github.com/3b1b/manim" -> Url("https://github.com/3b1b/manim")
+  2319+40 "https://vincerubinetti.bandcamp.com/a..." -> Url("https://vincerubinetti.bandcamp.com/album/the-music-of-3blue1brown")
+  2390+40 "https://open.spotify.com/album/1dVyjw..." -> Url("https://open.spotify.com/album/1dVyjwS8FBqXhRunaG5W5u")
+  3100+26 "http://3b1b.co/recommended" -> Url("http://3b1b.co/recommended")
+  3166+27 "https://www.3blue1brown.com" -> Url("https://www.3blue1brown.com/")
+  3203+17 "\u{a0}\u{a0}/\u{a0}3blue1brown\u{a0}\u{a0}" -> Url("https://twitter.com/3Blue1Brown")
+  3230+17 "\u{a0}\u{a0}/\u{a0}3blue1brown\u{a0}\u{a0}" -> Url("https://patreon.com/3blue1brown")
+  3258+17 "\u{a0}\u{a0}/\u{a0}3blue1brown\u{a0}\u{a0}" -> Url("https://www.facebook.com/3blue1brown")
+  3284+17 "\u{a0}\u{a0}/\u{a0}3blue1brown\u{a0}\u{a0}" -> Url("https://www.reddit.com/r/3Blue1Brown")
+chapters: 12
+  0 Introduction example
+  67 Series preview
+  162 What are neurons?
+  215 Introducing layers
+  331 Why layers?
+  518 Edge detection example
+  694 Counting weights and biases
+  750 How learning relates
+  806 Notation and linear algebra
+  917 Recap
+  987 Some final words
+  1023 ReLU vs Sigmoid
+thumbnails: 5
+  168x94 https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg?sqp=-oaymwEbCKgBEF5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLCRb7N9hUh2kjPG_02KySywgX62DA
+  196x110 https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg?sqp=-oaymwEbCMQBEG5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLDYQMgvn7MoKqQn35eD76G63V9IWQ
+  246x138 https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg?sqp=-oaymwEcCPYBEIoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLBMyZkAYQLcrnDT9Q8r-CkOd7dA4A
+  336x188 https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg?sqp=-oaymwEcCNACELwBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLB1vbKH4l9E9-9k1qWq_6J3yS1VdQ
+  1920x1080 https://i.ytimg.com/vi_webp/aircAruvnKk/maxresdefault.webp

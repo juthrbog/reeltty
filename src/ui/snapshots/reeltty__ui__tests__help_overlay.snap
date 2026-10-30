@@ -1,25 +1,25 @@
 ---
 source: src/ui/mod.rs
-assertion_line: 141
-expression: "render(&app, 60, 20)"
+assertion_line: 169
+expression: "render(&app, 100, 20)"
 ---
- Search   Subscriptions   Playlists   History               
-┌Searc┌Keys──────────────────────────────────────────┐─────┐
-│Press│quit                 q, ctrl-c                │     │
-│     │move up              k, up                    │     │
-│     │move down            j, down                  │     │
-│     │go to the top        g, home                  │     │
-│     │go to the bottom     G, end                   │     │
-│     │half a page up       ctrl-u, pgup             │     │
-│     │half a page down     ctrl-d, pgdn             │     │
-│     │open                 enter, l                 │     │
-│     │go back              esc, h                   │     │
-│     │search               /                        │     │
-│     │search filters       f                        │     │
-│     │next tab             tab                      │     │
-│     │previous tab         shift-tab                │     │
-│     │refresh              r                        │     │
-│     │show or hide help    ?                        │     │
-│     └──────────────────────────────────────────────┘     │
-└──────────────────────────────────────────────────────────┘
-                       ? help  / search  f filters  q quit
+ Search   Subscriptions   Playlists   History                                                       
+┌Search────────────────────────────────────────────────────────────────────────────────────────────┐
+│Press / to search, f for filters.                                                                 │
+│                                                                                                  │
+│  ┌Keys────────────────────────────────────────────────────────────────────────────────────────┐  │
+│  │quit                 q, ctrl-c                search               /                        │  │
+│  │move up              k, up                    search filters       f                        │  │
+│  │move down            j, down                  next tab             tab                      │  │
+│  │go to the top        g, home                  previous tab         shift-tab                │  │
+│  │go to the bottom     G, end                   refresh              r                        │  │
+│  │half a page up       ctrl-u, pgup             video details        i                        │  │
+│  │half a page down     ctrl-d, pgdn             go to the channel    c                        │  │
+│  │open                 enter, l                 subscribe or save    s                        │  │
+│  │go back              esc, h                   show or hide help    ?                        │  │
+│  └────────────────────────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                                               ? help  / search  f filters  q quit

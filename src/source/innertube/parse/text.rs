@@ -95,8 +95,9 @@ pub fn collab_channels(command: &Value) -> Vec<ChannelRef> {
         .collect()
 }
 
-/// "1:02:03" to 3723. One number alone is seconds. `None` for other text,
-/// such as "SHORTS" or "LIVE".
+/// "1:02:03" to 3723. One number alone is seconds. The first part can have
+/// thousands separators, as in "20,772:51:34" for a very long stream. `None`
+/// for other text, such as "SHORTS" or "LIVE".
 pub fn duration_secs(s: &str) -> Option<u32> {
     let parts: Vec<&str> = s.trim().split(':').collect();
     if parts.len() > 3 {
@@ -104,6 +105,7 @@ pub fn duration_secs(s: &str) -> Option<u32> {
     }
     let mut total: u32 = 0;
     for (i, part) in parts.iter().enumerate() {
+        let part = if i == 0 && parts.len() > 1 { thousands(part)? } else { (*part).to_string() };
         if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
             return None;
         }
@@ -115,6 +117,20 @@ pub fn duration_secs(s: &str) -> Option<u32> {
         total = total.checked_mul(60)?.checked_add(n)?;
     }
     Some(total)
+}
+
+/// "20,772" to "20772". `None` when a comma is not between groups of three digits.
+fn thousands(s: &str) -> Option<String> {
+    let mut groups = s.split(',');
+    let first = groups.next()?;
+    let mut out = first.to_string();
+    for group in groups {
+        if first.is_empty() || first.len() > 3 || group.len() != 3 {
+            return None;
+        }
+        out.push_str(group);
+    }
+    Some(out)
 }
 
 /// What a line of lockup text means. These rules need `hl=en`.
@@ -169,6 +185,13 @@ mod tests {
         assert_eq!(duration_secs("1::03"), None);
         assert_eq!(duration_secs("-1:00"), None);
         assert_eq!(duration_secs("99999999999:00"), None);
+        assert_eq!(duration_secs("20,772:51:34"), Some(74_782_294));
+        assert_eq!(duration_secs("1,000:00:00"), Some(3_600_000));
+        assert_eq!(duration_secs("20,77:51:34"), None);
+        assert_eq!(duration_secs(",772:51:34"), None);
+        assert_eq!(duration_secs("1:2,000:00"), None);
+        // A comma is not a thousands separator in seconds alone.
+        assert_eq!(duration_secs("1,000"), None);
     }
 
     #[test]

@@ -1,0 +1,28 @@
+---
+source: src/source/innertube/parse/video.rs
+assertion_line: 281
+expression: summary(&d)
+---
+id: jNQXAC9IVRw
+title: Me at the zoo
+channel: Some(ChannelRef { id: Some("UC4QobU6STFB0P71PMvOGN5A"), name: "jawed", handle: Some("@jawed") })
+subscribers: 6.72M subscribers
+views: 447,128,874 views
+date: Apr 23, 2005
+publish date: -
+duration: None
+likes: 20M
+live: false
+description: 282 chars
+"Microplastics are accumulating in human brains at an alarming rate\n\u{a0}\u{a0}\u{a0}•\u{a0}Microplastics\u{a0}are\u{a0}accumulating\u{a0}in\u{a0}human\u{a0}br...\u{a0}\u{a0}\n\n“Nanoplastics and Human Health” with Matthew J Campen, PhD, MSPH\n\u{a0}\u{a0}\u{a0}•\u{a0}“Nanoplas"
+links: 5
+  67+52 "\u{a0}\u{a0}\u{a0}•\u{a0}Microplastics\u{a0}are\u{a0}accumulating\u{a0}in\u{a0}human\u{a0}br...\u{a0}\u{a0}" -> Video { id: "0PT5c1z3LL8", start_secs: Some(0) }
+  186+52 "\u{a0}\u{a0}\u{a0}•\u{a0}“Nanoplastics\u{a0}and\u{a0}Human\u{a0}Health”\u{a0}with\u{a0}Matth...\u{a0}\u{a0}" -> Video { id: "RRBN_4L09Mg", start_secs: Some(0) }
+  240+5 "00:00" -> Video { id: "jNQXAC9IVRw", start_secs: Some(0) }
+  252+5 "00:05" -> Video { id: "jNQXAC9IVRw", start_secs: Some(5) }
+  273+5 "00:17" -> Video { id: "jNQXAC9IVRw", start_secs: Some(17) }
+chapters: 3
+  0 Intro
+  5 The cool thing
+  17 End
+thumbnails: 0

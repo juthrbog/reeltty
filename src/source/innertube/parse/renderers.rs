@@ -42,7 +42,7 @@ pub fn video_renderer(v: &Value) -> Option<Video> {
             Some("BADGE_STYLE_TYPE_LIVE_NOW") => live = true,
             Some("BADGE_STYLE_TYPE_MEMBERS_ONLY") => members_only = true,
             _ if label.as_deref() == Some("Members only") => members_only = true,
-            _ if label.as_deref().is_some_and(is_shopping_label) => {}
+            _ if label.as_deref().is_some_and(is_noise_badge) => {}
             _ => badges.extend(label),
         }
     }
@@ -66,10 +66,11 @@ pub fn video_renderer(v: &Value) -> Option<Video> {
     })
 }
 
-/// "8 products": a shopping badge, not a property of the video.
-fn is_shopping_label(label: &str) -> bool {
+/// Badges that say nothing about the video itself: "8 products" (shopping)
+/// and "Fundraiser".
+fn is_noise_badge(label: &str) -> bool {
     let count = label.strip_suffix(" products").or_else(|| label.strip_suffix(" product"));
-    count.is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+    label == "Fundraiser" || count.is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// Text in playlist lockup rows that is not a channel name.
@@ -149,7 +150,9 @@ fn rows(m: &Value) -> Rows<'_> {
             let badge = &badge["badgeViewModel"];
             if badge["badgeStyle"] == "BADGE_MEMBERS_ONLY" {
                 r.members_only = true;
-            } else if let Some(t) = str_at(badge, "/badgeText").map(clean).filter(|t| !t.is_empty()) {
+            } else if let Some(t) =
+                str_at(badge, "/badgeText").map(clean).filter(|t| !t.is_empty() && !is_noise_badge(t))
+            {
                 r.badges.push(t);
             }
         }

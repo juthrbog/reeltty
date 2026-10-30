@@ -1,0 +1,17 @@
+---
+source: src/ui/mod.rs
+assertion_line: 307
+expression: "render(&app, 70, 12)"
+---
+ Search   Subscriptions   Playlists   History                         
+┌Channel: Jon Gjengset ✓ [Subscribed]────────────────────────────────┐
+│@jonhoo · 111K subscribers · 120 videos                             │
+│Rust streams and videos.                                            │
+│Rust in 100 seconds                                                 │
+│  Fireship · 12:34 · 1.2M views · 3 years ago · 4K                  │
+│LIVE Lofi beats to code to                                          │
+│  Lofi Girl · 32 watching · 4K                                      │
+│                                                                    │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+Loading more...                   ? help  / search  esc back  q quit

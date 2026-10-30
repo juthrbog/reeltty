@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
@@ -8,6 +9,9 @@ use reeltty::app::App;
 use reeltty::config::{Config, Paths};
 use reeltty::frontend::Frontend as _;
 use reeltty::frontend::terminal::TerminalFrontend;
+use reeltty::source::innertube::InnerTube;
+use reeltty::source::ytdlp::YtDlp;
+use reeltty::source::{Fallback, Source};
 use reeltty::store::Store;
 
 #[derive(Parser)]
@@ -48,11 +52,16 @@ fn run_tui(paths: &Paths) -> Result<()> {
     let keymap = config.keymap()?;
     let _store = Store::open(&paths.database)?;
 
+    let source: Arc<dyn Source> = Arc::new(Fallback {
+        primary: InnerTube::new().context("start the InnerTube client")?,
+        secondary: YtDlp { program: config.yt_dlp_program() },
+    });
+
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
         let mut frontend = TerminalFrontend::start();
         let mut app = App::new(keymap, frontend.graphics().clone());
-        reeltty::runtime::run(&mut app, &mut frontend).await
+        reeltty::runtime::run(&mut app, &mut frontend, source).await
     })
 }
 

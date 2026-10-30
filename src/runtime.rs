@@ -1,26 +1,28 @@
 //! The event loop: messages in, effects out.
 
 use std::ops::ControlFlow;
+use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use tokio::sync::mpsc::{self, UnboundedSender};
 
 use crate::app::{App, Effect, Message};
 use crate::frontend::Frontend;
+use crate::source::Source;
 
 /// Runs until an `Effect::Quit`. Messages that arrive together are applied
 /// before the next draw, so a burst of input gives one frame.
-pub async fn run(app: &mut App, frontend: &mut impl Frontend) -> Result<()> {
+pub async fn run(app: &mut App, frontend: &mut impl Frontend, source: Arc<dyn Source>) -> Result<()> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     frontend.start_input(tx.clone());
-    watch_signals(tx);
+    watch_signals(tx.clone());
     frontend.draw(app)?;
 
     while let Some(msg) = rx.recv().await {
         let mut next = Some(msg);
         while let Some(msg) = next {
             for effect in app.update(msg) {
-                if let ControlFlow::Break(result) = handle(effect) {
+                if let ControlFlow::Break(result) = handle(effect, &tx, &source) {
                     return result;
                 }
             }
@@ -49,10 +51,26 @@ fn watch_signals(tx: UnboundedSender<Message>) {
     });
 }
 
-/// Carries out one effect. `Break` ends the loop with its result.
-fn handle(effect: Effect) -> ControlFlow<Result<()>> {
+/// Carries out one effect. Slow work runs in a task that sends a `Message`
+/// when it is done. `Break` ends the loop with its result.
+fn handle(effect: Effect, tx: &UnboundedSender<Message>, source: &Arc<dyn Source>) -> ControlFlow<Result<()>> {
     match effect {
-        Effect::Quit => ControlFlow::Break(Ok(())),
-        Effect::Fail(why) => ControlFlow::Break(Err(anyhow!(why))),
+        Effect::Quit => return ControlFlow::Break(Ok(())),
+        Effect::Fail(why) => return ControlFlow::Break(Err(anyhow!(why))),
+        Effect::Search { generation, query } => {
+            let (tx, source) = (tx.clone(), Arc::clone(source));
+            tokio::spawn(async move {
+                let result = source.search(&query).await.map_err(|e| e.to_string());
+                let _ = tx.send(Message::SearchResult { generation, append: false, result });
+            });
+        }
+        Effect::SearchMore { generation, continuation } => {
+            let (tx, source) = (tx.clone(), Arc::clone(source));
+            tokio::spawn(async move {
+                let result = source.search_more(&continuation).await.map_err(|e| e.to_string());
+                let _ = tx.send(Message::SearchResult { generation, append: true, result });
+            });
+        }
     }
+    ControlFlow::Continue(())
 }

@@ -13,9 +13,13 @@ env:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # Ubuntu 24.04 has mpv 0.37 (client API 2.2), the oldest that reeltty supports.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      # The tests link to libmpv and play a generated test video.
+      - name: Install libmpv
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libmpv-dev
       # Keep this version the same as rust-toolchain.toml.
       - uses: dtolnay/rust-toolchain@1.99.1
         with:

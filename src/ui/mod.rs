@@ -1,6 +1,7 @@
 //! Draws the `App` state. Pure: the same state always gives the same frame.
 
 mod items;
+mod player;
 mod screens;
 mod search;
 
@@ -15,6 +16,9 @@ use crate::app::{App, Tab};
 use crate::keymap::Action;
 
 pub fn view(app: &App, f: &mut Frame) {
+    if let Some(p) = &app.player {
+        return player::draw(app, p, f);
+    }
     let [tabs, body, status] =
         Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)]).areas(f.area());
     draw_tabs(app, f, tabs);
@@ -493,5 +497,76 @@ mod tests {
         let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
         press(&mut app, "?");
         render(&app, 5, 2);
+    }
+
+    fn playing_app() -> App {
+        use crate::app::player::PlayerEvent;
+        use crate::source::streams::{FormatInfo, Streams};
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.update(Message::Input(Input::Resize { width: 40, height: 12 }));
+        app.update(Message::Input(Input::CellSize { width: 10, height: 20 }));
+        app.play("v1".into(), "Big Buck Bunny".into());
+        let streams = Streams {
+            video_url: "https://v".into(),
+            audio_url: None,
+            headers: Vec::new(),
+            available_at: None,
+            expires_at: None,
+            format: FormatInfo { width: Some(1280), height: Some(720), ..FormatInfo::default() },
+        };
+        app.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(Box::new(streams)) });
+        for event in [PlayerEvent::FileLoaded, PlayerEvent::Duration(635_000), PlayerEvent::Position(65_000)] {
+            app.update(Message::Player { session: 1, event });
+        }
+        app
+    }
+
+    #[test]
+    fn player_shows_the_video_and_progress() {
+        let mut app = playing_app();
+        insta::assert_snapshot!(render(&app, 40, 12));
+        // The video cells name the video image.
+        let buf = buffer(&app, 40, 12);
+        let g = app.player.as_ref().unwrap().geometry;
+        let (r, gr, b) = kitty::id_color(kitty::VIDEO_ID);
+        for (x, y) in [(g.x, g.y), (g.x + g.cols - 1, g.y + g.rows - 1)] {
+            assert_eq!(buf[(x, y)].fg, Color::Rgb(r, gr, b));
+            assert!(buf[(x, y)].symbol().starts_with(kitty::PLACEHOLDER));
+        }
+        app.update(Message::Player { session: 1, event: crate::app::player::PlayerEvent::Paused(true) });
+        app.update(Message::Player { session: 1, event: crate::app::player::PlayerEvent::Muted(true) });
+        let text = render(&app, 40, 12);
+        assert!(text.contains("Paused  muted"), "{text}");
+    }
+
+    #[test]
+    fn player_before_and_after_playback() {
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.update(Message::Input(Input::Resize { width: 50, height: 8 }));
+        app.play("v1".into(), "Big Buck Bunny".into());
+        insta::assert_snapshot!("player_resolving", render(&app, 50, 8));
+        let streams = crate::source::streams::Streams {
+            video_url: "https://v".into(),
+            audio_url: None,
+            headers: Vec::new(),
+            available_at: Some(115),
+            expires_at: None,
+            format: crate::source::streams::FormatInfo::default(),
+        };
+        app.update(Message::StreamsResolved { session: 1, now: 100, result: Ok(Box::new(streams)) });
+        insta::assert_snapshot!("player_waiting", render(&app, 50, 8));
+        app.update(Message::Tick { session: 1, now: 115 });
+        app.update(Message::Player {
+            session: 1,
+            event: crate::app::player::PlayerEvent::Failed("HTTP error 404".into()),
+        });
+        insta::assert_snapshot!("player_failed", render(&app, 50, 8));
+
+        // A long error wraps and is shown in full.
+        app.play("v2".into(), "Big Buck Bunny".into());
+        let long = "yt-dlp failed: ERROR: [youtube] v2: Sign in to confirm your age. This video may be inappropriate";
+        app.update(Message::StreamsResolved { session: 2, now: 0, result: Err(long.into()) });
+        let text = render(&app, 30, 12);
+        assert!(text.contains("inappropriate"), "{text}");
     }
 }

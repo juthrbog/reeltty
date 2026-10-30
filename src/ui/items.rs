@@ -68,7 +68,7 @@ pub fn draw_rows(rows: Vec<Vec<Line<'static>>>, selection: Selection, f: &mut Fr
 }
 
 /// Fills `area` with the placeholder cells of image `id`.
-fn draw_image(buf: &mut Buffer, area: Rect, id: u32) {
+pub fn draw_image(buf: &mut Buffer, area: Rect, id: u32) {
     let (r, g, b) = kitty::id_color(id);
     let style = Style::reset().fg(Color::Rgb(r, g, b));
     for row in 0..area.height {

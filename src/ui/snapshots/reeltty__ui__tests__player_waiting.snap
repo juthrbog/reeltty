@@ -1,0 +1,12 @@
+---
+source: src/ui/mod.rs
+expression: "render(&app, 50, 8)"
+---
+                                                  
+                  Big Buck Bunny                  
+                                                  
+ YouTube makes guests wait for the ads. The video 
+                  starts in 15 s.                 
+                                                  
+                                                  
+ Big Buck Bunny                            q back

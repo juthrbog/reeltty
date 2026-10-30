@@ -59,10 +59,10 @@ fn run_tui(paths: &Paths) -> Result<()> {
 
     let ytdlp = YtDlp { program: config.yt_dlp_program() };
     let source: Arc<dyn Source> = match InnerTube::new() {
-        Ok(innertube) => Arc::new(Fallback { primary: innertube, secondary: ytdlp }),
+        Ok(innertube) => Arc::new(Fallback { primary: innertube, secondary: ytdlp.clone() }),
         Err(e) => {
             tracing::warn!("cannot start the InnerTube client, using yt-dlp only: {e}");
-            Arc::new(ytdlp)
+            Arc::new(ytdlp.clone())
         }
     };
 
@@ -76,7 +76,7 @@ fn run_tui(paths: &Paths) -> Result<()> {
             .then(|| start_thumbnails(&paths.thumbnail_cache))
             .flatten();
         app.thumbnails = Thumbnails::new(thumbnails.is_some());
-        let services = Services { source, store, thumbnails };
+        let services = Services { source, store, thumbnails, ytdlp };
         reeltty::runtime::run(&mut app, &mut frontend, services).await
     })
 }

@@ -5,11 +5,14 @@
 
 pub mod terminal;
 
+use std::sync::Arc;
+
 use anyhow::Result;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::app::{App, Message};
 use crate::terminal::detect::Graphics;
+use crate::terminal::kitty::VideoSink;
 
 pub trait Frontend {
     /// Starts to send input to the app as `Message::Input`.
@@ -20,4 +23,7 @@ pub trait Frontend {
 
     /// What this frontend can show for video and images.
     fn graphics(&self) -> &Graphics;
+
+    /// Where video frames go, or `None` if this frontend cannot show video.
+    fn video_sink(&self) -> Option<Arc<VideoSink>>;
 }

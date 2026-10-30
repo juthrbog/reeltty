@@ -6,6 +6,7 @@
 //! blocks and never does I/O.
 
 pub mod list;
+pub mod player;
 pub mod screens;
 pub mod search;
 pub mod thumbnails;
@@ -15,10 +16,12 @@ use std::sync::Arc;
 use crate::keymap::{Action, KeyMap, KeyPress};
 use crate::source::filters::SearchQuery;
 use crate::source::model::{ChannelPage, ChannelRef, Item, ItemPage, PlaylistPage, SearchPage, VideoDetails};
+use crate::source::streams::Streams;
 use crate::store::{SavedPlaylist, Subscription};
 use crate::terminal::detect::Graphics;
 use crate::thumbnails::{Picture, Slot};
 use list::ItemList;
+use player::{PlayerCommand, PlayerEvent, PlayerState};
 use screens::{ChannelScreen, PlaylistScreen, Screen, Target, VideoScreen};
 use search::{KeyResult, SearchState};
 use thumbnails::{THUMBNAIL_ROWS, Thumbnails};
@@ -59,6 +62,21 @@ pub enum Message {
         url: String,
         slot: Slot,
         result: Result<Arc<Picture>, String>,
+    },
+    /// The reply to `Effect::ResolveStreams`. `now` is Unix seconds.
+    StreamsResolved {
+        session: u64,
+        now: u64,
+        result: Result<Box<Streams>, String>,
+    },
+    /// Once a second during `Effect::Countdown`. `now` is Unix seconds.
+    Tick {
+        session: u64,
+        now: u64,
+    },
+    Player {
+        session: u64,
+        event: PlayerEvent,
     },
 }
 
@@ -120,6 +138,18 @@ pub enum Effect {
         url: String,
         slot: Slot,
     },
+    /// Find the stream URLs of a video, at most `max_height` pixels high.
+    ResolveStreams {
+        session: u64,
+        id: String,
+        max_height: u32,
+    },
+    /// Send `Message::Tick` once a second until the Unix time `until`.
+    Countdown {
+        session: u64,
+        until: u64,
+    },
+    Player(PlayerCommand),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,9 +246,16 @@ pub struct App {
     /// A short message for the status bar, cleared by the next key.
     pub status: Option<String>,
     pub thumbnails: Thumbnails,
+    /// The full-screen player, over everything else.
+    pub player: Option<PlayerState>,
+    pub width: u16,
     pub height: u16,
+    /// The pixel size of one cell, or 0 x 0 if the terminal does not say.
+    pub cell: (u16, u16),
     /// The number of the last screen request.
     request: u64,
+    /// The number of the last video played.
+    session: u64,
 }
 
 impl App {
@@ -236,8 +273,12 @@ impl App {
             saved_selection: Selection::default(),
             status: None,
             thumbnails: Thumbnails::new(false),
+            player: None,
+            width: 80,
             height: 24,
+            cell: (0, 0),
             request: 0,
+            session: 0,
         }
     }
 
@@ -264,7 +305,7 @@ impl App {
 
     pub fn update(&mut self, msg: Message) -> Vec<Effect> {
         let mut effects = self.handle(msg);
-        if self.thumbnails.enabled {
+        if self.thumbnails.enabled && self.player.is_none() {
             // The visible items and the next screen of them.
             let (items, selection, rows) = match self.screens.last() {
                 Some(Screen::Channel(s)) => (s.list.items.as_slice(), s.list.selection, self.rows(SCREEN_HEADER_ROWS)),
@@ -369,19 +410,23 @@ impl App {
                 self.thumbnails.loaded(&url, slot, result);
                 Vec::new()
             }
+            Message::StreamsResolved { session, now, result } => self.on_streams(session, now, result),
+            Message::Tick { session, now } => self.on_tick(session, now),
+            Message::Player { session, event } => self.on_player_event(session, event),
         }
     }
 
     fn on_input(&mut self, input: Input) -> Vec<Effect> {
         match input {
-            Input::Resize { height, .. } => {
-                self.height = height;
+            Input::Resize { width, height } => {
+                (self.width, self.height) = (width, height);
                 self.clamp_all();
-                Vec::new()
+                self.refit_player()
             }
             Input::CellSize { width, height } => {
+                self.cell = (width, height);
                 self.thumbnails.set_cell(width, height);
-                Vec::new()
+                self.refit_player()
             }
             Input::Key(key) => {
                 self.status = None;
@@ -410,6 +455,9 @@ impl App {
         // ctrl-c always quits, even while typing.
         if key == KeyPress::ctrl('c') {
             return vec![Effect::Quit];
+        }
+        if self.player.is_some() {
+            return self.on_player_key(key);
         }
         let action = self.keymap.action(key);
         if action == Some(Action::Refresh) {
@@ -538,7 +586,10 @@ impl App {
                         }
                         return Target::channel(&c).map(|t| self.open(t)).unwrap_or_default();
                     }
-                    Action::Open => self.status = Some("Playing videos comes in a later version.".into()),
+                    Action::Open => {
+                        let (id, title) = (s.id.clone(), s.title.clone());
+                        return self.play(id, title);
+                    }
                     _ => {}
                 }
                 Vec::new()
@@ -561,8 +612,10 @@ impl App {
     /// Open, Details, Channel, and Toggle on one item in a list.
     fn on_item(&mut self, item: &Item, action: Action) -> Vec<Effect> {
         match action {
-            // Until playback exists, opening a video shows its details.
-            Action::Open => self.open(Target::open(item)),
+            Action::Open => match item {
+                Item::Video(v) => self.play(v.id.clone(), v.title.clone()),
+                _ => self.open(Target::open(item)),
+            },
             Action::Details if matches!(item, Item::Video(_)) => self.open(Target::open(item)),
             Action::Channel => {
                 if let Some(t) = Target::channel_of(item) {
@@ -803,8 +856,11 @@ mod tests {
         }
         // Item 3 is selected, so the list scrolls by one and item 6 comes into range.
         assert_eq!(thumbnail_urls(&later), ["https://i.ytimg.com/vi/6/hq.jpg"]);
-        // Video details have no thumbnails.
-        assert!(thumbnail_urls(&key(&mut a, "enter")).is_empty());
+        // Video details have no thumbnails, and neither has the player.
+        assert!(thumbnail_urls(&key(&mut a, "i")).is_empty());
+        key(&mut a, "esc");
+        assert!(matches!(key(&mut a, "enter").as_slice(), [Effect::ResolveStreams { .. }]));
+        assert!(thumbnail_urls(&key(&mut a, "space")).is_empty());
     }
 
     fn page_of(n: usize, from: usize, more: bool) -> SearchPage {
@@ -1085,10 +1141,16 @@ mod tests {
     fn opening_a_result_pushes_a_screen_and_back_pops_it() {
         let mut a = app();
         results(&mut a, vec![video("v1"), channel_item("UC1")]);
-        assert_eq!(key(&mut a, "enter"), vec![Effect::LoadVideo { request: 1, id: "v1".into() }]);
+        assert_eq!(key(&mut a, "i"), vec![Effect::LoadVideo { request: 1, id: "v1".into() }]);
+        assert!(matches!(a.screens.last(), Some(Screen::Video(_))));
+        // Enter on the details plays the video. Back stops it, and the screens stay.
+        assert_eq!(key(&mut a, "enter"), [Effect::ResolveStreams { session: 1, id: "v1".into(), max_height: 480 }]);
+        assert_eq!(key(&mut a, "esc"), [Effect::Player(PlayerCommand::Stop)]);
         assert!(matches!(a.screens.last(), Some(Screen::Video(_))));
         key(&mut a, "esc");
         assert!(a.screens.is_empty());
+        assert!(matches!(key(&mut a, "enter").as_slice(), [Effect::ResolveStreams { session: 2, .. }]));
+        key(&mut a, "q");
         key(&mut a, "j");
         assert_eq!(key(&mut a, "enter"), vec![Effect::LoadChannel { request: 2, id: "UC1".into() }]);
     }

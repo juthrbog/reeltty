@@ -18,6 +18,7 @@ use tokio::process::Command;
 use crate::source::model::{
     ChannelInfo, ChannelRef, Chapter, Description, Item, ItemPage, PlaylistInfo, Thumbnail, Video, VideoKind,
 };
+use crate::source::streams::{self, Streams};
 use crate::source::{ChannelPage, PlaylistPage, Result, SearchPage, SearchQuery, Source, SourceError, VideoDetails};
 
 /// How many results one search asks for.
@@ -28,6 +29,7 @@ const CHANNEL_VIDEOS: &str = "1:30";
 const PLAYLIST_VIDEOS: &str = "1:200";
 const TIMEOUT: Duration = Duration::from_secs(60);
 
+#[derive(Debug, Clone)]
 pub struct YtDlp {
     pub program: PathBuf,
 }
@@ -82,6 +84,14 @@ impl Source for YtDlp {
 }
 
 impl YtDlp {
+    /// The stream URLs of a video, at most `max_height` pixels high.
+    pub async fn streams(&self, id: &str, max_height: u32) -> Result<Streams> {
+        let url = format!("https://www.youtube.com/watch?v={id}");
+        let (format, sort) = (streams::selector(), streams::sort(max_height));
+        let args = ["-J", "--no-playlist", "--no-warnings", "-f", &format, "-S", &sort, &url];
+        streams::parse_streams(&self.run(&args).await?)
+    }
+
     /// Runs the program and returns its standard output.
     async fn run(&self, args: &[&str]) -> Result<Vec<u8>> {
         let program = self.program.display();
@@ -794,6 +804,20 @@ mod tests {
             "video.json",
         );
         assert_eq!(y.video("aircAruvnKk").await.unwrap().id, "aircAruvnKk");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn streams_pass_the_selector() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = format!(
+            "-J --no-playlist --no-warnings -f {} -S res:480 https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+            streams::selector()
+        );
+        // The fake script puts the arguments in single quotes.
+        let y = expects(&dir, &args.replace('\'', r"'\''"), "streams.json");
+        let s = y.streams("aqz-KE-bpKQ", 480).await.unwrap();
+        assert_eq!(s.format.id, "298+251");
     }
 
     #[tokio::test]

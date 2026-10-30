@@ -7,7 +7,7 @@ This is a personal tool and work in progress. See [DESIGN.md](DESIGN.md) for the
 ## Requirements
 
 - Linux.
-- `mpv` 0.41 or later (reeltty uses `libmpv`).
+- `mpv` 0.37 or later (reeltty uses `libmpv`). It is tested with mpv 0.41.
 - `yt-dlp` with `yt-dlp-ejs`, and `deno` as the JavaScript runtime for yt-dlp.
 - Ghostty 1.3.1 or later, or kitty 0.49 or later, run directly (not in tmux, Zellij, or over SSH). In other terminals, browsing works but video does not.
 
@@ -27,6 +27,19 @@ cargo build --release
 
 Press `?` in reeltty to see the keys.
 
+To play a video, select it and press `enter`. `i` shows its details. In the player, the keys are the same as mpv's:
+
+| Key | Action |
+|---|---|
+| `space`, `p` | Pause or play |
+| `left`, `right` | Back or forward 5 seconds |
+| `down`, `up` | Back or forward 1 minute |
+| `9`, `0` | Volume down or up |
+| `m` | Mute or unmute |
+| `q`, `esc` | Stop and go back to the list |
+
+As a guest, you sometimes wait before a video starts. YouTube makes guests wait as long as the ads would play, and reeltty shows a countdown.
+
 ## Configuration
 
 The configuration file is `~/.config/reeltty/config.toml`. All settings are optional.
@@ -43,9 +56,12 @@ thumbnails = true
 [keys.browse]
 down = ["j", "down"]
 up = ["k", "up"]
+
+[keys.player]
+seek_forward_long = ["up", "l"]
 ```
 
-The actions are `quit`, `up`, `down`, `top`, `bottom`, `half_page_up`, `half_page_down`, `open`, `back`, `search`, `filters`, `next_tab`, `prev_tab`, `refresh`, `details`, `channel`, `toggle`, and `help`. Keys are written as `j`, `G`, `ctrl-d`, `alt-x`, `space`, `enter`, `esc`, `tab`, `shift-tab`, `backspace`, `up`, `down`, `left`, `right`, `pgup`, `pgdn`, `home`, `end`, or `f1` to `f12`.
+The actions in `[keys.browse]` are `quit`, `up`, `down`, `top`, `bottom`, `half_page_up`, `half_page_down`, `open`, `back`, `search`, `filters`, `next_tab`, `prev_tab`, `refresh`, `details`, `channel`, `toggle`, and `help`. The actions in `[keys.player]` are `back`, `toggle_pause`, `seek_forward`, `seek_back`, `seek_forward_long`, `seek_back_long`, `volume_up`, `volume_down`, and `mute`. Keys are written as `j`, `G`, `ctrl-d`, `alt-x`, `space`, `enter`, `esc`, `tab`, `shift-tab`, `backspace`, `up`, `down`, `left`, `right`, `pgup`, `pgdn`, `home`, `end`, or `f1` to `f12`.
 
 Local state (subscriptions, history, saved playlists) is in `~/.local/share/reeltty/reeltty.db`. Thumbnails are cached in `~/.cache/reeltty/thumbnails`, up to 100 MB. The log is in `~/.local/state/reeltty/reeltty.log`. Set `REELTTY_LOG=debug` for more detail.
 

@@ -151,10 +151,9 @@ fn thumbnail(t: EntryThumbnail) -> Option<Thumbnail> {
     let raw = t.url?;
     let url = if raw.starts_with("https://") {
         raw
-    } else if let Some(rest) = raw.strip_prefix("//") {
-        format!("https://{rest}")
     } else {
-        return None;
+        let rest = raw.strip_prefix("//")?;
+        format!("https://{rest}")
     };
     Some(Thumbnail { url, width: t.width.unwrap_or(0), height: t.height.unwrap_or(0) })
 }

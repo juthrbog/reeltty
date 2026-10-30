@@ -1,0 +1,5 @@
+[toolchain]
+# CI uses the same version, so lints match.
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

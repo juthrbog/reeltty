@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
-use crate::keymap::{KeyMap, KeyOverrides};
+use crate::keymap::{KeyMap, KeyOverrides, PlayerKeyOverrides};
 
 /// File locations from the XDG base directories.
 #[derive(Debug, Clone)]
@@ -56,6 +56,7 @@ impl Default for Thumbnails {
 #[serde(default, deny_unknown_fields)]
 pub struct Keys {
     pub browse: KeyOverrides,
+    pub player: PlayerKeyOverrides,
 }
 
 /// Where the configuration came from, for `reeltty doctor`.
@@ -85,7 +86,7 @@ impl Config {
     }
 
     pub fn keymap(&self) -> Result<KeyMap> {
-        Ok(KeyMap::new(&self.keys.browse)?)
+        Ok(KeyMap::new(&self.keys.browse, &self.keys.player)?)
     }
 
     pub fn yt_dlp_program(&self) -> PathBuf {
@@ -133,6 +134,8 @@ mod tests {
     fn rejects_bad_keys() {
         let err = Config::parse("[keys.browse]\ndown = [\"k\"]").unwrap_err();
         assert!(err.to_string().contains("bound to both"), "{err}");
+        let err = Config::parse("[keys.player]\nmute = [\"space\"]").unwrap_err();
+        assert!(err.to_string().contains("[keys.player]"), "{err}");
     }
 
     #[test]

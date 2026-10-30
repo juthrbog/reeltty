@@ -8,6 +8,7 @@
 pub mod filters;
 pub mod innertube;
 pub mod model;
+pub mod streams;
 pub mod ytdlp;
 
 use futures::future::BoxFuture;

@@ -33,7 +33,7 @@ This document records the design decisions from the design session on 2026-10-26
 | Q7 | Keys | Vim keys for navigation, mpv keys for the player. All keys can be changed in the configuration file. |
 | Q8 | Storage | TOML configuration at `$XDG_CONFIG_HOME/reeltty/config.toml`. State in SQLite (`rusqlite`, bundled) at `$XDG_DATA_HOME/reeltty/reeltty.db`. |
 | Q9 | App structure | One binary on tokio. Elm-style: one `App` state, all events arrive as `Message` values on a channel. The UI thread never blocks. The frame writer has its own thread. |
-| Q10 | Playback engine | libmpv core with the software render API, plus a custom Kitty graphics frame writer. The ffmpeg-next and cpal design is the fallback. |
+| Q10 | Playback engine | libmpv core with the software render API, plus a custom Kitty graphics frame writer. reeltty has its own small bindings to libmpv's C API, not `libmpv2-sys` (LGPL-2.1, see Q11). The ffmpeg-next and cpal design is the fallback. |
 | Q11 | License | MIT or Apache-2.0. No GPL crates. rustypipe is a behavior reference only. |
 | Q12, Q21, Q23 | Where video works | Ghostty 1.3.1+ and kitty 0.49+, run directly. Elsewhere, browsing works and playback shows a clear message. |
 | Q13 | Formats | H.264 first, then VP9, never AV1. Opus or AAC audio, never IAMF. Maximum of 720p or the pixel size of the pane, whichever is smaller. yt-dlp selects the player clients. |
@@ -99,17 +99,17 @@ Stream URLs expire after about 6 hours and are tied to the IP address. reeltty c
 
 ### Playback
 
-libmpv opens the stream URLs and does the demux, decode, cache, seek, audio output, and audio and video synchronization. On each render-update callback, reeltty calls `mpv_render_context_render` with the software render API (`MPV_RENDER_API_TYPE_SW`) at the pixel size of the video pane. The `libmpv2` crate wraps only the OpenGL render API, so this call goes through `libmpv2-sys` (unsafe FFI).
+libmpv opens the stream URLs and does the demux, decode, cache, seek, audio output, and audio and video synchronization. On each render-update callback, reeltty calls `mpv_render_context_render` with the software render API (`MPV_RENDER_API_TYPE_SW`) at the pixel size of the video pane. The `libmpv2` crate wraps only the OpenGL render API, and `libmpv2-sys` is LGPL-2.1. So reeltty declares the 20 or so C functions that it uses itself (`src/player/ffi.rs`, from mpv's ISC-licensed headers) and links to the system libmpv.
 
 The frame writer copies each frame into a POSIX shared memory object and sends it with the Kitty graphics protocol:
 
 - Transmission medium `t=s` (shared memory). The terminal unlinks the object after it reads it.
-- Action `a=T` with one fixed image ID and placement ID for each frame.
+- Action `a=T` with one fixed image ID and placement ID for each frame, and a virtual placement (`U=1`).
 - The transient hint `N=1`. Ghostty 1.3.1 ignores it, but kitty 0.48+ and Ghostty 1.4 use it to evict frames first.
 - Synchronized output (DEC mode 2026) around each frame.
 - Shared memory names that start with `/`.
 
-The frame writer owns the timing of stdout. ratatui draws on the same thread or under the same lock, so escape sequences never interleave. Video cells use Unicode placeholders (U+10EEEE), one placeholder for each cell, as `ratatui-image` 11.1+ does.
+The frame writer runs on its own thread, and mpv's render call sets its pace. ratatui draws while it holds the stdout lock, and the frame writer takes the same lock for each frame, so escape sequences never interleave. Video cells use Unicode placeholders (U+10EEEE), one placeholder for each cell, the same as thumbnails. ratatui draws them as ordinary cells. If the terminal has not read the last 2 frames, the frame writer drops the next one.
 
 mpv also draws the captions into the software frame, so captions need no separate renderer.
 

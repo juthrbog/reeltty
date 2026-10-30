@@ -3,15 +3,21 @@
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::mpsc as std_mpsc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread::JoinHandle;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow};
 use tokio::sync::mpsc::{self, UnboundedSender};
+use tokio::task::AbortHandle;
 
+use crate::app::player::{PlayerCommand, PlayerEvent};
 use crate::app::{App, Effect, Message};
 use crate::frontend::Frontend;
+use crate::player::{self, Player};
 use crate::source::Source;
+use crate::source::ytdlp::YtDlp;
 use crate::store::Store;
+use crate::terminal::kitty::VideoSink;
 use crate::thumbnails::Fetcher;
 
 /// What effects need to do their work.
@@ -20,6 +26,75 @@ pub struct Services {
     pub store: Store,
     /// `None` when thumbnails are off.
     pub thumbnails: Option<Fetcher>,
+    /// Finds stream URLs.
+    pub ytdlp: YtDlp,
+}
+
+/// The video that plays, and the work before it.
+struct Playback {
+    ytdlp: YtDlp,
+    sink: Option<Arc<VideoSink>>,
+    player: Option<Player>,
+    /// The stream search or the ads wait.
+    pending: Option<AbortHandle>,
+    /// Stopped players that are still shutting down.
+    reapers: Vec<JoinHandle<()>>,
+}
+
+impl Playback {
+    fn stop(&mut self) {
+        if let Some(pending) = self.pending.take() {
+            pending.abort();
+        }
+        if let Some(player) = self.player.take() {
+            self.reapers.push(player.stop());
+        }
+        self.reapers.retain(|r| !r.is_finished());
+    }
+
+    /// Starts `task` in place of the pending one.
+    fn set_pending(&mut self, task: impl Future<Output = ()> + Send + 'static) {
+        if let Some(pending) = self.pending.take() {
+            pending.abort();
+        }
+        self.pending = Some(tokio::spawn(task).abort_handle());
+    }
+
+    fn handle(&mut self, command: PlayerCommand, tx: &UnboundedSender<Message>) {
+        match command {
+            PlayerCommand::Start { session, streams, geometry } => {
+                self.stop();
+                let send = player::to_app(tx.clone(), session);
+                let Some(sink) = self.sink.clone() else {
+                    send(PlayerEvent::Failed("this terminal cannot show video".into()));
+                    return;
+                };
+                match Player::start(session, &streams, geometry, sink, send, &[]) {
+                    Ok(p) => self.player = Some(p),
+                    Err(e) => {
+                        tracing::error!("cannot start the player: {e}");
+                        let _ = tx.send(Message::Player { session, event: PlayerEvent::Failed(e) });
+                    }
+                }
+            }
+            PlayerCommand::Stop => self.stop(),
+            command => {
+                if let Some(p) = &self.player {
+                    p.command(&command);
+                }
+            }
+        }
+    }
+}
+
+impl Drop for Playback {
+    /// Stops the video before the terminal is restored, and waits for mpv to stop.
+    fn drop(&mut self) {
+        self.stop();
+        for reaper in self.reapers.drain(..) {
+            let _ = reaper.join();
+        }
+    }
 }
 
 type Write = Box<dyn FnOnce(&Store) -> Result<()> + Send>;
@@ -73,6 +148,13 @@ pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services
     let (tx, mut rx) = mpsc::unbounded_channel();
     let writer = Writer::start(services.store, tx.clone());
     let (source, thumbnails) = (services.source, services.thumbnails);
+    let mut playback = Playback {
+        ytdlp: services.ytdlp,
+        sink: frontend.video_sink(),
+        player: None,
+        pending: None,
+        reapers: Vec::new(),
+    };
     frontend.start_input(tx.clone());
     watch_signals(tx.clone());
     frontend.draw(app)?;
@@ -81,7 +163,8 @@ pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services
         let mut next = Some(msg);
         while let Some(msg) = next {
             for effect in app.update(msg) {
-                if let ControlFlow::Break(result) = handle(effect, &tx, &source, thumbnails.as_ref(), &writer) {
+                let services = (&source, thumbnails.as_ref(), &writer, &mut playback);
+                if let ControlFlow::Break(result) = handle(effect, &tx, services) {
                     return result;
                 }
             }
@@ -115,9 +198,7 @@ fn watch_signals(tx: UnboundedSender<Message>) {
 fn handle(
     effect: Effect,
     tx: &UnboundedSender<Message>,
-    source: &Arc<dyn Source>,
-    thumbnails: Option<&Fetcher>,
-    writer: &Writer,
+    (source, thumbnails, writer, playback): (&Arc<dyn Source>, Option<&Fetcher>, &Writer, &mut Playback),
 ) -> ControlFlow<Result<()>> {
     match effect {
         Effect::Quit => return ControlFlow::Break(Ok(())),
@@ -185,8 +266,33 @@ fn handle(
                 let _ = tx.send(Message::ThumbnailLoaded { url, slot, result });
             });
         }
+        Effect::ResolveStreams { session, id, max_height } => {
+            let (tx, ytdlp) = (tx.clone(), playback.ytdlp.clone());
+            playback.set_pending(async move {
+                let result = ytdlp.streams(&id, max_height).await.map(Box::new).map_err(|e| e.to_string());
+                let _ = tx.send(Message::StreamsResolved { session, now: now_unix(), result });
+            });
+        }
+        Effect::Countdown { session, until } => {
+            let tx = tx.clone();
+            playback.set_pending(async move {
+                let mut every = tokio::time::interval(Duration::from_secs(1));
+                loop {
+                    every.tick().await;
+                    let now = now_unix();
+                    if tx.send(Message::Tick { session, now }).is_err() || now >= until {
+                        return;
+                    }
+                }
+            });
+        }
+        Effect::Player(command) => playback.handle(command, tx),
     }
     ControlFlow::Continue(())
+}
+
+fn now_unix() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 fn now() -> i64 {

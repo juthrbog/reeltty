@@ -7,6 +7,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
+use std::hash::Hash;
 use std::str::FromStr;
 
 use serde::Deserialize;
@@ -236,46 +237,166 @@ impl Action {
     }
 }
 
-/// The `[keys.browse]` table: action name to a list of keys.
-pub type KeyOverrides = BTreeMap<Action, Vec<String>>;
+/// Actions in the player.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayerAction {
+    Back,
+    TogglePause,
+    SeekForward,
+    SeekBack,
+    SeekForwardLong,
+    SeekBackLong,
+    VolumeUp,
+    VolumeDown,
+    Mute,
+}
+
+impl PlayerAction {
+    pub const ALL: [Self; 9] = [
+        Self::Back,
+        Self::TogglePause,
+        Self::SeekForward,
+        Self::SeekBack,
+        Self::SeekForwardLong,
+        Self::SeekBackLong,
+        Self::VolumeUp,
+        Self::VolumeDown,
+        Self::Mute,
+    ];
+
+    pub const fn description(self) -> &'static str {
+        match self {
+            Self::Back => "stop and go back",
+            Self::TogglePause => "pause or play",
+            Self::SeekForward => "forward 5 s",
+            Self::SeekBack => "back 5 s",
+            Self::SeekForwardLong => "forward 1 min",
+            Self::SeekBackLong => "back 1 min",
+            Self::VolumeUp => "volume up",
+            Self::VolumeDown => "volume down",
+            Self::Mute => "mute or unmute",
+        }
+    }
+
+    /// The same keys as mpv.
+    fn default_keys(self) -> &'static [&'static str] {
+        match self {
+            Self::Back => &["q", "esc"],
+            Self::TogglePause => &["space", "p"],
+            Self::SeekForward => &["right"],
+            Self::SeekBack => &["left"],
+            Self::SeekForwardLong => &["up"],
+            Self::SeekBackLong => &["down"],
+            Self::VolumeUp => &["0", "*"],
+            Self::VolumeDown => &["9", "/"],
+            Self::Mute => &["m"],
+        }
+    }
+}
+
+/// The actions of one table in `[keys]`.
+pub trait Actions: Copy + Eq + Hash + Ord + fmt::Debug + 'static {
+    /// The table name, for error messages.
+    const TABLE: &'static str;
+    /// The action that must keep at least one key, so the user can never get stuck.
+    const REQUIRED: Self;
+    fn all() -> &'static [Self];
+    fn default_keys(self) -> &'static [&'static str];
+}
+
+impl Actions for Action {
+    const TABLE: &'static str = "[keys.browse]";
+    const REQUIRED: Self = Self::Quit;
+
+    fn all() -> &'static [Self] {
+        &Self::ALL
+    }
+
+    fn default_keys(self) -> &'static [&'static str] {
+        Self::default_keys(self)
+    }
+}
+
+impl Actions for PlayerAction {
+    const TABLE: &'static str = "[keys.player]";
+    const REQUIRED: Self = Self::Back;
+
+    fn all() -> &'static [Self] {
+        &Self::ALL
+    }
+
+    fn default_keys(self) -> &'static [&'static str] {
+        Self::default_keys(self)
+    }
+}
+
+/// A `[keys.*]` table: action name to a list of keys.
+pub type Overrides<A> = BTreeMap<A, Vec<String>>;
+/// The `[keys.browse]` table.
+pub type KeyOverrides = Overrides<Action>;
+/// The `[keys.player]` table.
+pub type PlayerKeyOverrides = Overrides<PlayerAction>;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum KeyMapError {
-    #[error("[keys.browse] {action:?}: {source}")]
-    Parse { action: Action, source: KeyParseError },
-    #[error("[keys.browse] key {key} is bound to both {first:?} and {second:?}")]
-    Conflict { key: String, first: Action, second: Action },
-    #[error("[keys.browse] quit must have at least one key")]
-    NoQuitKey,
+    #[error("{table} {action}: {source}")]
+    Parse { table: &'static str, action: String, source: KeyParseError },
+    #[error("{table} key {key} is bound to both {first} and {second}")]
+    Conflict { table: &'static str, key: String, first: String, second: String },
+    #[error("{table} {action} must have at least one key")]
+    NoKey { table: &'static str, action: String },
 }
 
+/// The keys of one table. A key has at most one action in a table. The same
+/// key can mean different things in different tables.
 #[derive(Debug, Clone)]
-pub struct KeyMap {
-    lookup: HashMap<KeyPress, Action>,
-    bindings: Vec<(Action, Vec<KeyPress>)>,
+pub struct Bindings<A> {
+    lookup: HashMap<KeyPress, A>,
+    bindings: Vec<(A, Vec<KeyPress>)>,
 }
 
-impl KeyMap {
-    /// Builds the key map from the defaults and the overrides in the configuration file.
-    pub fn new(overrides: &KeyOverrides) -> Result<Self, KeyMapError> {
+/// The action name as the configuration file writes it.
+fn name(action: impl fmt::Debug) -> String {
+    let debug = format!("{action:?}");
+    let mut out = String::new();
+    for (i, c) in debug.chars().enumerate() {
+        if c.is_uppercase() && i > 0 {
+            out.push('_');
+        }
+        out.push(c.to_ascii_lowercase());
+    }
+    out
+}
+
+impl<A: Actions> Bindings<A> {
+    /// Builds the table from the defaults and the overrides in the configuration file.
+    pub fn new(overrides: &Overrides<A>) -> Result<Self, KeyMapError> {
         let mut lookup = HashMap::new();
         let mut bindings = Vec::new();
-        for action in Action::ALL {
+        for &action in A::all() {
             let mut keys: Vec<KeyPress> = match overrides.get(&action) {
                 Some(list) => list
                     .iter()
-                    .map(|s| s.parse().map_err(|source| KeyMapError::Parse { action, source }))
+                    .map(|s| {
+                        s.parse().map_err(|source| KeyMapError::Parse { table: A::TABLE, action: name(action), source })
+                    })
                     .collect::<Result<_, _>>()?,
                 None => action.default_keys().iter().map(|s| s.parse().expect("default keys parse")).collect(),
             };
-            if action == Action::Quit && keys.is_empty() {
-                return Err(KeyMapError::NoQuitKey);
+            if action == A::REQUIRED && keys.is_empty() {
+                return Err(KeyMapError::NoKey { table: A::TABLE, action: name(action) });
             }
             let mut seen = HashSet::new();
             keys.retain(|k| seen.insert(*k));
             for &k in &keys {
                 if let Some(first) = lookup.insert(k, action) {
-                    return Err(KeyMapError::Conflict { key: k.to_string(), first, second: action });
+                    return Err(KeyMapError::Conflict {
+                        table: A::TABLE,
+                        key: k.to_string(),
+                        first: name(first),
+                        second: name(action),
+                    });
                 }
             }
             bindings.push((action, keys));
@@ -283,24 +404,52 @@ impl KeyMap {
         Ok(Self { lookup, bindings })
     }
 
-    pub fn action(&self, key: KeyPress) -> Option<Action> {
+    pub fn action(&self, key: KeyPress) -> Option<A> {
         self.lookup.get(&key).copied()
     }
 
     /// Every action with its keys, in a fixed order, for the help screen.
-    pub fn bindings(&self) -> &[(Action, Vec<KeyPress>)] {
+    pub fn bindings(&self) -> &[(A, Vec<KeyPress>)] {
         &self.bindings
     }
 
     /// The first key of an action, for short hints in the status bar.
-    pub fn first_key(&self, action: Action) -> Option<KeyPress> {
+    pub fn first_key(&self, action: A) -> Option<KeyPress> {
         self.bindings.iter().find(|(a, _)| *a == action).and_then(|(_, k)| k.first().copied())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct KeyMap {
+    browse: Bindings<Action>,
+    pub player: Bindings<PlayerAction>,
+}
+
+impl KeyMap {
+    /// Builds the key map from the defaults and the overrides in the configuration file.
+    pub fn new(browse: &KeyOverrides, player: &PlayerKeyOverrides) -> Result<Self, KeyMapError> {
+        Ok(Self { browse: Bindings::new(browse)?, player: Bindings::new(player)? })
+    }
+
+    /// The browse action of a key.
+    pub fn action(&self, key: KeyPress) -> Option<Action> {
+        self.browse.action(key)
+    }
+
+    /// Every browse action with its keys, in a fixed order, for the help screen.
+    pub fn bindings(&self) -> &[(Action, Vec<KeyPress>)] {
+        self.browse.bindings()
+    }
+
+    /// The first key of a browse action, for short hints in the status bar.
+    pub fn first_key(&self, action: Action) -> Option<KeyPress> {
+        self.browse.first_key(action)
     }
 }
 
 impl Default for KeyMap {
     fn default() -> Self {
-        Self::new(&KeyOverrides::new()).expect("default key map has no conflicts")
+        Self::new(&KeyOverrides::new(), &PlayerKeyOverrides::new()).expect("default key map has no conflicts")
     }
 }
 
@@ -348,7 +497,7 @@ mod tests {
     #[test]
     fn override_replaces_default_list() {
         let o = KeyOverrides::from([(Action::Down, vec!["n".to_string()])]);
-        let km = KeyMap::new(&o).unwrap();
+        let km = KeyMap::new(&o, &PlayerKeyOverrides::new()).unwrap();
         assert_eq!(km.action(key("n")), Some(Action::Down));
         assert_eq!(km.action(key("j")), None);
     }
@@ -356,13 +505,17 @@ mod tests {
     #[test]
     fn quit_needs_a_key() {
         let o = KeyOverrides::from([(Action::Quit, vec![])]);
-        assert_eq!(KeyMap::new(&o).unwrap_err(), KeyMapError::NoQuitKey);
+        let err = KeyMap::new(&o, &PlayerKeyOverrides::new()).unwrap_err();
+        assert_eq!(err, KeyMapError::NoKey { table: "[keys.browse]", action: "quit".into() });
+        let o = PlayerKeyOverrides::from([(PlayerAction::Back, vec![])]);
+        let err = KeyMap::new(&KeyOverrides::new(), &o).unwrap_err();
+        assert_eq!(err.to_string(), "[keys.player] back must have at least one key");
     }
 
     #[test]
     fn repeated_key_in_one_list_is_fine() {
         let o = KeyOverrides::from([(Action::Down, vec!["n".to_string(), "n".to_string()])]);
-        let km = KeyMap::new(&o).unwrap();
+        let km = KeyMap::new(&o, &PlayerKeyOverrides::new()).unwrap();
         assert_eq!(km.action(key("n")), Some(Action::Down));
         let (_, keys) = km.bindings().iter().find(|(a, _)| *a == Action::Down).unwrap();
         assert_eq!(keys, &[key("n")]);
@@ -371,7 +524,33 @@ mod tests {
     #[test]
     fn conflict_is_an_error() {
         let o = KeyOverrides::from([(Action::Down, vec!["k".to_string()])]);
-        let err = KeyMap::new(&o).unwrap_err();
-        assert_eq!(err, KeyMapError::Conflict { key: "k".into(), first: Action::Up, second: Action::Down });
+        let err = KeyMap::new(&o, &PlayerKeyOverrides::new()).unwrap_err();
+        assert_eq!(
+            err,
+            KeyMapError::Conflict {
+                table: "[keys.browse]",
+                key: "k".into(),
+                first: "up".into(),
+                second: "down".into()
+            }
+        );
+    }
+
+    #[test]
+    fn player_keys_are_a_separate_table() {
+        let km = KeyMap::default();
+        // q quits the app in browse, and stops the video in the player.
+        assert_eq!(km.action(key("q")), Some(Action::Quit));
+        assert_eq!(km.player.action(key("q")), Some(PlayerAction::Back));
+        assert_eq!(km.player.action(key("space")), Some(PlayerAction::TogglePause));
+        assert_eq!(km.player.action(key("j")), None);
+
+        let o = PlayerKeyOverrides::from([(PlayerAction::Mute, vec!["space".to_string()])]);
+        let err = KeyMap::new(&KeyOverrides::new(), &o).unwrap_err();
+        assert_eq!(err.to_string(), "[keys.player] key space is bound to both toggle_pause and mute");
+        let o = PlayerKeyOverrides::from([(PlayerAction::SeekForwardLong, vec!["l".to_string()])]);
+        let km = KeyMap::new(&KeyOverrides::new(), &o).unwrap();
+        assert_eq!(km.player.action(key("l")), Some(PlayerAction::SeekForwardLong));
+        assert_eq!(km.player.action(key("up")), None);
     }
 }

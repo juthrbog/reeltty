@@ -1,6 +1,7 @@
 //! Terminal mode: ratatui for the UI, crossterm for input.
 
 use std::io::Write as _;
+use std::sync::Arc;
 
 use anyhow::Result;
 use crossterm::event::{Event, EventStream, KeyEvent, KeyEventKind, KeyModifiers};
@@ -12,12 +13,13 @@ use super::Frontend;
 use crate::app::{App, Input, Message};
 use crate::keymap::{KeyCode, KeyPress};
 use crate::terminal::detect::{self, Graphics};
-use crate::terminal::kitty::Uploads;
+use crate::terminal::kitty::{Uploads, VideoSink};
 
 pub struct TerminalFrontend {
     terminal: DefaultTerminal,
     graphics: Graphics,
     uploads: Uploads,
+    video: Option<Arc<VideoSink>>,
 }
 
 impl TerminalFrontend {
@@ -28,20 +30,28 @@ impl TerminalFrontend {
         tracing::info!(?graphics, "terminal graphics");
         let terminal = ratatui::init();
         let uploads = Uploads::default();
+        let video = graphics.is_available().then(|| Arc::new(VideoSink::new(Box::new(std::io::stdout()))));
         // ratatui's panic hook leaves the alternate screen. Images live on the
         // alternate screen, so they must be deleted before that.
         let cleanup = uploads.panic_cleanup();
+        let video_cleanup = video.as_ref().map(VideoSink::panic_cleanup);
         let restore = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
+            if let Some(f) = &video_cleanup {
+                f();
+            }
             cleanup();
             restore(info);
         }));
-        Self { terminal, graphics, uploads }
+        Self { terminal, graphics, uploads, video }
     }
 }
 
 impl Drop for TerminalFrontend {
     fn drop(&mut self) {
+        if let Some(video) = &self.video {
+            video.close();
+        }
         let mut out = String::new();
         self.uploads.clear(&mut out);
         let backend = self.terminal.backend_mut();
@@ -82,6 +92,9 @@ impl Frontend for TerminalFrontend {
     }
 
     fn draw(&mut self, app: &App) -> Result<()> {
+        // The video thread writes frames to stdout too. Holding the stdout
+        // lock (it is reentrant) keeps its frames out of the middle of a draw.
+        let _stdout = std::io::stdout().lock();
         // Images go out before the cells that show them. Both go through the
         // same writer, so the escapes never mix.
         let mut out = String::new();
@@ -95,6 +108,10 @@ impl Frontend for TerminalFrontend {
 
     fn graphics(&self) -> &Graphics {
         &self.graphics
+    }
+
+    fn video_sink(&self) -> Option<Arc<VideoSink>> {
+        self.video.clone()
     }
 }
 

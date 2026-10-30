@@ -6,6 +6,7 @@ pub mod config;
 pub mod doctor;
 pub mod frontend;
 pub mod keymap;
+pub mod player;
 pub mod runtime;
 pub mod source;
 pub mod store;

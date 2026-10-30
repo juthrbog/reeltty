@@ -6,14 +6,13 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::{self, Config, Paths};
+use crate::player;
 use crate::store::Store;
 use crate::terminal::detect::{self, Graphics};
 
 /// yt-dlp older than this gets a warning. YouTube breakage follows the
 /// upstream releases closely.
 const YT_DLP_MAX_AGE_DAYS: i64 = 30;
-/// mpv 0.41 has client API 2.5, which has the software render API that reeltty uses.
-const MPV_MIN_API: (u32, u32) = (2, 5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -81,37 +80,18 @@ pub fn run(paths: &Paths) -> bool {
     !checks.iter().any(|c| c.status == Status::Fail)
 }
 
+/// reeltty links to libmpv, so it only starts when the library is there.
 fn check_libmpv() -> Check {
-    match libmpv_api_version() {
-        Some((major, minor)) if (major, minor) >= MPV_MIN_API => {
-            check("libmpv", Status::Ok, format!("libmpv.so.2, client API {major}.{minor}"))
-        }
-        Some((major, minor)) => check(
+    let (major, minor) = player::api_version();
+    let (min_major, min_minor) = player::MIN_API;
+    if major == min_major && minor >= min_minor {
+        check("libmpv", Status::Ok, format!("client API {major}.{minor}"))
+    } else {
+        check(
             "libmpv",
             Status::Fail,
-            format!("client API {major}.{minor}, need {}.{} (mpv 0.41 or later)", MPV_MIN_API.0, MPV_MIN_API.1),
-        ),
-        None => check("libmpv", Status::Fail, "libmpv.so.2 not found. Install mpv."),
-    }
-}
-
-/// Loads libmpv at run time and asks for its client API version.
-fn libmpv_api_version() -> Option<(u32, u32)> {
-    let name = c"libmpv.so.2";
-    // SAFETY: dlopen and dlsym with valid C strings. `mpv_client_api_version`
-    // takes no arguments and returns an unsigned long. The library stays loaded.
-    unsafe {
-        let lib = libc::dlopen(name.as_ptr(), libc::RTLD_LAZY | libc::RTLD_LOCAL);
-        if lib.is_null() {
-            return None;
-        }
-        let sym = libc::dlsym(lib, c"mpv_client_api_version".as_ptr());
-        if sym.is_null() {
-            return None;
-        }
-        let f: extern "C" fn() -> libc::c_ulong = std::mem::transmute(sym);
-        let v = f();
-        Some((u32::try_from(v >> 16).ok()?, u32::try_from(v & 0xffff).ok()?))
+            format!("client API {major}.{minor}, need {min_major}.{min_minor} or a later 2.x (mpv 0.37 or later)"),
+        )
     }
 }
 

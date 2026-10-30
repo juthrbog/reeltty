@@ -4,9 +4,10 @@
 //!
 //! See <https://sw.kovidgoyal.net/kitty/graphics-protocol/#unicode-placeholders>.
 
-use std::collections::HashSet;
-use std::io::Write as _;
+use std::collections::{HashSet, VecDeque};
+use std::io::Write;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 
@@ -20,6 +21,12 @@ pub const PLACEHOLDER: char = '\u{10EEEE}';
 /// The largest image ID. The ID rides in a 24-bit foreground color.
 pub const MAX_ID: u32 = 0xFF_FFFF;
 
+/// The image ID of the video. Thumbnails use IDs from 256.
+pub const VIDEO_ID: u32 = 1;
+
+/// The most rows or columns of an image that placeholders can address.
+pub const MAX_CELLS: u16 = 297;
+
 /// Sends the RGBA pixels in the shared memory object `shm_name` as image `id`,
 /// with a virtual placement of `cols` x `rows` cells. `q=2` stops all replies,
 /// so nothing comes back on stdin.
@@ -27,6 +34,18 @@ pub fn transmit(id: u32, shm_name: &str, picture: &Picture) -> String {
     let b64 = base64::engine::general_purpose::STANDARD.encode(shm_name);
     let Picture { width, height, cols, rows, .. } = picture;
     format!("\x1b_Ga=T,U=1,q=2,f=32,t=s,i={id},s={width},v={height},c={cols},r={rows};{b64}\x1b\\")
+}
+
+/// Sends one video frame of `width` x `height` RGBA pixels in the shared
+/// memory object `shm_name`, shown in `cols` x `rows` cells. The same image
+/// ID and placement each time replace the last frame. `N=1` tells the
+/// terminal that the image changes often, and synchronized output keeps the
+/// terminal from painting half a frame.
+pub fn video_frame(shm_name: &str, width: u16, height: u16, cols: u16, rows: u16) -> String {
+    let b64 = base64::engine::general_purpose::STANDARD.encode(shm_name);
+    format!(
+        "\x1b[?2026h\x1b_Ga=T,U=1,q=2,f=32,t=s,i={VIDEO_ID},p=1,s={width},v={height},c={cols},r={rows},N=1;{b64}\x1b\\\x1b[?2026l"
+    )
 }
 
 /// Deletes image `id` and frees its data in the terminal.
@@ -128,6 +147,131 @@ impl Uploads {
     }
 }
 
+/// What `VideoSink::present` did with a frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Presented {
+    Shown,
+    /// The terminal has not read the last frames yet, so this one was dropped.
+    Skipped,
+    /// The video was closed, or another one started.
+    Closed,
+}
+
+/// The terminal has not read this many frames yet: drop the next one.
+const MAX_UNREAD_FRAMES: usize = 2;
+
+/// Where video frames go. The render thread sends frames, and the main
+/// thread opens and closes the video. Closing deletes the image, and no frame
+/// can come after that.
+pub struct VideoSink {
+    state: Mutex<SinkState>,
+}
+
+struct SinkState {
+    out: Box<dyn Write + Send>,
+    /// The session that may send frames, or `None` when closed.
+    session: Option<u64>,
+    /// Frames that the terminal did not read yet, with their session.
+    unread: VecDeque<(u64, String)>,
+    counter: u64,
+}
+
+impl std::fmt::Debug for VideoSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VideoSink").finish_non_exhaustive()
+    }
+}
+
+impl VideoSink {
+    /// Writes the escapes to `out`, which must be the terminal (`stdout`)
+    /// outside tests.
+    pub fn new(out: Box<dyn Write + Send>) -> Self {
+        Self { state: Mutex::new(SinkState { out, session: None, unread: VecDeque::new(), counter: 0 }) }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, SinkState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Lets `session` send frames.
+    pub fn open(&self, session: u64) {
+        self.lock().session = Some(session);
+    }
+
+    /// Sends a frame of `session`, if it is still open and the terminal
+    /// keeps up.
+    pub fn present(&self, session: u64, rgba: &[u8], size: (u16, u16), cells: (u16, u16)) -> anyhow::Result<Presented> {
+        let mut s = self.lock();
+        if s.session != Some(session) {
+            return Ok(Presented::Closed);
+        }
+        s.unread.retain(|(_, name)| shm::exists(name));
+        if s.unread.iter().filter(|(id, _)| *id == session).count() >= MAX_UNREAD_FRAMES {
+            return Ok(Presented::Skipped);
+        }
+        s.counter += 1;
+        let name = format!("/reeltty-v-{}-{session}-{}", std::process::id(), s.counter);
+        shm::write(&name, rgba)?;
+        s.unread.push_back((session, name.clone()));
+        let escape = video_frame(&name, size.0, size.1, cells.0, cells.1);
+        s.out.write_all(escape.as_bytes()).and_then(|()| s.out.flush())?;
+        Ok(Presented::Shown)
+    }
+
+    /// Stops all frames and deletes the video image.
+    pub fn close(&self) {
+        let mut s = self.lock();
+        if s.session.take().is_some() {
+            let delete = delete(VIDEO_ID);
+            if let Err(e) = s.out.write_all(delete.as_bytes()).and_then(|()| s.out.flush()) {
+                tracing::warn!("cannot delete the video image: {e}");
+            }
+        }
+    }
+
+    /// Waits up to `wait` for the terminal to read the frames of `session`,
+    /// then removes the ones it did not read.
+    pub fn reap(&self, session: u64, wait: Duration) {
+        let end = Instant::now() + wait;
+        loop {
+            let mut s = self.lock();
+            s.unread.retain(|(_, name)| shm::exists(name));
+            if !s.unread.iter().any(|(id, _)| *id == session) {
+                return;
+            }
+            if Instant::now() >= end {
+                s.unread.retain(|(id, name)| {
+                    if *id == session {
+                        shm::unlink(name);
+                    }
+                    *id != session
+                });
+                return;
+            }
+            drop(s);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// A function for a panic hook, like `Uploads::panic_cleanup`: it
+    /// deletes the video image and removes the unread frames. It does
+    /// nothing if another thread holds the lock, so it can never deadlock.
+    pub fn panic_cleanup(self: &Arc<Self>) -> impl Fn() + Send + Sync + 'static {
+        let sink = Arc::downgrade(self);
+        move || {
+            let Some(sink) = sink.upgrade() else { return };
+            let Ok(mut s) = sink.state.try_lock() else { return };
+            if s.session.take().is_some() {
+                let delete = delete(VIDEO_ID);
+                let _ = s.out.write_all(delete.as_bytes()).and_then(|()| s.out.flush());
+            }
+            for (_, name) in s.unread.drain(..) {
+                shm::unlink(&name);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,6 +287,78 @@ mod tests {
         assert_eq!(id_color(0x01_02_03), (1, 2, 3));
         assert_eq!(cell(0, 1).unwrap(), "\u{10EEEE}\u{305}\u{30D}");
         assert_eq!(cell(0, 297), None);
+        assert_eq!(DIACRITICS.len(), usize::from(MAX_CELLS));
+    }
+
+    /// A writer that tests can read.
+    #[derive(Clone, Default)]
+    struct Shared(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Shared {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Shared {
+        fn take(&self) -> String {
+            String::from_utf8(std::mem::take(&mut *self.0.lock().unwrap())).unwrap()
+        }
+    }
+
+    #[test]
+    fn video_frame_escape() {
+        assert_eq!(
+            video_frame("/x", 32, 18, 4, 2),
+            "\x1b[?2026h\x1b_Ga=T,U=1,q=2,f=32,t=s,i=1,p=1,s=32,v=18,c=4,r=2,N=1;L3g=\x1b\\\x1b[?2026l"
+        );
+    }
+
+    #[test]
+    fn video_sink_drops_frames_the_terminal_did_not_read() {
+        let out = Shared::default();
+        let sink = Arc::new(VideoSink::new(Box::new(out.clone())));
+        let rgba = [0u8; 16];
+        let present = |session| sink.present(session, &rgba, (2, 2), (1, 1)).unwrap();
+        assert_eq!(present(5), Presented::Closed);
+        sink.open(5);
+        assert_eq!(present(5), Presented::Shown);
+        assert_eq!(present(5), Presented::Shown);
+        // Nobody reads the objects in this test.
+        assert_eq!(present(5), Presented::Skipped);
+        assert_eq!(out.take().matches("a=T").count(), 2);
+        assert_eq!(present(4), Presented::Closed);
+
+        let names: Vec<String> = sink.lock().unread.iter().map(|(_, n)| n.clone()).collect();
+        // The terminal reads one.
+        shm::unlink(&names[0]);
+        assert_eq!(present(5), Presented::Shown);
+
+        sink.close();
+        assert_eq!(out.take(), format!("{}{}", video_frame(&sink.lock().unread[1].1, 2, 2, 1, 1), delete(VIDEO_ID)));
+        assert_eq!(present(5), Presented::Closed);
+        sink.close();
+        assert_eq!(out.take(), "", "close deletes once");
+        sink.reap(5, Duration::from_millis(20));
+        assert!(sink.lock().unread.is_empty());
+        assert!(names.iter().all(|n| !shm::exists(n)));
+    }
+
+    #[test]
+    fn video_sink_panic_cleanup() {
+        let out = Shared::default();
+        let sink = Arc::new(VideoSink::new(Box::new(out.clone())));
+        sink.open(1);
+        sink.present(1, &[0; 4], (1, 1), (1, 1)).unwrap();
+        let name = sink.lock().unread[0].1.clone();
+        out.take();
+        sink.panic_cleanup()();
+        assert_eq!(out.take(), delete(VIDEO_ID));
+        assert!(!shm::exists(&name));
     }
 
     #[test]

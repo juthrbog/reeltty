@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 use reeltty::app::App;
+use reeltty::app::thumbnails::Thumbnails;
 use reeltty::config::{Config, Paths};
 use reeltty::frontend::Frontend as _;
 use reeltty::frontend::terminal::TerminalFrontend;
@@ -14,6 +15,7 @@ use reeltty::source::innertube::InnerTube;
 use reeltty::source::ytdlp::YtDlp;
 use reeltty::source::{Fallback, Source};
 use reeltty::store::Store;
+use reeltty::thumbnails::{self, Fetcher};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -70,9 +72,24 @@ fn run_tui(paths: &Paths) -> Result<()> {
         let mut app = App::new(keymap, frontend.graphics().clone());
         app.subscriptions = subscriptions;
         app.saved_playlists = saved_playlists;
-        let services = Services { source, store };
+        let thumbnails = (config.thumbnails.0 && app.graphics.is_available())
+            .then(|| start_thumbnails(&paths.thumbnail_cache))
+            .flatten();
+        app.thumbnails = Thumbnails::new(thumbnails.is_some());
+        let services = Services { source, store, thumbnails };
         reeltty::runtime::run(&mut app, &mut frontend, services).await
     })
+}
+
+/// The thumbnail downloader. Old cache files are removed in the background.
+fn start_thumbnails(cache: &std::path::Path) -> Option<Fetcher> {
+    let dir = cache.to_path_buf();
+    std::thread::spawn(move || match thumbnails::prune(&dir, thumbnails::MAX_CACHE_BYTES) {
+        Ok(0) => {}
+        Ok(n) => tracing::info!("removed {n} old thumbnails from the cache"),
+        Err(e) => tracing::debug!("thumbnail cache not pruned: {e:#}"),
+    });
+    Fetcher::new(cache.to_path_buf()).inspect_err(|e| tracing::warn!("thumbnails are off: {e:#}")).ok()
 }
 
 /// Logs go to a file, because the UI owns the terminal. `REELTTY_LOG` sets the filter.

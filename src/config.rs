@@ -13,11 +13,12 @@ pub struct Paths {
     pub config_file: PathBuf,
     pub database: PathBuf,
     pub log_file: PathBuf,
+    pub thumbnail_cache: PathBuf,
 }
 
 impl Paths {
     /// `$XDG_CONFIG_HOME/reeltty/config.toml`, `$XDG_DATA_HOME/reeltty/reeltty.db`,
-    /// and `$XDG_STATE_HOME/reeltty/reeltty.log`.
+    /// `$XDG_STATE_HOME/reeltty/reeltty.log`, and `$XDG_CACHE_HOME/reeltty/thumbnails`.
     pub fn from_env() -> Result<Self> {
         let dirs = directories::ProjectDirs::from("", "", "reeltty").context("no home directory")?;
         let state = dirs.state_dir().unwrap_or_else(|| dirs.data_local_dir());
@@ -25,6 +26,7 @@ impl Paths {
             config_file: dirs.config_dir().join("config.toml"),
             database: dirs.data_dir().join("reeltty.db"),
             log_file: state.join("reeltty.log"),
+            thumbnail_cache: dirs.cache_dir().join("thumbnails"),
         })
     }
 }

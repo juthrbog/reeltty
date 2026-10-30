@@ -36,7 +36,7 @@ The configuration file is `~/.config/reeltty/config.toml`. All settings are opti
 # A nightly build gets YouTube fixes first.
 yt_dlp = "/home/me/.local/bin/yt-dlp"
 
-# Show thumbnails in lists.
+# Show thumbnails in lists. They need the same terminal as video.
 thumbnails = true
 
 # Each list replaces the default keys for that action.
@@ -47,7 +47,7 @@ up = ["k", "up"]
 
 The actions are `quit`, `up`, `down`, `top`, `bottom`, `half_page_up`, `half_page_down`, `open`, `back`, `search`, `filters`, `next_tab`, `prev_tab`, `refresh`, `details`, `channel`, `toggle`, and `help`. Keys are written as `j`, `G`, `ctrl-d`, `alt-x`, `space`, `enter`, `esc`, `tab`, `shift-tab`, `backspace`, `up`, `down`, `left`, `right`, `pgup`, `pgdn`, `home`, `end`, or `f1` to `f12`.
 
-Local state (subscriptions, history, saved playlists) is in `~/.local/share/reeltty/reeltty.db`. The log is in `~/.local/state/reeltty/reeltty.log`. Set `REELTTY_LOG=debug` for more detail.
+Local state (subscriptions, history, saved playlists) is in `~/.local/share/reeltty/reeltty.db`. Thumbnails are cached in `~/.cache/reeltty/thumbnails`, up to 100 MB. The log is in `~/.local/state/reeltty/reeltty.log`. Set `REELTTY_LOG=debug` for more detail.
 
 ## Development
 

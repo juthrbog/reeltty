@@ -70,7 +70,7 @@ fn draw_channel(app: &App, s: &ChannelScreen, f: &mut Frame, area: Rect) {
         None => Vec::new(),
     };
     f.render_widget(Paragraph::new(lines), header);
-    draw_items(&s.list, "This channel has no videos.", f, list);
+    draw_items(app, &s.list, "This channel has no videos.", f, list);
 }
 
 fn draw_playlist(app: &App, s: &PlaylistScreen, f: &mut Frame, area: Rect) {
@@ -95,10 +95,10 @@ fn draw_playlist(app: &App, s: &PlaylistScreen, f: &mut Frame, area: Rect) {
         None => Vec::new(),
     };
     f.render_widget(Paragraph::new(lines), header);
-    draw_items(&s.list, "This playlist has no videos.", f, list);
+    draw_items(app, &s.list, "This playlist has no videos.", f, list);
 }
 
-fn draw_items(list: &ItemList, empty: &str, f: &mut Frame, area: Rect) {
+fn draw_items(app: &App, list: &ItemList, empty: &str, f: &mut Frame, area: Rect) {
     if list.items.is_empty() {
         let text = match (&list.error, list.loading) {
             (Some(e), _) => Paragraph::new(format!("Could not load: {e}")).red().wrap(Wrap { trim: true }),
@@ -108,7 +108,7 @@ fn draw_items(list: &ItemList, empty: &str, f: &mut Frame, area: Rect) {
         f.render_widget(text, area);
         return;
     }
-    items::draw_list(&list.items, list.selection, f, area);
+    items::draw_list(&list.items, list.selection, &app.thumbnails, f, area);
 }
 
 fn draw_video(app: &App, s: &VideoScreen, f: &mut Frame, area: Rect) {

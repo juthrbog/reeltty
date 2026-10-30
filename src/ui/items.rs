@@ -1,29 +1,61 @@
 //! Drawing items in lists: two rows for each video, channel, or playlist.
 
 use ratatui::Frame;
-use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style, Stylize as _};
+use ratatui::buffer::Buffer;
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::{Color, Modifier, Style, Stylize as _};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState};
 use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 
-use crate::app::{ROWS_PER_ITEM, Selection};
+use crate::app::Selection;
+use crate::app::thumbnails::Thumbnails;
 use crate::source::model::{Channel, ChannelRef, Item, Playlist, PlaylistKind, Video, VideoKind};
+use crate::terminal::kitty;
 
-/// Draws `items` with the selected one highlighted.
-pub fn draw_list(items: &[Item], selection: Selection, f: &mut Frame, area: Rect) {
-    let rows_of = |item: &Item| rows(item, usize::from(area.width));
-    draw_rows(items.iter().map(rows_of).collect(), selection, f, area);
+/// The text column must keep at least this many cells, or thumbnails are not drawn.
+const MIN_TEXT_WIDTH: u16 = 20;
+
+/// Draws `items` with the selected one highlighted, and with thumbnails if they are on.
+pub fn draw_list(items: &[Item], selection: Selection, thumbnails: &Thumbnails, f: &mut Frame, area: Rect) {
+    let slot = thumbnails.slot();
+    let three = thumbnails.enabled;
+    let show = three && area.width >= slot.cols + 1 + MIN_TEXT_WIDTH && area.height >= slot.rows;
+    let (pictures, text) = if show {
+        let [pictures, _, text] =
+            Layout::horizontal([Constraint::Length(slot.cols), Constraint::Length(1), Constraint::Min(0)]).areas(area);
+        (Some(pictures), text)
+    } else {
+        (None, area)
+    };
+    let rows_of = |item: &Item| rows(item, usize::from(text.width), three);
+    let offset = draw_rows(items.iter().map(rows_of).collect(), selection, f, text);
+    let Some(pictures) = pictures else { return };
+    for (n, item) in items.iter().skip(offset).enumerate() {
+        // The List draws only whole items, so a picture is drawn only where it fits whole.
+        let Some(y) = u16::try_from(n)
+            .ok()
+            .and_then(|n| n.checked_mul(slot.rows))
+            .filter(|y| y.saturating_add(slot.rows) <= pictures.height)
+        else {
+            break;
+        };
+        if let Some(id) = thumbnails.image(item) {
+            draw_image(f.buffer_mut(), Rect { y: pictures.y + y, height: slot.rows, ..pictures }, id);
+        }
+    }
 }
 
-/// Draws prepared two-line rows with the selected one highlighted.
-pub fn draw_rows(rows: Vec<Vec<Line<'static>>>, selection: Selection, f: &mut Frame, area: Rect) {
-    // A list area of one row shows titles only, so that the selection is still visible.
-    let two_rows = area.height >= ROWS_PER_ITEM;
+/// Draws prepared rows (all with the same number of lines) with the selected
+/// one highlighted. Returns the first visible row.
+pub fn draw_rows(rows: Vec<Vec<Line<'static>>>, selection: Selection, f: &mut Frame, area: Rect) -> usize {
+    // A list area too small for a whole item shows titles only, so that the selection is still visible.
+    let lines = rows.first().map_or(1, Vec::len);
+    let whole = usize::from(area.height) >= lines;
     let items: Vec<ListItem> = rows
         .into_iter()
         .map(|mut lines| {
-            if !two_rows {
+            if !whole {
                 lines.truncate(1);
             }
             ListItem::new(lines)
@@ -32,20 +64,48 @@ pub fn draw_rows(rows: Vec<Vec<Line<'static>>>, selection: Selection, f: &mut Fr
     let list = List::new(items).highlight_style(Style::new().add_modifier(Modifier::REVERSED));
     let mut state = ListState::default().with_offset(selection.offset).with_selected(Some(selection.index));
     f.render_stateful_widget(list, area, &mut state);
+    state.offset()
 }
 
-/// Two lines for one result: the title, then the details.
-pub fn rows(item: &Item, width: usize) -> Vec<Line<'static>> {
-    let (title, details) = match item {
+/// Fills `area` with the placeholder cells of image `id`.
+fn draw_image(buf: &mut Buffer, area: Rect, id: u32) {
+    let (r, g, b) = kitty::id_color(id);
+    let style = Style::reset().fg(Color::Rgb(r, g, b));
+    for row in 0..area.height {
+        for col in 0..area.width {
+            let Some(symbol) = kitty::cell(row, col) else { continue };
+            if let Some(cell) = buf.cell_mut((area.x + col, area.y + row)) {
+                cell.set_symbol(&symbol).set_style(style);
+            }
+        }
+    }
+}
+
+/// The lines for one result: the title, then the details. `three` puts the
+/// details on two lines, beside a thumbnail.
+pub fn rows(item: &Item, width: usize, three: bool) -> Vec<Line<'static>> {
+    let (title, mut first, mut second) = match item {
         Item::Video(v) => video_rows(v),
         Item::Channel(c) => channel_rows(c),
         Item::Playlist(p) => playlist_rows(p),
     };
-    let details = Line::from(vec![Span::from("  "), Span::from(truncate(&details, width.saturating_sub(2))).dim()]);
-    vec![title, details]
+    let detail = |parts: &[String]| {
+        Line::from(vec![Span::from("  "), Span::from(truncate(&parts.join(" · "), width.saturating_sub(2))).dim()])
+    };
+    if !three {
+        first.append(&mut second);
+        return vec![title, detail(&first)];
+    }
+    if first.is_empty() {
+        std::mem::swap(&mut first, &mut second);
+    }
+    vec![title, detail(&first), detail(&second)]
 }
 
-fn video_rows(v: &Video) -> (Line<'static>, String) {
+/// The title line and two groups of details: who made it, then the rest.
+type Rows = (Line<'static>, Vec<String>, Vec<String>);
+
+fn video_rows(v: &Video) -> Rows {
     let mut title = Vec::new();
     match v.kind {
         VideoKind::Live => title.push(Span::from("LIVE ").red().bold()),
@@ -56,35 +116,32 @@ fn video_rows(v: &Video) -> (Line<'static>, String) {
         title.push(Span::from("MEMBERS ").yellow().bold());
     }
     title.push(Span::from(v.title.clone()).bold());
-    let mut parts = Vec::new();
-    if !v.channels.is_empty() {
-        parts.push(channel_names(&v.channels));
-    }
-    parts.extend(v.duration_text.clone());
-    parts.extend(v.views_text.clone());
-    parts.extend(v.published_text.clone());
-    parts.extend(v.badges.iter().cloned());
-    (Line::from(title), parts.join(" · "))
+    let by = if v.channels.is_empty() { Vec::new() } else { vec![channel_names(&v.channels)] };
+    let mut rest = Vec::new();
+    rest.extend(v.duration_text.clone());
+    rest.extend(v.views_text.clone());
+    rest.extend(v.published_text.clone());
+    rest.extend(v.badges.iter().cloned());
+    (Line::from(title), by, rest)
 }
 
-fn channel_rows(c: &Channel) -> (Line<'static>, String) {
+fn channel_rows(c: &Channel) -> Rows {
     let mut title = vec![Span::from("CHANNEL ").cyan().bold(), Span::from(c.name.clone()).bold()];
     if c.verified {
         title.push(" ✓".into());
     }
-    let parts: Vec<String> =
-        c.handle.iter().chain(&c.subscribers_text).chain(&c.description_snippet).cloned().collect();
-    (Line::from(title), parts.join(" · "))
+    let by: Vec<String> = c.handle.iter().chain(&c.subscribers_text).cloned().collect();
+    (Line::from(title), by, c.description_snippet.iter().cloned().collect())
 }
 
-fn playlist_rows(p: &Playlist) -> (Line<'static>, String) {
+fn playlist_rows(p: &Playlist) -> Rows {
     let label = match p.kind {
         PlaylistKind::Playlist => "PLAYLIST ",
         PlaylistKind::Course => "COURSE ",
     };
     let title = vec![Span::from(label).green().bold(), Span::from(p.title.clone()).bold()];
-    let parts: Vec<String> = p.channel.iter().map(|c| c.name.clone()).chain(p.count_text.clone()).collect();
-    (Line::from(title), parts.join(" · "))
+    let by = p.channel.iter().map(|c| c.name.clone()).collect();
+    (Line::from(title), by, p.count_text.iter().cloned().collect())
 }
 
 pub fn channel_names(channels: &[ChannelRef]) -> String {

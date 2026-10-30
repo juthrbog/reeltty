@@ -543,7 +543,8 @@ mod tests {
             {"metadataBadgeRenderer": {"label": "8 products"}},
             {"metadataBadgeRenderer": {"label": "1 product"}},
             {"metadataBadgeRenderer": {"label": "4K"}},
-            {"metadataBadgeRenderer": {"label": "Top 10 products"}}
+            {"metadataBadgeRenderer": {"label": "Top 10 products"}},
+            {"metadataBadgeRenderer": {"label": "Fundraiser"}}
         ]}}));
         assert_eq!(v.badges, ["4K", "Top 10 products"]);
     }

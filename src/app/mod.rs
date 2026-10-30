@@ -11,7 +11,7 @@ pub mod search;
 
 use crate::keymap::{Action, KeyMap, KeyPress};
 use crate::source::filters::SearchQuery;
-use crate::source::model::{ChannelPage, Item, ItemPage, PlaylistPage, SearchPage, VideoDetails};
+use crate::source::model::{ChannelPage, ChannelRef, Item, ItemPage, PlaylistPage, SearchPage, VideoDetails};
 use crate::store::{SavedPlaylist, Subscription};
 use crate::terminal::detect::Graphics;
 use list::ItemList;
@@ -277,9 +277,30 @@ impl App {
             }
             Message::MoreLoaded { request, result } => {
                 let rows = self.rows(SCREEN_HEADER_ROWS);
-                let Some(list) = self.screen_mut(request).and_then(Screen::list_mut) else { return Vec::new() };
+                let Some(screen) = self.screen_mut(request) else { return Vec::new() };
+                // Later pages of a channel's videos do not name the channel.
+                let owner = match screen {
+                    Screen::Channel(s) => Some(ChannelRef {
+                        id: Some(s.id.clone()),
+                        name: s.name.clone(),
+                        handle: s.info.as_ref().and_then(|i| i.handle.clone()),
+                    }),
+                    _ => None,
+                };
+                let Some(list) = screen.list_mut() else { return Vec::new() };
                 match result {
-                    Ok(page) => more(request, list.add_page(page, rows)),
+                    Ok(mut page) => {
+                        if let Some(owner) = owner {
+                            for item in &mut page.items {
+                                if let Item::Video(v) = item
+                                    && v.channels.is_empty()
+                                {
+                                    v.channels.push(owner.clone());
+                                }
+                            }
+                        }
+                        more(request, list.add_page(page, rows))
+                    }
                     Err(e) => {
                         list.fail(e);
                         Vec::new()
@@ -990,6 +1011,10 @@ mod tests {
         });
         let Some(Screen::Channel(s)) = a.screens.last() else { panic!("no channel screen") };
         assert_eq!(s.list.items.len(), 21);
+        // The later page did not name the channel, so the screen's channel fills it in.
+        let Some(Item::Video(v)) = s.list.items.last() else { panic!("not a video") };
+        assert_eq!(v.channels[0].id.as_deref(), Some("UC1"));
+        assert_eq!(v.channels[0].name, "Real Name");
     }
 
     #[test]

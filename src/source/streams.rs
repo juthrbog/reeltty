@@ -66,6 +66,8 @@ pub struct Streams {
     pub channel: Option<ChannelRef>,
     /// `None` for a live stream.
     pub duration_secs: Option<u32>,
+    /// Live now, so it has no fixed length and no place to resume.
+    pub live: bool,
     /// The other sizes of the video stream, smallest first. Empty when the
     /// video and audio come in one stream, as for live streams.
     pub qualities: Vec<Quality>,
@@ -144,6 +146,7 @@ struct Info {
     uploader_id: Option<String>,
     duration: Option<f64>,
     is_live: Option<bool>,
+    live_status: Option<String>,
     requested_formats: Option<Vec<Info>>,
     formats: Option<Vec<Info>>,
     chapters: Option<Vec<YtChapter>>,
@@ -257,9 +260,9 @@ pub fn parse_streams(json: &[u8]) -> Result<Streams> {
         name,
         handle: info.uploader_id.clone().filter(|h| h.starts_with('@')),
     });
+    let live = info.is_live == Some(true) || info.live_status.as_deref() == Some("is_live");
     #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "video lengths")]
-    let duration_secs =
-        info.duration.filter(|d| d.is_finite() && *d > 0.0 && info.is_live != Some(true)).map(|d| d.round() as u32);
+    let duration_secs = info.duration.filter(|d| d.is_finite() && *d > 0.0 && !live).map(|d| d.round() as u32);
     let qualities =
         if audio_url.is_some() { qualities(info.formats.as_deref().unwrap_or_default()) } else { Vec::new() };
     Ok(Streams {
@@ -272,6 +275,7 @@ pub fn parse_streams(json: &[u8]) -> Result<Streams> {
         chapters,
         channel,
         duration_secs,
+        live,
         qualities,
         captions: captions(info.subtitles, info.automatic_captions),
     })

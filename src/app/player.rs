@@ -226,6 +226,8 @@ pub struct PlayerState {
     pub channel: Option<ChannelRef>,
     /// From yt-dlp, for the history.
     duration_secs: Option<u32>,
+    /// A live stream: the history keeps no position for it.
+    live: bool,
     /// The video is in the history. It goes in when mpv first loads it.
     recorded: bool,
     /// The position in the history, in seconds.
@@ -372,6 +374,7 @@ impl App {
             chapters: Vec::new(),
             channel: None,
             duration_secs: None,
+            live: false,
             recorded: false,
             saved_secs: 0,
             watched_at: 0,
@@ -400,17 +403,23 @@ impl App {
         effects
     }
 
-    /// Where to resume a video from the history, if the user stopped in the middle.
+    /// Where to resume a video from the history, if the user stopped in the
+    /// middle. Only videos with a known length resume, so live streams start
+    /// at the live edge.
     fn resume_at(&self, id: &str) -> Option<u32> {
         let e = self.history.iter().find(|e| e.video_id == id)?;
-        let before_end = e.duration_secs.is_none_or(|d| e.position_secs + RESUME_MARGIN_SECS < d);
+        let before_end = e.position_secs + RESUME_MARGIN_SECS < e.duration_secs?;
         (!e.finished && e.position_secs >= RESUME_MARGIN_SECS && before_end).then_some(e.position_secs)
     }
 
-    /// Saves the video that plays in the history, if mpv has loaded it.
+    /// Saves the video that plays in the history, if mpv has loaded it. After
+    /// the end, it is saved as finished, and later saves do not undo that.
     pub(super) fn save_watch(&mut self, finished: bool) -> Option<Effect> {
         let p = self.player.as_mut().filter(|p| p.recorded)?;
-        let position = if finished { 0 } else { u32::try_from(p.position_ms / 1000).unwrap_or(u32::MAX) };
+        if !finished && p.phase == Phase::Ended {
+            return None;
+        }
+        let position = if finished || p.live { 0 } else { u32::try_from(p.position_ms / 1000).unwrap_or(u32::MAX) };
         p.saved_secs = position;
         let entry = HistoryEntry {
             video_id: p.id.clone(),
@@ -548,6 +557,7 @@ impl App {
         p.chapters.clone_from(&streams.chapters);
         p.channel.clone_from(&streams.channel);
         p.duration_secs = streams.duration_secs;
+        p.live = streams.live;
         if p.watched_at == 0 {
             p.watched_at = i64::try_from(now).unwrap_or(i64::MAX);
         }
@@ -661,9 +671,7 @@ impl App {
             return self.on_quality_menu_key(key, action);
         }
         if action == Some(PlayerAction::Back) {
-            // An ended video is saved already, as finished.
-            let ended = self.player.as_ref().is_some_and(|p| p.phase == Phase::Ended);
-            let save = if ended { None } else { self.save_watch(false) };
+            let save = self.save_watch(false);
             self.player = None;
             return save.into_iter().chain([Effect::Player(PlayerCommand::Stop)]).collect();
         }
@@ -883,6 +891,7 @@ mod tests {
             chapters: Vec::new(),
             channel: None,
             duration_secs: None,
+            live: false,
             qualities: Vec::new(),
             captions: Vec::new(),
         })
@@ -1400,6 +1409,7 @@ mod tests {
         let mut a = playing(false);
         // Not in the history until mpv loads the video.
         assert!(saves(&a.update(Message::Player { session: 1, event: PlayerEvent::Position(5_000) })).is_empty());
+        a.update(Message::Player { session: 1, event: PlayerEvent::Duration(600_000) });
         let s = saves(&a.update(Message::Player { session: 1, event: PlayerEvent::FileLoaded }));
         assert_eq!(s.len(), 1);
         assert_eq!((s[0].video_id.as_str(), s[0].position_secs, s[0].finished), ("v1", 5, false));
@@ -1454,6 +1464,9 @@ mod tests {
             a.history = vec![entry(position)];
             assert_eq!(a.resume_at("v1"), resume, "{position}");
         }
+        // No length, as for a live stream: no resume.
+        a.history = vec![HistoryEntry { duration_secs: None, ..entry(300) }];
+        assert_eq!(a.resume_at("v1"), None);
     }
 
     #[test]
@@ -1467,5 +1480,53 @@ mod tests {
         assert!(matches!(effects.as_slice(), [Effect::SaveWatch(_), Effect::Quit]));
         let effects = a.play("v2".into(), "Other".into());
         assert!(matches!(effects.first(), Some(Effect::SaveWatch(h)) if h.video_id == "v1"));
+    }
+
+    #[test]
+    fn a_finished_video_stays_finished() {
+        let ended = || {
+            let mut a = playing(false);
+            a.update(Message::RelatedLoaded { session: 1, result: Ok(related(&["r1"])) });
+            a.update(Message::Player { session: 1, event: PlayerEvent::FileLoaded });
+            a.update(Message::Player { session: 1, event: PlayerEvent::Position(599_000) });
+            a.update(Message::Player { session: 1, event: PlayerEvent::Ended });
+            a
+        };
+        // Autoplay, quit, and a late position after the end save nothing more.
+        let mut a = ended();
+        let mut effects = Vec::new();
+        for _ in 0..AUTOPLAY_SECS {
+            effects.extend(a.update(Message::Tick { session: 1, now: 0 }));
+        }
+        assert!(saves(&effects).is_empty(), "{effects:?}");
+        assert!(a.history.iter().any(|h| h.video_id == "v1" && h.finished));
+        let mut a = ended();
+        assert!(saves(&a.update(Message::Input(Input::Key("ctrl-c".parse().unwrap())))).is_empty());
+        let mut a = ended();
+        assert!(saves(&a.update(Message::Player { session: 1, event: PlayerEvent::Position(600_000) })).is_empty());
+    }
+
+    #[test]
+    fn a_crash_or_lost_input_saves_the_place() {
+        let mut a = playing(false);
+        a.update(Message::Player { session: 1, event: PlayerEvent::FileLoaded });
+        a.update(Message::Player { session: 1, event: PlayerEvent::Position(45_000) });
+        let effects = a.update(Message::InputClosed("EIO".into()));
+        assert!(matches!(effects.as_slice(), [Effect::SaveWatch(h), Effect::Fail(_)] if h.position_secs == 45));
+        let effects = a.update(Message::Player { session: 1, event: PlayerEvent::Crashed("render".into()) });
+        assert!(matches!(effects.as_slice(), [Effect::SaveWatch(_), Effect::Fail(_)]));
+    }
+
+    #[test]
+    fn live_streams_keep_no_position() {
+        let mut a = app();
+        a.play("live".into(), "Radio".into());
+        let mut s = streams(None);
+        s.live = true;
+        a.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(s) });
+        a.update(Message::Player { session: 1, event: PlayerEvent::FileLoaded });
+        a.update(Message::Player { session: 1, event: PlayerEvent::Position(300_000) });
+        let s = saves(&a.update(Message::Input(Input::Key("q".parse().unwrap()))));
+        assert_eq!(s[0].position_secs, 0);
     }
 }

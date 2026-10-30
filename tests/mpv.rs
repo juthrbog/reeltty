@@ -273,6 +273,7 @@ mod player {
             chapters: Vec::new(),
             channel: None,
             duration_secs: None,
+            live: false,
             qualities: Vec::new(),
             captions: Vec::new(),
         }

@@ -354,8 +354,8 @@ impl App {
 
     pub fn update(&mut self, msg: Message) -> Vec<Effect> {
         let mut effects = self.handle(msg);
-        // Keep the place in the video that plays, before the app quits.
-        if effects.contains(&Effect::Quit)
+        // Keep the place in the video that plays, before the app quits or fails.
+        if effects.iter().any(|e| matches!(e, Effect::Quit | Effect::Fail(_)))
             && let Some(save) = self.save_watch(false)
         {
             effects.insert(0, save);
@@ -892,9 +892,14 @@ impl App {
 
     /// Puts a watch at the top of the history.
     fn remember_watch(&mut self, e: &HistoryEntry) {
+        // The selection stays on the same video when the entries move.
+        let selected = self.history.get(self.history_selection.index).map(|h| h.video_id.clone());
         self.history.retain(|h| h.video_id != e.video_id);
         self.history.insert(0, e.clone());
         self.history.truncate(HISTORY_LIMIT);
+        if let Some(i) = selected.and_then(|id| self.history.iter().position(|h| h.video_id == id)) {
+            self.history_selection.index = i;
+        }
         self.history_selection.clamp(self.history.len(), self.plain_rows());
     }
 
@@ -1525,5 +1530,26 @@ mod tests {
         assert!(
             matches!(effects.as_slice(), [Effect::ResolveStreams { id, .. }, Effect::LoadRelated { .. }] if id == "h1")
         );
+    }
+
+    #[test]
+    fn the_history_selection_follows_its_video() {
+        let mut a = app();
+        let entry = |id: &str| HistoryEntry {
+            video_id: id.into(),
+            title: id.into(),
+            channel_id: None,
+            channel_name: None,
+            duration_secs: None,
+            position_secs: 0,
+            finished: true,
+            watched_at: 1,
+        };
+        a.history = vec![entry("a"), entry("b"), entry("c")];
+        a.history_selection.index = 1;
+        a.remember_watch(&entry("c"));
+        assert_eq!(a.history[a.history_selection.index].video_id, "b");
+        a.remember_watch(&entry("b"));
+        assert_eq!(a.history_selection.index, 0);
     }
 }

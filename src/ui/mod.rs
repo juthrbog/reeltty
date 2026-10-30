@@ -516,6 +516,7 @@ mod tests {
             chapters: Vec::new(),
             channel: None,
             duration_secs: None,
+            live: false,
             qualities: Vec::new(),
             captions: Vec::new(),
         };
@@ -560,6 +561,7 @@ mod tests {
             chapters: Vec::new(),
             channel: None,
             duration_secs: None,
+            live: false,
             qualities: Vec::new(),
             captions: Vec::new(),
         };
@@ -599,6 +601,7 @@ mod tests {
             chapters: vec![Chapter { title: "Intro".into(), start_secs: 0 }],
             channel: None,
             duration_secs: None,
+            live: false,
             qualities: [360, 720].into_iter().map(|res| Quality { res, url: String::new() }).collect(),
             captions: vec![Caption { lang: "en".into(), name: "English".into(), url: String::new(), auto: false }],
         };

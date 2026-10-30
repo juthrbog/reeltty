@@ -1,0 +1,25 @@
+---
+source: src/ui.rs
+assertion_line: 131
+expression: "render(&app, 60, 20)"
+---
+ Search   Subscriptions   Playlists   History               
+┌Search────────────────────────────────────────────────────┐
+│Press┌Keys──────────────────────────────────────────┐     │
+│     │quit                 q, ctrl-c                │     │
+│     │move up              k, up                    │     │
+│     │move down            j, down                  │     │
+│     │go to the top        g, home                  │     │
+│     │go to the bottom     G, end                   │     │
+│     │half a page up       ctrl-u, pgup             │     │
+│     │half a page down     ctrl-d, pgdn             │     │
+│     │open                 enter, l                 │     │
+│     │go back              esc, h                   │     │
+│     │search               /                        │     │
+│     │next tab             tab                      │     │
+│     │previous tab         shift-tab                │     │
+│     │refresh              r                        │     │
+│     │show or hide help    ?                        │     │
+│     └──────────────────────────────────────────────┘     │
+└──────────────────────────────────────────────────────────┘
+                                  ? help  / search  q quit

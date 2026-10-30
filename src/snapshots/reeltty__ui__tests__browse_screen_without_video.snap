@@ -1,0 +1,13 @@
+---
+source: src/ui.rs
+assertion_line: 124
+expression: "render(&app, 100, 8)"
+---
+ Search   Subscriptions   Playlists   History                                                       
+┌Subscriptions─────────────────────────────────────────────────────────────────────────────────────┐
+│No subscriptions yet.                                                                             │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+Video needs Ghostty or kitty run directly. Detected: herdr                ? help  / search  q quit

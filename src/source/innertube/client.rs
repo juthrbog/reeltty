@@ -215,7 +215,12 @@ fn find_client_version(html: &[u8]) -> Option<String> {
 }
 
 fn network(err: &reqwest::Error) -> SourceError {
-    SourceError::Network(error_chain(err))
+    // The URL adds nothing for the user and hides the cause in a short status line.
+    let mut message = error_chain(err);
+    if let Some(url) = err.url() {
+        message = message.replace(&format!(" for url ({url})"), "");
+    }
+    SourceError::Network(message)
 }
 
 /// The error and all its causes. reqwest's own message hides the cause,

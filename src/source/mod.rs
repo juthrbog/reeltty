@@ -60,17 +60,19 @@ impl<A: Source, B: Source> Source for Fallback<A, B> {
                 Err(first) => {
                     tracing::warn!("{} search failed: {first}", self.primary.name());
                     let mut page = self.secondary.search(query).await.map_err(|second| {
-                        SourceError::Program(format!(
-                            "{} failed: {first}. {} failed: {second}",
-                            self.primary.name(),
-                            self.secondary.name()
-                        ))
+                        tracing::warn!("{} search failed: {second}", self.secondary.name());
+                        // The secondary's error already names the program.
+                        SourceError::Program(format!("{} failed: {first}. {second}", self.primary.name()))
                     })?;
-                    page.note = Some(format!(
+                    let why = format!(
                         "Results from {}, because {} failed: {first}",
                         self.secondary.name(),
                         self.primary.name()
-                    ));
+                    );
+                    page.note = Some(match page.note.take() {
+                        Some(n) => format!("{why}. {n}"),
+                        None => why,
+                    });
                     Ok(page)
                 }
             }
@@ -89,7 +91,7 @@ mod tests {
     use super::*;
     use crate::source::filters::SearchFilters;
 
-    struct Fixed(&'static str, bool);
+    struct Fixed(&'static str, bool, Option<&'static str>);
 
     impl Source for Fixed {
         fn name(&self) -> &'static str {
@@ -97,7 +99,11 @@ mod tests {
         }
         fn search<'a>(&'a self, _: &'a SearchQuery) -> BoxFuture<'a, Result<SearchPage>> {
             Box::pin(async move {
-                if self.1 { Ok(SearchPage::default()) } else { Err(SourceError::Network("down".into())) }
+                if self.1 {
+                    Ok(SearchPage { note: self.2.map(str::to_string), ..SearchPage::default() })
+                } else {
+                    Err(SourceError::Network("down".into()))
+                }
             })
         }
         fn search_more<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<SearchPage>> {
@@ -111,21 +117,25 @@ mod tests {
 
     #[tokio::test]
     async fn uses_primary_when_it_works() {
-        let f = Fallback { primary: Fixed("a", true), secondary: Fixed("b", true) };
+        let f = Fallback { primary: Fixed("a", true, None), secondary: Fixed("b", true, None) };
         assert_eq!(f.search(&query()).await.unwrap().note, None);
     }
 
     #[tokio::test]
     async fn falls_back_with_a_note() {
-        let f = Fallback { primary: Fixed("a", false), secondary: Fixed("b", true) };
+        let f = Fallback { primary: Fixed("a", false, None), secondary: Fixed("b", true, None) };
         let page = f.search(&query()).await.unwrap();
         assert_eq!(page.note.as_deref(), Some("Results from b, because a failed: network: down"));
+        // The secondary's own note is kept.
+        let f = Fallback { primary: Fixed("a", false, None), secondary: Fixed("b", true, Some("filters ignored")) };
+        let page = f.search(&query()).await.unwrap();
+        assert_eq!(page.note.as_deref(), Some("Results from b, because a failed: network: down. filters ignored"));
     }
 
     #[tokio::test]
     async fn both_failing_is_an_error() {
-        let f = Fallback { primary: Fixed("a", false), secondary: Fixed("b", false) };
+        let f = Fallback { primary: Fixed("a", false, None), secondary: Fixed("b", false, None) };
         let err = f.search(&query()).await.unwrap_err();
-        assert_eq!(err.to_string(), "a failed: network: down. b failed: network: down");
+        assert_eq!(err.to_string(), "a failed: network: down. network: down");
     }
 }

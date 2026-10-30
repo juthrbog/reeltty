@@ -4,11 +4,12 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style, Stylize as _};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Row, Table};
+use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Row, Table, Wrap};
+use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 
 use super::centered;
-use crate::app::App;
 use crate::app::search::{FilterRow, Loading, SearchState};
+use crate::app::{App, ROWS_PER_ITEM};
 use crate::keymap::Action;
 use crate::source::filters::SearchFilters;
 use crate::source::model::{Channel, ChannelRef, Item, Playlist, PlaylistKind, Spelling, Video, VideoKind};
@@ -25,18 +26,20 @@ pub fn draw(app: &App, f: &mut Frame, area: Rect) {
     f.render_widget(block, area);
     let [query, list] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
 
-    f.render_widget(query_line(app), query);
+    f.render_widget(query_line(app, usize::from(query.width)), query);
     draw_results(s, f, list);
     if s.filter_menu.is_some() {
         draw_filter_menu(s, f, area);
     }
 }
 
-fn query_line(app: &App) -> Paragraph<'static> {
+fn query_line(app: &App, width: usize) -> Paragraph<'static> {
     let s = &app.search;
     let key = |a| app.keymap.first_key(a).map(|k| k.to_string()).unwrap_or_default();
     if let Some(input) = &s.input {
-        return Paragraph::new(Line::from(vec![Span::from("/ ").bold(), Span::from(input.clone()), "█".into()]));
+        // Show the end of a long query, so the cursor stays on screen.
+        let shown = tail(input, width.saturating_sub(3));
+        return Paragraph::new(Line::from(vec![Span::from("/ ").bold(), Span::from(shown), "█".into()]));
     }
     // Only the filters that differ from the defaults.
     let defaults = SearchFilters::default();
@@ -58,6 +61,13 @@ fn query_line(app: &App) -> Paragraph<'static> {
 }
 
 fn draw_results(s: &SearchState, f: &mut Frame, area: Rect) {
+    if s.results.is_empty()
+        && let Some(e) = &s.error
+    {
+        let text = Paragraph::new(format!("Search failed: {e}")).red().wrap(Wrap { trim: true });
+        f.render_widget(text, area);
+        return;
+    }
     if s.results.is_empty() {
         let text = match (s.loading, &s.query, &s.error) {
             (Loading::FirstPage, _, _) => "Searching...",
@@ -68,7 +78,19 @@ fn draw_results(s: &SearchState, f: &mut Frame, area: Rect) {
         return;
     }
     let width = usize::from(area.width);
-    let items: Vec<ListItem> = s.results.iter().map(|item| ListItem::new(rows(item, width))).collect();
+    // A list area of one row shows titles only, so that the selection is still visible.
+    let two_rows = area.height >= ROWS_PER_ITEM;
+    let items: Vec<ListItem> = s
+        .results
+        .iter()
+        .map(|item| {
+            let mut lines = rows(item, width);
+            if !two_rows {
+                lines.truncate(1);
+            }
+            ListItem::new(lines)
+        })
+        .collect();
     let list = List::new(items).highlight_style(Style::new().add_modifier(Modifier::REVERSED));
     let mut state = ListState::default().with_offset(s.selection.offset).with_selected(Some(s.selection.index));
     f.render_stateful_widget(list, area, &mut state);
@@ -136,13 +158,39 @@ fn channel_names(channels: &[ChannelRef]) -> String {
     }
 }
 
+/// Cuts `s` to `width` columns and ends it with `…` if it was cut.
 fn truncate(s: &str, width: usize) -> String {
-    if s.chars().count() <= width {
+    if s.width() <= width {
         return s.to_string();
     }
-    let mut out: String = s.chars().take(width.saturating_sub(1)).collect();
+    let budget = width.saturating_sub(1);
+    let mut out = String::new();
+    let mut used = 0;
+    for c in s.chars() {
+        let w = c.width().unwrap_or(0);
+        if used + w > budget {
+            break;
+        }
+        used += w;
+        out.push(c);
+    }
     out.push('…');
     out
+}
+
+/// The end of `s` that fits in `width` columns.
+fn tail(s: &str, width: usize) -> String {
+    let mut used = 0;
+    let mut start = s.len();
+    for (i, c) in s.char_indices().rev() {
+        let w = c.width().unwrap_or(0);
+        if used + w > width {
+            break;
+        }
+        used += w;
+        start = i;
+    }
+    s[start..].to_string()
 }
 
 fn thousands(n: u64) -> String {
@@ -208,5 +256,10 @@ mod tests {
         assert_eq!(thousands(6_192_373), "6,192,373");
         assert_eq!(truncate("héllo wörld", 6), "héllo…");
         assert_eq!(truncate("short", 6), "short");
+        // Wide characters take two columns.
+        assert_eq!(truncate("日本語チャンネル", 6), "日本…");
+        assert_eq!(tail("abcdef", 3), "def");
+        assert_eq!(tail("日本語", 5), "本語");
+        assert_eq!(tail("ab", 0), "");
     }
 }

@@ -3,10 +3,13 @@
 use super::{Effect, Selection};
 use crate::keymap::{Action, KeyCode, KeyPress};
 use crate::source::filters::{Duration, ResultType, SearchFilters, SearchQuery, Sort, UploadDate};
-use crate::source::model::{Item, SearchPage, Spelling};
+use crate::source::model::{Item, SearchPage, Spelling, VideoKind};
 
 /// Load the next page when the selection is this close to the end.
 const PRELOAD_ROWS: usize = 5;
+/// Pages in a row that add no visible results (for example only Shorts)
+/// before automatic loading stops. Moving down loads again.
+const MAX_EMPTY_PAGES: u8 = 3;
 
 #[derive(Debug, Clone, Default)]
 pub struct SearchState {
@@ -28,6 +31,8 @@ pub struct SearchState {
     pub loading: Loading,
     /// Counts searches, so that a late reply to an old search is dropped.
     pub generation: u64,
+    /// Pages in a row that added no visible results.
+    empty_pages: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -73,6 +78,9 @@ impl SearchState {
             return KeyResult::Used(Vec::new());
         }
         let Some(action) = action else { return KeyResult::NotUsed };
+        if matches!(action, Action::Up | Action::Down | Action::Bottom | Action::HalfPageDown) {
+            self.empty_pages = 0;
+        }
         match action {
             Action::Search => {
                 self.input = Some(self.query.as_ref().map(|q| q.text.clone()).unwrap_or_default());
@@ -108,7 +116,7 @@ impl SearchState {
                 let keep = input.trim_end().rfind(' ').map_or(0, |i| i + 1);
                 input.truncate(keep);
             }
-            (KeyCode::Char(c), false, _) => input.push(c),
+            (KeyCode::Char(c), false, false) => input.push(c),
             _ => {}
         }
         Vec::new()
@@ -136,6 +144,7 @@ impl SearchState {
         self.note = None;
         self.error = None;
         self.loading = Loading::FirstPage;
+        self.empty_pages = 0;
         vec![Effect::Search { generation: self.generation, query }]
     }
 
@@ -145,6 +154,7 @@ impl SearchState {
         }
         let Some(token) = self.continuation.clone() else { return Vec::new() };
         self.loading = Loading::MorePages;
+        self.error = None;
         vec![Effect::SearchMore { generation: self.generation, continuation: token }]
     }
 
@@ -169,11 +179,17 @@ impl SearchState {
                 if p.note.is_some() {
                     self.note = p.note;
                 }
-                self.results.extend(p.items);
+                // Shorts are hidden in search, as in the subscriptions feed.
+                let before = self.results.len();
+                self.results.extend(p.items.into_iter().filter(|i| !is_short(i)));
+                self.empty_pages = if self.results.len() == before { self.empty_pages.saturating_add(1) } else { 0 };
                 self.continuation = p.continuation;
                 self.error = None;
                 self.selection.clamp(self.results.len(), page);
                 // A short page may leave the selection near the end already.
+                if self.empty_pages >= MAX_EMPTY_PAGES {
+                    return Vec::new();
+                }
                 self.maybe_load_more()
             }
             Err(e) => {
@@ -187,6 +203,10 @@ impl SearchState {
     pub fn selected(&self) -> Option<&Item> {
         self.results.get(self.selection.index)
     }
+}
+
+fn is_short(item: &Item) -> bool {
+    matches!(item, Item::Video(v) if v.kind == VideoKind::Short)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

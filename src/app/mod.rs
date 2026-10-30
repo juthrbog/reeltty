@@ -210,6 +210,12 @@ impl App {
             Some(Action::Help) => self.show_help = true,
             Some(Action::NextTab) => self.tab = self.tab.offset(1),
             Some(Action::PrevTab) => self.tab = self.tab.offset(-1),
+            Some(Action::Search) => {
+                self.tab = Tab::Search;
+                if let KeyResult::Used(effects) = self.search.on_key(key, action, self.page()) {
+                    return effects;
+                }
+            }
             _ => {}
         }
         Vec::new()
@@ -378,6 +384,81 @@ mod tests {
         a.update(Message::SearchResult { generation: old, append: false, result: Ok(page_of(3, 0, false)) });
         assert!(a.search.results.is_empty());
         assert_eq!(a.search.loading, search::Loading::FirstPage);
+    }
+
+    #[test]
+    fn shorts_are_hidden_and_an_all_shorts_page_loads_the_next() {
+        let short = |id: &str| match video(id) {
+            Item::Video(mut v) => {
+                v.kind = VideoKind::Short;
+                Item::Video(v)
+            }
+            other => other,
+        };
+        let mut a = app();
+        let g = search(&mut a, "x");
+        let page = SearchPage {
+            items: vec![short("s1"), short("s2")],
+            continuation: Some("next".into()),
+            ..SearchPage::default()
+        };
+        let effects = a.update(Message::SearchResult { generation: g, append: false, result: Ok(page) });
+        assert!(a.search.results.is_empty());
+        assert_eq!(effects, vec![Effect::SearchMore { generation: g, continuation: "next".into() }]);
+
+        let page = SearchPage { items: vec![video("v1"), short("s3"), video("v2")], ..SearchPage::default() };
+        a.update(Message::SearchResult { generation: g, append: true, result: Ok(page) });
+        let ids: Vec<&str> =
+            a.search.results.iter().map(|i| if let Item::Video(v) = i { v.id.as_str() } else { "?" }).collect();
+        assert_eq!(ids, ["v1", "v2"]);
+    }
+
+    #[test]
+    fn automatic_paging_stops_after_empty_pages() {
+        let mut a = app();
+        let g = search(&mut a, "x");
+        let empty = |n: usize| SearchPage { continuation: Some(format!("t{n}")), ..SearchPage::default() };
+        let mut asked = 0;
+        for n in 0..10 {
+            let effects = a.update(Message::SearchResult { generation: g, append: n > 0, result: Ok(empty(n)) });
+            if effects.is_empty() {
+                break;
+            }
+            asked += 1;
+        }
+        assert_eq!(asked, 2, "three empty pages in a row stop the loading");
+        // Moving down tries again.
+        assert_eq!(key(&mut a, "j"), vec![Effect::SearchMore { generation: g, continuation: "t2".into() }]);
+    }
+
+    #[test]
+    fn a_retry_clears_the_old_error() {
+        let mut a = app();
+        let g = search(&mut a, "x");
+        a.update(Message::SearchResult { generation: g, append: false, result: Ok(page_of(3, 0, true)) });
+        // The first page was short, so the next page was asked for at once. It fails.
+        a.update(Message::SearchResult { generation: g, append: true, result: Err("timed out".into()) });
+        assert_eq!(a.search.error.as_deref(), Some("timed out"));
+        assert_eq!(key(&mut a, "j"), vec![Effect::SearchMore { generation: g, continuation: "token3".into() }]);
+        assert_eq!(a.search.error, None);
+    }
+
+    #[test]
+    fn search_key_on_another_tab_opens_the_query_line() {
+        let mut a = app();
+        key(&mut a, "tab");
+        key(&mut a, "/");
+        assert_eq!(a.tab, Tab::Search);
+        assert_eq!(a.search.input.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn alt_keys_do_not_type() {
+        let mut a = app();
+        key(&mut a, "/");
+        key(&mut a, "alt-b");
+        type_text(&mut a, "x");
+        assert_eq!(a.search.input.as_deref(), Some("x"));
     }
 
     #[test]

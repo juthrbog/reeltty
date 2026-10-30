@@ -7,6 +7,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style, Stylize as _};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Row, Table, Tabs, Wrap};
+use unicode_width::UnicodeWidthStr as _;
 
 use crate::app::{App, Tab};
 use crate::keymap::Action;
@@ -54,21 +55,26 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect) {
     wanted.push((Action::Quit, "quit"));
     let hints: Vec<Span> = wanted.into_iter().filter_map(|(a, l)| hint(a, l)).flatten().collect();
     let hints = Line::from(hints).right_aligned();
-    let hints_width = u16::try_from(hints.width()).unwrap_or(u16::MAX);
-    let [left, right] =
-        Layout::horizontal([Constraint::Min(0), Constraint::Length(hints_width)]).spacing(2).areas(area);
     let message = app
         .status
         .clone()
         .map(|m| (m, false))
         .or_else(|| (app.tab == Tab::Search).then(|| search::status(&app.search)).flatten())
         .or_else(|| app.graphics.message().map(|m| (m, false)));
+    // A message that does not fit next to the hints gets the whole bar.
+    let hints_width = u16::try_from(hints.width()).unwrap_or(u16::MAX);
+    let message_width = message.as_ref().map_or(0, |(m, _)| u16::try_from(m.width()).unwrap_or(u16::MAX));
+    let hints_width = if message_width > area.width.saturating_sub(hints_width + 2) { 0 } else { hints_width };
+    let [left, right] =
+        Layout::horizontal([Constraint::Min(0), Constraint::Length(hints_width)]).spacing(2).areas(area);
     match message {
         Some((m, true)) => f.render_widget(Paragraph::new(m).red(), left),
         Some((m, false)) => f.render_widget(Paragraph::new(m).yellow(), left),
         None => {}
     }
-    f.render_widget(hints, right);
+    if hints_width > 0 {
+        f.render_widget(hints, right);
+    }
 }
 
 fn draw_help(app: &App, f: &mut Frame, area: Rect) {

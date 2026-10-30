@@ -52,10 +52,14 @@ fn run_tui(paths: &Paths) -> Result<()> {
     let keymap = config.keymap()?;
     let _store = Store::open(&paths.database)?;
 
-    let source: Arc<dyn Source> = Arc::new(Fallback {
-        primary: InnerTube::new().context("start the InnerTube client")?,
-        secondary: YtDlp { program: config.yt_dlp_program() },
-    });
+    let ytdlp = YtDlp { program: config.yt_dlp_program() };
+    let source: Arc<dyn Source> = match InnerTube::new() {
+        Ok(innertube) => Arc::new(Fallback { primary: innertube, secondary: ytdlp }),
+        Err(e) => {
+            tracing::warn!("cannot start the InnerTube client, using yt-dlp only: {e}");
+            Arc::new(ytdlp)
+        }
+    };
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {

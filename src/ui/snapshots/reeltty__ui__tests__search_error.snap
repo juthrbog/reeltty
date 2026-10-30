@@ -1,13 +1,13 @@
 ---
 source: src/ui/mod.rs
-assertion_line: 245
+assertion_line: 252
 expression: "render(&app, 70, 8)"
 ---
  Search   Subscriptions   Playlists   History                         
 ┌Search: x───────────────────────────────────────────────────────────┐
 │x                                                                   │
-│                                                                    │
+│Search failed: network: timed out                                   │
 │                                                                    │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
-Search failed: network: timed o  ? help  / search  f filters  q quit
+Search failed: network: timed out

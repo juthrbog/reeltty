@@ -255,6 +255,8 @@ fn handle(
             writer.write(move |store| store.save_playlist(&p));
         }
         Effect::UnsavePlaylist { playlist_id } => writer.write(move |store| store.unsave_playlist(&playlist_id)),
+        Effect::SaveWatch(e) => writer.write(move |store| store.record_watch(&e)),
+        Effect::ForgetWatch { video_id } => writer.write(move |store| store.forget_watch(&video_id)),
         Effect::LoadThumbnail { url, slot } => {
             let tx = tx.clone();
             let Some(fetcher) = thumbnails.cloned() else {

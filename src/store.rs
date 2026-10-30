@@ -25,7 +25,22 @@ const MIGRATIONS: &[&str] = &[
         videos_text TEXT,
         saved_at INTEGER NOT NULL
     );",
+    // 2: watch history, one row for each video. Positions are seconds.
+    "CREATE TABLE history (
+        video_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        channel_id TEXT,
+        channel_name TEXT,
+        duration_secs INTEGER,
+        position_secs INTEGER NOT NULL,
+        finished INTEGER NOT NULL,
+        watched_at INTEGER NOT NULL
+    );
+    CREATE INDEX history_by_time ON history (watched_at DESC);",
 ];
+
+/// The most history entries that the app loads.
+pub const HISTORY_LIMIT: usize = 1000;
 
 /// A channel the user follows. The list stays on this computer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +63,21 @@ pub struct SavedPlaylist {
     /// "13 videos", when it was saved.
     pub videos_text: Option<String>,
     pub saved_at: i64,
+}
+
+/// A video the user watched. Only the last watch of each video is kept.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryEntry {
+    pub video_id: String,
+    pub title: String,
+    pub channel_id: Option<String>,
+    pub channel_name: Option<String>,
+    pub duration_secs: Option<u32>,
+    /// Where the user stopped, for resume.
+    pub position_secs: u32,
+    /// The video played to the end.
+    pub finished: bool,
+    pub watched_at: i64,
 }
 
 pub struct Store {
@@ -138,6 +168,56 @@ impl Store {
 
     pub fn unsave_playlist(&self, playlist_id: &str) -> Result<()> {
         self.conn.execute("DELETE FROM saved_playlists WHERE playlist_id = ?1", [playlist_id])?;
+        Ok(())
+    }
+
+    /// The watch history, newest first, at most `HISTORY_LIMIT` entries.
+    pub fn history(&self) -> Result<Vec<HistoryEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT video_id, title, channel_id, channel_name, duration_secs, position_secs, finished, watched_at
+             FROM history ORDER BY watched_at DESC, rowid DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map([i64::try_from(HISTORY_LIMIT)?], |r| {
+            Ok(HistoryEntry {
+                video_id: r.get(0)?,
+                title: r.get(1)?,
+                channel_id: r.get(2)?,
+                channel_name: r.get(3)?,
+                duration_secs: r.get(4)?,
+                position_secs: r.get(5)?,
+                finished: r.get(6)?,
+                watched_at: r.get(7)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Adds a watch, or replaces the last watch of the same video.
+    pub fn record_watch(&self, e: &HistoryEntry) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO history
+                 (video_id, title, channel_id, channel_name, duration_secs, position_secs, finished, watched_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT (video_id) DO UPDATE SET title = excluded.title, channel_id = excluded.channel_id,
+                 channel_name = excluded.channel_name, duration_secs = excluded.duration_secs,
+                 position_secs = excluded.position_secs, finished = excluded.finished,
+                 watched_at = excluded.watched_at",
+            (
+                &e.video_id,
+                &e.title,
+                &e.channel_id,
+                &e.channel_name,
+                e.duration_secs,
+                e.position_secs,
+                e.finished,
+                e.watched_at,
+            ),
+        )?;
+        Ok(())
+    }
+
+    pub fn forget_watch(&self, video_id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM history WHERE video_id = ?1", [video_id])?;
         Ok(())
     }
 }
@@ -240,6 +320,33 @@ mod tests {
         assert_eq!(all[1].saved_at, 1);
         s.unsave_playlist("PL2").unwrap();
         assert_eq!(s.saved_playlists().unwrap().len(), 1);
+    }
+
+    fn watch(id: &str, at: i64) -> HistoryEntry {
+        HistoryEntry {
+            video_id: id.into(),
+            title: format!("T{id}"),
+            channel_id: Some("UC1".into()),
+            channel_name: Some("C".into()),
+            duration_secs: Some(600),
+            position_secs: 42,
+            finished: false,
+            watched_at: at,
+        }
+    }
+
+    #[test]
+    fn history_round_trip() {
+        let s = Store::open_in_memory().unwrap();
+        s.record_watch(&watch("a", 1)).unwrap();
+        s.record_watch(&watch("b", 2)).unwrap();
+        // Watching a again moves it to the top, with the new position.
+        s.record_watch(&HistoryEntry { position_secs: 0, finished: true, ..watch("a", 3) }).unwrap();
+        let all = s.history().unwrap();
+        assert_eq!(all.iter().map(|e| e.video_id.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+        assert_eq!(all[0], HistoryEntry { position_secs: 0, finished: true, ..watch("a", 3) });
+        s.forget_watch("a").unwrap();
+        assert_eq!(s.history().unwrap(), [watch("b", 2)]);
     }
 
     #[test]

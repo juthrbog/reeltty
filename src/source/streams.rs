@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
-use super::model::Chapter;
+use super::model::{ChannelRef, Chapter};
 use super::{Result, SourceError};
 
 /// The quality menu offers sizes up to this many pixels on the short side.
@@ -63,6 +63,9 @@ pub struct Streams {
     pub expires_at: Option<u64>,
     pub format: FormatInfo,
     pub chapters: Vec<Chapter>,
+    pub channel: Option<ChannelRef>,
+    /// `None` for a live stream.
+    pub duration_secs: Option<u32>,
     /// The other sizes of the video stream, smallest first. Empty when the
     /// video and audio come in one stream, as for live streams.
     pub qualities: Vec<Quality>,
@@ -135,6 +138,12 @@ struct Info {
     vcodec: Option<String>,
     acodec: Option<String>,
     protocol: Option<String>,
+    channel: Option<String>,
+    channel_id: Option<String>,
+    /// A handle such as `@name`.
+    uploader_id: Option<String>,
+    duration: Option<f64>,
+    is_live: Option<bool>,
     requested_formats: Option<Vec<Info>>,
     formats: Option<Vec<Info>>,
     chapters: Option<Vec<YtChapter>>,
@@ -243,6 +252,14 @@ pub fn parse_streams(json: &[u8]) -> Result<Streams> {
             Some(Chapter { title: c.title.unwrap_or_default(), start_secs: start as u32 })
         })
         .collect();
+    let channel = info.channel.clone().map(|name| ChannelRef {
+        id: info.channel_id.clone(),
+        name,
+        handle: info.uploader_id.clone().filter(|h| h.starts_with('@')),
+    });
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "video lengths")]
+    let duration_secs =
+        info.duration.filter(|d| d.is_finite() && *d > 0.0 && info.is_live != Some(true)).map(|d| d.round() as u32);
     let qualities =
         if audio_url.is_some() { qualities(info.formats.as_deref().unwrap_or_default()) } else { Vec::new() };
     Ok(Streams {
@@ -253,6 +270,8 @@ pub fn parse_streams(json: &[u8]) -> Result<Streams> {
         expires_at,
         format,
         chapters,
+        channel,
+        duration_secs,
         qualities,
         captions: captions(info.subtitles, info.automatic_captions),
     })
@@ -313,6 +332,9 @@ mod tests {
     #[test]
     fn parses_chapters_qualities_and_captions() {
         let s = parse_streams(&fixture()).unwrap();
+        let channel = s.channel.as_ref().unwrap();
+        assert_eq!((channel.name.as_str(), channel.handle.as_deref()), ("3Blue1Brown", Some("@3blue1brown")));
+        assert_eq!(s.duration_secs, Some(1120));
         let chapters: Vec<(u32, &str)> = s.chapters.iter().map(|c| (c.start_secs, c.title.as_str())).collect();
         assert_eq!(chapters, [(0, "Introduction example"), (67, "Series preview"), (162, "What are neurons?")]);
         // H.264 where there is one, VP9 for the other sizes. No 1080p, and no muxed format 18.

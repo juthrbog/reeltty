@@ -17,7 +17,7 @@ use crate::keymap::{Action, KeyMap, KeyPress};
 use crate::source::filters::SearchQuery;
 use crate::source::model::{ChannelPage, ChannelRef, Item, ItemPage, PlaylistPage, SearchPage, Video, VideoDetails};
 use crate::source::streams::Streams;
-use crate::store::{SavedPlaylist, Subscription};
+use crate::store::{HISTORY_LIMIT, HistoryEntry, SavedPlaylist, Subscription};
 use crate::terminal::detect::Graphics;
 use crate::thumbnails::{Picture, Slot};
 use list::ItemList;
@@ -137,6 +137,11 @@ pub enum Effect {
     SavePlaylist(SavedPlaylist),
     UnsavePlaylist {
         playlist_id: String,
+    },
+    /// Add a watch to the history, or replace the last watch of the video.
+    SaveWatch(HistoryEntry),
+    ForgetWatch {
+        video_id: String,
     },
     /// Download `url` and fit it into `slot`.
     LoadThumbnail {
@@ -260,6 +265,9 @@ pub struct App {
     pub subscriptions_selection: Selection,
     pub saved_playlists: Vec<SavedPlaylist>,
     pub saved_selection: Selection,
+    /// Watched videos, newest first.
+    pub history: Vec<HistoryEntry>,
+    pub history_selection: Selection,
     /// A short message for the status bar, cleared by the next key.
     pub status: Option<String>,
     pub thumbnails: Thumbnails,
@@ -303,6 +311,8 @@ impl App {
             subscriptions_selection: Selection::default(),
             saved_playlists: Vec::new(),
             saved_selection: Selection::default(),
+            history: Vec::new(),
+            history_selection: Selection::default(),
             status: None,
             thumbnails: Thumbnails::new(false),
             player: None,
@@ -344,6 +354,12 @@ impl App {
 
     pub fn update(&mut self, msg: Message) -> Vec<Effect> {
         let mut effects = self.handle(msg);
+        // Keep the place in the video that plays, before the app quits.
+        if effects.contains(&Effect::Quit)
+            && let Some(save) = self.save_watch(false)
+        {
+            effects.insert(0, save);
+        }
         if self.thumbnails.enabled && self.player.is_none() {
             // The visible items and the next screen of them.
             let (items, selection, rows) = match self.screens.last() {
@@ -485,6 +501,7 @@ impl App {
         self.subscriptions_selection.clamp(self.subscriptions.len(), plain);
         self.saved_selection.clamp(self.saved_playlists.len(), plain);
         self.queue_selection.clamp(self.queue.len(), plain);
+        self.history_selection.clamp(self.history.len(), plain);
         for screen in &mut self.screens {
             if let Some(list) = screen.list_mut() {
                 list.selection.clamp(list.items.len(), header);
@@ -550,7 +567,11 @@ impl App {
                     return effects;
                 }
             }
-            Tab::History => {}
+            Tab::History => {
+                if let Some(effects) = self.on_history_key(action) {
+                    return effects;
+                }
+            }
         }
         match action {
             Some(Action::Quit) => return vec![Effect::Quit],
@@ -828,7 +849,7 @@ impl App {
         let v = self.queue.get(self.queue_selection.index)?.clone();
         match action {
             Action::Open => Some(self.play(v.id, v.title)),
-            Action::Enqueue => {
+            Action::Enqueue | Action::Delete => {
                 self.toggle_queued(&v);
                 Some(Vec::new())
             }
@@ -839,6 +860,42 @@ impl App {
             },
             _ => None,
         }
+    }
+
+    fn on_history_key(&mut self, action: Option<Action>) -> Option<Vec<Effect>> {
+        let action = action?;
+        let rows = self.plain_rows();
+        if self.history_selection.apply(action, self.history.len(), rows) {
+            return Some(Vec::new());
+        }
+        let e = self.history.get(self.history_selection.index)?.clone();
+        let video = player::history_video(&e);
+        match action {
+            Action::Open => Some(self.play(e.video_id, e.title)),
+            Action::Enqueue => {
+                self.toggle_queued(&video);
+                Some(Vec::new())
+            }
+            Action::Delete => {
+                self.history.remove(self.history_selection.index);
+                self.history_selection.clamp(self.history.len(), rows);
+                Some(vec![Effect::ForgetWatch { video_id: e.video_id }])
+            }
+            Action::Details => Some(self.open(Target::open(&Item::Video(video)))),
+            Action::Channel => match Target::channel_of(&Item::Video(video)) {
+                Some(t) => Some(self.open(t)),
+                None => Some(Vec::new()),
+            },
+            _ => None,
+        }
+    }
+
+    /// Puts a watch at the top of the history.
+    fn remember_watch(&mut self, e: &HistoryEntry) {
+        self.history.retain(|h| h.video_id != e.video_id);
+        self.history.insert(0, e.clone());
+        self.history.truncate(HISTORY_LIMIT);
+        self.history_selection.clamp(self.history.len(), self.plain_rows());
     }
 
     fn on_saved_key(&mut self, action: Option<Action>) -> Option<Vec<Effect>> {
@@ -1437,5 +1494,36 @@ mod tests {
         a.open(Target::Video { id: "v9".into(), title: "Video v9".into() });
         key(&mut a, "a");
         assert_eq!(a.queue.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(), ["v9"]);
+    }
+
+    #[test]
+    fn the_history_tab_plays_queues_and_deletes() {
+        let mut a = app();
+        a.history = ["h1", "h2"]
+            .iter()
+            .map(|id| HistoryEntry {
+                video_id: (*id).into(),
+                title: format!("Video {id}"),
+                channel_id: Some("UC1".into()),
+                channel_name: Some("C".into()),
+                duration_secs: Some(600),
+                position_secs: 0,
+                finished: true,
+                watched_at: 1,
+            })
+            .collect();
+        a.tab = Tab::History;
+        key(&mut a, "j");
+        assert_eq!(key(&mut a, "d"), [Effect::ForgetWatch { video_id: "h2".into() }]);
+        assert_eq!(a.history.len(), 1);
+        assert_eq!(a.history_selection.index, 0);
+        key(&mut a, "a");
+        assert_eq!(a.queue.len(), 1);
+        assert!(matches!(key(&mut a, "c").as_slice(), [Effect::LoadChannel { id, .. }] if id == "UC1"));
+        key(&mut a, "esc");
+        let effects = key(&mut a, "enter");
+        assert!(
+            matches!(effects.as_slice(), [Effect::ResolveStreams { id, .. }, Effect::LoadRelated { .. }] if id == "h1")
+        );
     }
 }

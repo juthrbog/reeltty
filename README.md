@@ -27,7 +27,9 @@ cargo build --release
 
 Press `?` in reeltty to see the keys.
 
-To play a video, select it and press `enter`. `i` shows its details. `a` adds a video to the queue, or takes it out. The Queue tab shows the queue, and `enter` there plays a video from it. In the player, the keys are the same as mpv's:
+To play a video, select it and press `enter`. `i` shows its details. `a` adds a video to the queue, or takes it out. The Queue tab shows the queue, and `enter` there plays a video from it.
+
+The History tab shows the videos you played, newest first, and how far you got. A video you stopped in the middle plays again from where you stopped. `d` deletes an entry from the history (or from the queue in the Queue tab). In the player, the keys are the same as mpv's:
 
 | Key | Action |
 |---|---|
@@ -80,9 +82,9 @@ up = ["k", "up"]
 seek_forward_long = ["up", "l"]
 ```
 
-The actions in `[keys.browse]` are `quit`, `up`, `down`, `top`, `bottom`, `half_page_up`, `half_page_down`, `open`, `back`, `search`, `filters`, `next_tab`, `prev_tab`, `refresh`, `details`, `channel`, `toggle`, `enqueue`, and `help`. The actions in `[keys.player]` are `back`, `toggle_pause`, `seek_forward`, `seek_back`, `seek_forward_long`, `seek_back_long`, `volume_up`, `volume_down`, `mute`, `speed_up`, `speed_down`, `speed_reset`, `next_chapter`, `prev_chapter`, `captions`, `quality`, `next_video`, and `prev_video`. Keys are written as `j`, `G`, `ctrl-d`, `alt-x`, `space`, `enter`, `esc`, `tab`, `shift-tab`, `backspace`, `up`, `down`, `left`, `right`, `pgup`, `pgdn`, `home`, `end`, or `f1` to `f12`.
+The actions in `[keys.browse]` are `quit`, `up`, `down`, `top`, `bottom`, `half_page_up`, `half_page_down`, `open`, `back`, `search`, `filters`, `next_tab`, `prev_tab`, `refresh`, `details`, `channel`, `toggle`, `enqueue`, `delete`, and `help`. The actions in `[keys.player]` are `back`, `toggle_pause`, `seek_forward`, `seek_back`, `seek_forward_long`, `seek_back_long`, `volume_up`, `volume_down`, `mute`, `speed_up`, `speed_down`, `speed_reset`, `next_chapter`, `prev_chapter`, `captions`, `quality`, `next_video`, and `prev_video`. Keys are written as `j`, `G`, `ctrl-d`, `alt-x`, `space`, `enter`, `esc`, `tab`, `shift-tab`, `backspace`, `up`, `down`, `left`, `right`, `pgup`, `pgdn`, `home`, `end`, or `f1` to `f12`.
 
-Local state (subscriptions, history, saved playlists) is in `~/.local/share/reeltty/reeltty.db`. Thumbnails are cached in `~/.cache/reeltty/thumbnails`, up to 100 MB. The log is in `~/.local/state/reeltty/reeltty.log`. Set `REELTTY_LOG=debug` for more detail.
+Local state (subscriptions, saved playlists, and the watch history) is in `~/.local/share/reeltty/reeltty.db`. Thumbnails are cached in `~/.cache/reeltty/thumbnails`, up to 100 MB. The log is in `~/.local/state/reeltty/reeltty.log`. Set `REELTTY_LOG=debug` for more detail.
 
 ## Development
 

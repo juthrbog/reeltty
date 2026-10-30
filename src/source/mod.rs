@@ -13,7 +13,7 @@ pub mod ytdlp;
 use futures::future::BoxFuture;
 
 pub use filters::SearchQuery;
-pub use model::SearchPage;
+pub use model::{ChannelPage, ItemPage, PlaylistPage, SearchPage, VideoDetails};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
@@ -40,6 +40,30 @@ pub trait Source: Send + Sync {
 
     /// The page after the one that returned `continuation`.
     fn search_more<'a>(&'a self, continuation: &'a str) -> BoxFuture<'a, Result<SearchPage>>;
+
+    /// A channel and the first page of its videos. `id` is `UC...`.
+    fn channel<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<ChannelPage>> {
+        let _ = id;
+        Box::pin(async { Err(SourceError::Unsupported(format!("{} cannot open channels", self.name()))) })
+    }
+
+    /// A playlist and its first page of videos. `id` is `PL...`, without `VL`.
+    fn playlist<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<PlaylistPage>> {
+        let _ = id;
+        Box::pin(async { Err(SourceError::Unsupported(format!("{} cannot open playlists", self.name()))) })
+    }
+
+    /// The next page of a channel's videos or of a playlist.
+    fn browse_more<'a>(&'a self, continuation: &'a str) -> BoxFuture<'a, Result<ItemPage>> {
+        let _ = continuation;
+        Box::pin(async { Err(SourceError::Unsupported(format!("{} cannot load more", self.name()))) })
+    }
+
+    /// The details of one video.
+    fn video<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<VideoDetails>> {
+        let _ = id;
+        Box::pin(async { Err(SourceError::Unsupported(format!("{} cannot show video details", self.name()))) })
+    }
 }
 
 /// Uses `primary`. If it fails, uses `secondary` and says so in `SearchPage::note`.

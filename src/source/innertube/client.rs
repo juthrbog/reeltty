@@ -8,7 +8,9 @@ use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde_json::{Map, Value, json};
 use tokio::sync::OnceCell;
 
-use crate::source::{Result, SearchPage, SearchQuery, Source, SourceError};
+use crate::source::{
+    ChannelPage, ItemPage, PlaylistPage, Result, SearchPage, SearchQuery, Source, SourceError, VideoDetails,
+};
 
 use super::{params, parse};
 
@@ -28,6 +30,10 @@ const HOME_PAGE_TIMEOUT: Duration = Duration::from_secs(5);
 const HOME_PAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
 
 const VERSION_MARKER: &[u8] = b"\"INNERTUBE_CLIENT_VERSION\":\"";
+
+/// The `browse` params of a channel's Videos tab. If YouTube changes them,
+/// the tab list in the response has the new ones.
+const VIDEOS_TAB_PARAMS: &str = "EgZ2aWRlb3PyBgQKAjoA";
 
 pub struct InnerTube {
     http: reqwest::Client,
@@ -140,6 +146,39 @@ impl InnerTube {
         }
         Ok(json)
     }
+
+    /// Opens the Videos tab of channel `id` and reads it with `parse`. If
+    /// `parse` finds no videos and the tab list names other params for the
+    /// Videos tab, asks once more with those params.
+    async fn channel_with(&self, id: &str, parse: impl Fn(&Value) -> Result<ChannelPage>) -> Result<ChannelPage> {
+        let response = self.call("browse", browse_fields(id, Some(VIDEOS_TAB_PARAMS))).await?;
+        match parse(&response) {
+            Err(SourceError::Parse(first)) => {
+                let Some(params) = videos_tab_params(&response, VIDEOS_TAB_PARAMS) else {
+                    return Err(SourceError::Parse(first));
+                };
+                tracing::info!("channel {id}: {first}. Trying the Videos tab params {params}");
+                let response = self.call("browse", browse_fields(id, Some(&params))).await?;
+                parse(&response)
+            }
+            other => other,
+        }
+    }
+
+    /// Calls `next` and `player` at the same time and reads both with
+    /// `parse`. Only `next` must work: `player` adds the duration and the
+    /// exact date.
+    async fn video_with(
+        &self,
+        id: &str,
+        parse: impl FnOnce(&Value, Option<&Value>) -> Result<VideoDetails>,
+    ) -> Result<VideoDetails> {
+        let (next, player) = futures::join!(self.call("next", video_fields(id)), self.call("player", video_fields(id)));
+        let next = next?;
+        let player =
+            player.map_err(|e| tracing::warn!("player for {id} failed, so some details are missing: {e}")).ok();
+        parse(&next, player.as_ref())
+    }
 }
 
 fn search_fields(text: &str, params: Option<String>) -> Map<String, Value> {
@@ -156,6 +195,42 @@ fn continuation_fields(token: &str) -> Map<String, Value> {
     let mut fields = Map::new();
     fields.insert("continuation".into(), token.into());
     fields
+}
+
+fn browse_fields(browse_id: &str, params: Option<&str>) -> Map<String, Value> {
+    let mut fields = Map::new();
+    fields.insert("browseId".into(), browse_id.into());
+    if let Some(params) = params {
+        fields.insert("params".into(), params.into());
+    }
+    fields
+}
+
+/// A playlist's browse ID is its ID with `VL` in front.
+fn playlist_fields(id: &str) -> Map<String, Value> {
+    let id = id.strip_prefix("VL").unwrap_or(id);
+    browse_fields(&format!("VL{id}"), None)
+}
+
+fn video_fields(id: &str) -> Map<String, Value> {
+    let mut fields = Map::new();
+    fields.insert("videoId".into(), id.into());
+    fields
+}
+
+/// The params of the Videos tab in a channel `browse` response, when they
+/// differ from `sent`. The tab is found by its URL, because titles follow
+/// the language.
+fn videos_tab_params(response: &Value, sent: &str) -> Option<String> {
+    let tabs = response.pointer("/contents/twoColumnBrowseResultsRenderer/tabs")?.as_array()?;
+    let tab =
+        tabs.iter().filter_map(|t| t.get("tabRenderer").or_else(|| t.get("expandableTabRenderer"))).find(|t| {
+            t.pointer("/endpoint/commandMetadata/webCommandMetadata/url")
+                .and_then(Value::as_str)
+                .is_some_and(|url| url.ends_with("/videos"))
+        })?;
+    let params = tab.pointer("/endpoint/browseEndpoint/params")?.as_str()?;
+    (params != sent).then(|| params.to_string())
 }
 
 /// Finds the client version in HTML that arrives in chunks. A marker or a
@@ -254,6 +329,28 @@ impl Source for InnerTube {
             let response = self.call("search", continuation_fields(continuation)).await?;
             parse::search_continuation(&response)
         })
+    }
+
+    fn channel<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<ChannelPage>> {
+        Box::pin(self.channel_with(id, parse::channel_page))
+    }
+
+    fn playlist<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<PlaylistPage>> {
+        Box::pin(async move {
+            let response = self.call("browse", playlist_fields(id)).await?;
+            parse::playlist_page(&response)
+        })
+    }
+
+    fn browse_more<'a>(&'a self, continuation: &'a str) -> BoxFuture<'a, Result<ItemPage>> {
+        Box::pin(async move {
+            let response = self.call("browse", continuation_fields(continuation)).await?;
+            parse::browse_continuation(&response)
+        })
+    }
+
+    fn video<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<VideoDetails>> {
+        Box::pin(self.video_with(id, parse::video_details))
     }
 }
 
@@ -364,8 +461,10 @@ mod tests {
     }
 
     /// No home page, so the fallback version is used.
-    async fn api(body: &'static str) -> (InnerTube, Log) {
-        let (url, log) = serve(move |r| if r.method == "GET" { reply(404, "") } else { reply(200, body) }).await;
+    async fn api(body: impl Into<String>) -> (InnerTube, Log) {
+        let body = body.into();
+        let (url, log) =
+            serve(move |r| if r.method == "GET" { reply(404, "") } else { reply(200, body.clone()) }).await;
         (InnerTube::with_base_url(url).unwrap(), log)
     }
 
@@ -560,6 +659,195 @@ mod tests {
         let tube = InnerTube::with_base_url(url).unwrap();
         let err = tube.call("search", search_fields("x", None)).await.unwrap_err();
         assert!(matches!(&err, SourceError::Network(m) if !m.is_empty()), "{err:?}");
+    }
+
+    fn fixture(name: &str) -> Value {
+        let path = format!("{}/tests/fixtures/innertube/{name}.json", env!("CARGO_MANIFEST_DIR"));
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn channel_page(name: &str) -> ChannelPage {
+        use crate::source::model::ChannelInfo;
+        ChannelPage {
+            info: ChannelInfo {
+                id: "UCx".into(),
+                name: name.into(),
+                handle: None,
+                subscribers_text: None,
+                videos_text: None,
+                description: None,
+                verified: false,
+                avatar: Vec::new(),
+            },
+            videos: ItemPage::default(),
+        }
+    }
+
+    /// A browse response with a tab list. The Videos tab has `params`.
+    fn tabs(params: &str) -> String {
+        json!({"contents": {"twoColumnBrowseResultsRenderer": {"tabs": [
+            {"tabRenderer": {"endpoint": {
+                "browseEndpoint": {"params": "home"},
+                "commandMetadata": {"webCommandMetadata": {"url": "/@x/featured"}}
+            }}},
+            {"tabRenderer": {"endpoint": {
+                "browseEndpoint": {"params": params},
+                "commandMetadata": {"webCommandMetadata": {"url": "/@x/videos"}}
+            }}},
+            {"expandableTabRenderer": {"endpoint": {
+                "browseEndpoint": {"params": "search"},
+                "commandMetadata": {"webCommandMetadata": {"url": "/@x/search"}}
+            }}}
+        ]}}})
+        .to_string()
+    }
+
+    /// Fails with a parse error unless the response has `videos`.
+    fn needs_videos(response: &Value) -> Result<ChannelPage> {
+        if response.get("videos").is_some() {
+            Ok(channel_page("found"))
+        } else {
+            Err(SourceError::Parse("no videos".into()))
+        }
+    }
+
+    #[test]
+    fn reads_the_videos_tab_params() {
+        let videos = fixture("browse_channel_videos");
+        assert_eq!(videos_tab_params(&videos, VIDEOS_TAB_PARAMS), None);
+        assert_eq!(videos_tab_params(&videos, "old").as_deref(), Some(VIDEOS_TAB_PARAMS));
+        // The Live tab is selected here, but the Videos tab is still listed.
+        let lofi = fixture("browse_channel_streams_lofigirl");
+        assert_eq!(videos_tab_params(&lofi, "old").as_deref(), Some(VIDEOS_TAB_PARAMS));
+        let other: Value = serde_json::from_str(&tabs("EgZuZXc")).unwrap();
+        assert_eq!(videos_tab_params(&other, VIDEOS_TAB_PARAMS).as_deref(), Some("EgZuZXc"));
+        assert_eq!(videos_tab_params(&json!({}), VIDEOS_TAB_PARAMS), None);
+    }
+
+    #[tokio::test]
+    async fn channel_posts_the_videos_tab() {
+        let (tube, log) = api(r#"{"videos": 1}"#).await;
+        let page = tube.channel_with("UCx", needs_videos).await.unwrap();
+        assert_eq!(page.info.name, "found");
+        let posts = posts(&log);
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].target, "/youtubei/v1/browse?prettyPrint=false");
+        let body = posts[0].json();
+        assert_eq!(body["browseId"], "UCx");
+        assert_eq!(body["params"], VIDEOS_TAB_PARAMS);
+    }
+
+    #[tokio::test]
+    async fn channel_retries_with_the_params_from_the_tab_list() {
+        let (url, log) = serve(|r| {
+            if r.method == "GET" {
+                return reply(404, "");
+            }
+            if r.json()["params"] == "EgZuZXc" { reply(200, r#"{"videos": 1}"#) } else { reply(200, tabs("EgZuZXc")) }
+        })
+        .await;
+        let tube = InnerTube::with_base_url(url).unwrap();
+        let page = tube.channel_with("UCx", needs_videos).await.unwrap();
+        assert_eq!(page.info.name, "found");
+        let params: Vec<Value> = posts(&log).iter().map(|r| r.json()["params"].clone()).collect();
+        assert_eq!(params, [json!(VIDEOS_TAB_PARAMS), json!("EgZuZXc")]);
+    }
+
+    #[tokio::test]
+    async fn channel_does_not_retry_with_the_same_params() {
+        let (tube, log) = api(tabs(VIDEOS_TAB_PARAMS)).await;
+        let err = tube.channel_with("UCx", needs_videos).await.unwrap_err();
+        assert!(matches!(&err, SourceError::Parse(m) if m == "no videos"), "{err:?}");
+        assert_eq!(posts(&log).len(), 1);
+    }
+
+    #[tokio::test]
+    async fn channel_retries_only_once_and_only_after_a_parse_error() {
+        // The second answer also fails to parse. There is no third request.
+        let (tube, log) = api(tabs("EgZuZXc")).await;
+        let err = tube.channel_with("UCx", needs_videos).await.unwrap_err();
+        assert!(matches!(err, SourceError::Parse(_)), "{err:?}");
+        assert_eq!(posts(&log).len(), 2);
+
+        let (tube, log) = api(tabs("EgZuZXc")).await;
+        let err = tube.channel_with("UCx", |_| Err(SourceError::Unsupported("x".into()))).await.unwrap_err();
+        assert!(matches!(err, SourceError::Unsupported(_)), "{err:?}");
+        assert_eq!(posts(&log).len(), 1);
+    }
+
+    #[test]
+    fn playlist_browse_id_has_one_vl() {
+        assert_eq!(playlist_fields("PLBCF2DAC6FFB574DE")["browseId"], "VLPLBCF2DAC6FFB574DE");
+        assert_eq!(playlist_fields("VLPLBCF2DAC6FFB574DE")["browseId"], "VLPLBCF2DAC6FFB574DE");
+        assert!(playlist_fields("PLx").get("params").is_none());
+    }
+
+    #[tokio::test]
+    async fn posts_a_playlist_and_a_browse_continuation() {
+        let (tube, log) = api("{}").await;
+        tube.call("browse", playlist_fields("PLx")).await.unwrap();
+        tube.call("browse", continuation_fields("4qmFsgI%3D")).await.unwrap();
+        let posts = posts(&log);
+        assert!(posts.iter().all(|r| r.target == "/youtubei/v1/browse?prettyPrint=false"));
+        let context = json!({"client": {
+            "clientName": "WEB", "clientVersion": FALLBACK_CLIENT_VERSION, "hl": "en", "gl": "US"
+        }});
+        assert_eq!(posts[0].json(), json!({"context": context, "browseId": "VLPLx"}));
+        assert_eq!(posts[1].json(), json!({"context": context, "continuation": "4qmFsgI%3D"}));
+    }
+
+    #[tokio::test]
+    async fn video_calls_next_and_player() {
+        let (url, log) = serve(|r| match r.target.as_str() {
+            "/youtubei/v1/next?prettyPrint=false" => reply(200, r#"{"from": "next"}"#),
+            "/youtubei/v1/player?prettyPrint=false" => reply(200, r#"{"from": "player"}"#),
+            _ => reply(404, ""),
+        })
+        .await;
+        let tube = InnerTube::with_base_url(url).unwrap();
+        let mut seen = None;
+        tube.video_with("aircAruvnKk", |next, player| {
+            seen = Some((next["from"].clone(), player.map(|p| p["from"].clone())));
+            Err(SourceError::Parse("stop".into()))
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(seen, Some((json!("next"), Some(json!("player")))));
+        let posts = posts(&log);
+        assert_eq!(posts.len(), 2);
+        for r in &posts {
+            assert_eq!(r.json()["videoId"], "aircAruvnKk");
+        }
+    }
+
+    #[tokio::test]
+    async fn video_works_without_player() {
+        let (url, _) = serve(|r| match r.target.as_str() {
+            "/youtubei/v1/next?prettyPrint=false" => reply(200, r#"{"from": "next"}"#),
+            _ => reply(500, ""),
+        })
+        .await;
+        let tube = InnerTube::with_base_url(url).unwrap();
+        let mut player_seen = Some(json!("unset"));
+        tube.video_with("x", |_, player| {
+            player_seen = player.cloned();
+            Err(SourceError::Parse("stop".into()))
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(player_seen, None);
+    }
+
+    #[tokio::test]
+    async fn video_fails_when_next_fails() {
+        let (url, _) = serve(|r| match r.target.as_str() {
+            "/youtubei/v1/player?prettyPrint=false" => reply(200, "{}"),
+            _ => reply(503, ""),
+        })
+        .await;
+        let tube = InnerTube::with_base_url(url).unwrap();
+        let err = tube.video_with("x", |_, _| unreachable!()).await.unwrap_err();
+        assert!(matches!(err, SourceError::Http { status: 503, .. }), "{err:?}");
     }
 
     #[test]

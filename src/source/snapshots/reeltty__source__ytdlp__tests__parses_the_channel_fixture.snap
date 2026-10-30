@@ -1,0 +1,92 @@
+---
+source: src/source/ytdlp.rs
+assertion_line: 626
+expression: "format!(\"{:#?}\\n{}\", page.info, summary(&page.videos.items))"
+---
+ChannelInfo {
+    id: "UCsBjURrPoezykLs9EqgamOA",
+    name: "Fireship",
+    handle: Some(
+        "@Fireship",
+    ),
+    subscribers_text: Some(
+        "4.32M subscribers",
+    ),
+    videos_text: None,
+    description: Some(
+        "High-intensity ⚡ code tutorials and tech news to help you ship your app faster. New videos every week covering the topics every programmer should know. \n\nThe original home of #100SecondsOfCode #TheCodeReport and #CodeThisNotThat. Created by Jeff Delaney. \n\nWant more Fireship?\n\n🗞\u{fe0f} Newsletter –\u{a0}https://bytes.dev\n🧠 Courses –\u{a0}https://fireship.dev\n",
+    ),
+    verified: true,
+    avatar: [
+        Thumbnail {
+            url: "https://yt3.googleusercontent.com/3fPNbkf_xPyCleq77ZhcxyeorY97NtMHVNUbaAON_RBDH9ydL4hJkjxC8x_4mpuopkB8oI7Ct6Y=s900-c-k-c0x00ffffff-no-rj",
+            width: 900,
+            height: 900,
+        },
+        Thumbnail {
+            url: "https://yt3.googleusercontent.com/3fPNbkf_xPyCleq77ZhcxyeorY97NtMHVNUbaAON_RBDH9ydL4hJkjxC8x_4mpuopkB8oI7Ct6Y=s0",
+            width: 0,
+            height: 0,
+        },
+    ],
+}
+nEaJMdM1djM Normal 5:25 (325s) | 1,700,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  Did the AI bubble just pop?
+G_em1hHPnXY Normal 6:26 (386s) | 2,100,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  China just dropped a new frontier model... and nobody can explain how
+SMGg7iisHmc Normal 6:04 (364s) | 1,800,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  The week the internet broke...
+zv6B6PQOuHE Normal 5:56 (356s) | 1,600,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  The last real programmers are dying out...
+b2tjnxX8IHU Normal 6:33 (393s) | 1,900,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  Did Google just dethrone OpenAI and Anthropic?
+l3L_lETiSzc Normal 5:40 (340s) | 1,200,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  The runtime wars are over... and Node won
+QZVzuq28eFw Normal 5:06 (306s) | 1,700,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  OpenAI’s lead engineer was secretly a spy...
+wajoP_5Cpw8 Normal 5:56 (356s) | 6,600,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  Every app on Earth is now open source... whether it likes it or not
+WrCjAAl9okA Normal 6:10 (370s) | 1,600,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  A $6.3 billion open-weight model just got embarrassed by the French...
+_5p1_TNSWqQ Normal 5:46 (346s) | 2,900,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  PewDiePie is setting AI free... and OpenAI is furious
+No-JPdFvYWU Normal 5:47 (347s) | 1,800,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  The one OpenAI announcement that can actually make you money...
+I_KVMFrUtPk Normal 5:04 (304s) | 917,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  Did a 50 year old military secret just solve agent prompt injection?
+OuNKBjuV7A4 Normal 6:44 (404s) | 2,300,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  DHH has gone completely off the rails...
+c1rPlzxSZ8E Normal 5:41 (341s) | 1,600,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  Meta is pivoting again... everything you missed from Connect 2026
+ylO0DQeVEBQ Normal 5:23 (323s) | 1,200,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  The most expensive 33 hours in WordPress history...
+TbkUKCm3CHQ Normal 5:27 (327s) | 3,000,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  An ex-OpenAI researcher just deleted language from the LLM...
+LoLYw--s-5w Normal 4:59 (299s) | 1,900,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  Did Google just kickstart the intelligence explosion?
+7r4ikZHm9AI Normal 6:17 (377s) | 2,800,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  Anthropic researchers are quitting... and now we know why
+aspmNhKAFMc Normal 5:45 (345s) | 3,400,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  OpenAI's biggest math breakthrough is getting ugly...
+2Xiljy4xzbc Normal 6:08 (368s) | 2,900,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  I built the same game with Astra and Fable 5.1... only one was fun
+Y5rSSvXfL4g Normal 5:26 (326s) | 1,200,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  5 open source tools that replaced my $320/mo AI stack...
+FluKUJyeYD8 Normal 7:27 (447s) | 4,200,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  Did OpenAI actually build AGI? GPT-6 Astra first look
+0Rp9KJCEIvg Normal 6:46 (406s) | 1,900,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  The most interesting hack in history just got weirder...
+r-tzcMlQISk Normal 5:33 (333s) | 1,700,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  The mystery is solved... and the answer is 40x cheaper than Claude
+UuqSy1jPSUw Normal 5:19 (319s) | 1,300,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  The most expensive software bug in history...
+xBByvFrqmWU Normal 5:32 (332s) | 1,200,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  DeepSeek is back... and Silicon Valley is terrified
+iuZPTE5qsJY Normal 5:34 (334s) | 738,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  The summer Math fell to the machines...
+E7la7-dtfVM Normal 5:53 (353s) | 882,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  This new startup can query anywhere you've been...
+G55HSGpuh1M Normal 5:44 (344s) | 563,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  Meta's new model wants "deep access" to your personal life...
+aB5LGrHISqY Normal 7:02 (422s) | 1,600,000 views | Fireship @Fireship UCsBjURrPoezykLs9EqgamOA | thumbs 360x202 720x404 | members false
+  I spent 3 days at MIT... the robot hype is worse than you think

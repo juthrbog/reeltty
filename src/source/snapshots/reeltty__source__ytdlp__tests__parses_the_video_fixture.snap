@@ -1,0 +1,140 @@
+---
+source: src/source/ytdlp.rs
+assertion_line: 642
+expression: details
+---
+VideoDetails {
+    id: "aircAruvnKk",
+    title: "But what is a neural network? | Deep learning chapter 1",
+    channel: Some(
+        ChannelRef {
+            id: Some(
+                "UCYO_jab_esuFRV4b17AJtAw",
+            ),
+            name: "3Blue1Brown",
+            handle: Some(
+                "@3blue1brown",
+            ),
+        },
+    ),
+    subscribers_text: Some(
+        "8.73M subscribers",
+    ),
+    views_text: Some(
+        "25,038,191 views",
+    ),
+    date_text: Some(
+        "Oct 5, 2017",
+    ),
+    publish_date: Some(
+        "2017-10-05",
+    ),
+    duration_secs: Some(
+        1120,
+    ),
+    likes_text: Some(
+        "568K",
+    ),
+    live: false,
+    description: Description {
+        text: "What are the neurons, why are there layers, and what is the math underlying it?\nHelp fund future projects: https://www.patreon.com/3blue1brown\nWritten/interactive form of this series: https://www.3blue1brown.com/topics/neural-networks\n\nAdditional funding for this project was provided by Amplify Partners\n\nFor those who want to learn more, I highly recommend the book by Michael Nielsen that introduces neural networks and deep learning: https://goo.gl/Zmczdy\n\nThere are two neat things about this book.  First, it's available for free, so consider joining me in making a donation to Nielsen if you get something out of it.  And second, it's centered around walking through some code and data, which you can download yourself, and which covers the same example that I introduced in this video.  Yay for active learning!\nhttps://github.com/mnielsen/neural-networks-and-deep-learning\n\nI also highly recommend Chris Olah's blog: http://colah.github.io/\n\nFor more videos, Welch Labs also has some great series on machine learning: \nhttps://youtu.be/i8D90DkCLhI\nhttps://youtu.be/bxe2T-V8XRs\n\nFor those of you looking to go *even* deeper, check out the text \"Deep Learning\" by Goodfellow, Bengio, and Courville.  \n\nAlso, the publication Distill is just utterly beautiful: https://distill.pub/\n\nLion photo by Kevin Pluck\n\nЗвуковая дорожка на русском языке: Влад Бурмистров.\n\nThanks to these viewers for their contributions to translations\nGerman: @fpgro\nHebrew: Omer Tuchfeld\nHungarian: Máté Kaszap\nItalian: @teobucci, Teo Bucci\n\n-----------------\nTimeline: \n0:00 - Introduction example\n1:07 - Series preview\n2:42 - What are neurons?\n3:35 - Introducing layers\n5:31 - Why layers?\n8:38 - Edge detection example\n11:34 - Counting weights and biases\n12:30 - How learning relates\n13:26 - Notation and linear algebra\n15:17 - Recap\n16:27 - Some final words\n17:03 - ReLU vs Sigmoid\n\nCorrection 14:45 - The final index on the bias vector should be \"k\"\n\n------------------\nAnimations largely made using manim, a scrappy open source python library.  https://github.com/3b1b/manim\n\nIf you want to check it out, I feel compelled to warn you that it's not the most well-documented tool, and has many other quirks you might expect in a library someone wrote with only their own use in mind.\n\nMusic by Vincent Rubinetti.\nDownload the music on Bandcamp:\nhttps://vincerubinetti.bandcamp.com/album/the-music-of-3blue1brown\n\nStream the music on Spotify:\nhttps://open.spotify.com/album/1dVyjwS8FBqXhRunaG5W5u\n\nIf you want to contribute translated subtitles or to help review those that have already been made by others and need approval, you can click the gear icon in the video and go to subtitles/cc, then \"add subtitles/cc\".  I really appreciate those who do this, as it helps make the lessons accessible to more people.\n------------------\n\n3blue1brown is a channel about animating math, in all senses of the word animate.  And you know the drill with YouTube, if you want to stay posted on new videos, subscribe, and click the bell to receive notifications (if you're into that).\n\nIf you are new to this channel and want to see more, a good place to start is this playlist: http://3b1b.co/recommended\n\nVarious social media stuffs:\nWebsite: https://www.3blue1brown.com\nTwitter: https://twitter.com/3Blue1Brown\nPatreon: https://patreon.com/3blue1brown\nFacebook: https://www.facebook.com/3blue1brown\nReddit: https://www.reddit.com/r/3Blue1Brown",
+        links: [],
+    },
+    chapters: [
+        Chapter {
+            title: "Introduction example",
+            start_secs: 0,
+        },
+        Chapter {
+            title: "Series preview",
+            start_secs: 67,
+        },
+        Chapter {
+            title: "What are neurons?",
+            start_secs: 162,
+        },
+        Chapter {
+            title: "Introducing layers",
+            start_secs: 215,
+        },
+        Chapter {
+            title: "Why layers?",
+            start_secs: 331,
+        },
+        Chapter {
+            title: "Edge detection example",
+            start_secs: 518,
+        },
+        Chapter {
+            title: "Counting weights and biases",
+            start_secs: 694,
+        },
+        Chapter {
+            title: "How learning relates",
+            start_secs: 750,
+        },
+        Chapter {
+            title: "Notation and linear algebra",
+            start_secs: 806,
+        },
+        Chapter {
+            title: "Recap",
+            start_secs: 917,
+        },
+        Chapter {
+            title: "Some final words",
+            start_secs: 987,
+        },
+        Chapter {
+            title: "ReLU vs Sigmoid",
+            start_secs: 1023,
+        },
+    ],
+    thumbnails: [
+        Thumbnail {
+            url: "https://i.ytimg.com/vi/aircAruvnKk/mqdefault.jpg",
+            width: 320,
+            height: 180,
+        },
+        Thumbnail {
+            url: "https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg?sqp=-oaymwEfCKgBEF5IVfKriqkDEggBFQAAiEIYAXABwAEGuALzGA==&rs=AOn4CLBdk3KhPNcqZVbeCM8tx_-w5g98bg",
+            width: 168,
+            height: 94,
+        },
+        Thumbnail {
+            url: "https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg?sqp=-oaymwEfCMQBEG5IVfKriqkDEggBFQAAiEIYAXABwAEGuALzGA==&rs=AOn4CLAj6n3JYASz8gkD0EnDSkwxzuMcGA",
+            width: 196,
+            height: 110,
+        },
+        Thumbnail {
+            url: "https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg?sqp=-oaymwEgCPYBEIoBSFXyq4qpAxIIARUAAIhCGAFwAcABBrgC8xg=&rs=AOn4CLAJDDzC1wHGu9Ex-zuzhuoq23H2ng",
+            width: 246,
+            height: 138,
+        },
+        Thumbnail {
+            url: "https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg?sqp=-oaymwEgCNACELwBSFXyq4qpAxIIARUAAIhCGAFwAcABBrgC8xg=&rs=AOn4CLCLiMZyv3TgYvIQAzUB4459GOV44g",
+            width: 336,
+            height: 188,
+        },
+        Thumbnail {
+            url: "https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg",
+            width: 480,
+            height: 360,
+        },
+        Thumbnail {
+            url: "https://i.ytimg.com/vi/aircAruvnKk/hq720.jpg",
+            width: 1280,
+            height: 720,
+        },
+        Thumbnail {
+            url: "https://i.ytimg.com/vi/aircAruvnKk/maxresdefault.jpg",
+            width: 1280,
+            height: 720,
+        },
+        Thumbnail {
+            url: "https://i.ytimg.com/vi_webp/aircAruvnKk/maxresdefault.webp",
+            width: 1920,
+            height: 1080,
+        },
+    ],
+}

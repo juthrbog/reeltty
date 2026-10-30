@@ -1,0 +1,45 @@
+---
+source: src/source/innertube/parse/browse.rs
+assertion_line: 337
+expression: channel_summary(&channel_page(&load(name)).unwrap())
+---
+id: UCXuqSBlHAE6Xw-yeJA0Tunw
+name: Linus Tech Tips
+handle: @LinusTechTips
+subscribers: 16.9M subscribers
+videos: 7.9K videos
+description: 207
+verified: true
+avatar: 1 thumbs
+continuation: yes
+items: 30
+Normal 7JOW7TTOGfI | Apple Made a MacBook for ME | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 11:23 (683s) | 1.2M views | 20 hours ago | 2 thumbs
+Normal KxiUncxSnIo | Accidentally Buying $93.87 of Candy While Buying a Pumpkin for a Livestream | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 15:16 (916s) | - | 1 day ago | members-only, 2 thumbs
+Normal 1KxqLC7F0iE | I was wrong about Augmented Reality | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 17:28 (1048s) | 956K views | 1 day ago | 2 thumbs
+Normal DZSYaQmxBLM | Pros Try AI-Cloned Engineering Tools | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 15:25 (925s) | 1.5M views | 2 days ago | 2 thumbs
+Normal P6pcTK0wTYA | How to Switch to Linux | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 15:55 (955s) | 1.7M views | 3 days ago | 2 thumbs
+Normal DN953UW8iJ8 | dbrand Forced me to Review the iPhone 18 Pro | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 15:51 (951s) | 1.3M views | 5 days ago | 2 thumbs
+Normal 7mJCEWXiZ-A | Get a Tech Question Wrong, Pull the Trigger - Tech Roulette Episode 4 | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 9:13 (553s) | - | 7 days ago | members-only, 2 thumbs
+Normal FH5SoaRx2TA | There’s a Secret (Better) Netflix for Millionaires | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 17:59 (1079s) | 4.9M views | 7 days ago | 2 thumbs
+Normal LGA4ZFr-hfo | Hard Drives are Expensive...What if I Compress my Windows folder instead? | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 12:01 (721s) | 1.2M views | 9 days ago | 2 thumbs
+Normal LvCtTbfm2O8 | LMG Who Wants to be in a Family Jeparody Family Fued Millionaire of Fortune! | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 35:07 (2107s) | - | 10 days ago | members-only, 2 thumbs
+Normal U-QiUAMda7Y | This video was pain and suffering - Tech House | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 23:49 (1429s) | 1.5M views | 10 days ago | 2 thumbs
+Normal aV81SqB6HQg | NVIDIA Tried to Tell me How to Benchmark RTX Spark | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 13:40 (820s) | 1.6M views | 13 days ago | 2 thumbs
+Normal sjuisARFWn8 | My First 15 Minutes with RTX Spark | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 14:36 (876s) | 1.4M views | 2 weeks ago | 2 thumbs
+Normal Ndzz-YWvtkg | This Upgrade Proved I'm Weak - AMD $5000 Ultimate Tech Upgrade | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 31:41 (1901s) | 1.8M views | 2 weeks ago | 2 thumbs
+Normal xCvqBqurBlA | Extras - AMD Upgrade Victor Zhang | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 9:18 (558s) | - | 2 weeks ago | members-only, 2 thumbs
+Normal idp4sgW-mII | When a Livestream Makes WAN Late... - Why is WAN Late Episode 25 | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 30:12 (1812s) | - | 2 weeks ago | members-only, 2 thumbs
+Normal TD74a5g5rp0 | Everything Apple announced in under 10 mins - Welcome Home 2026 | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 9:57 (597s) | 1.1M views | 2 weeks ago | 2 thumbs
+Normal _2i-dhRl9wo | This is an Official Sony Product | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 18:16 (1096s) | 2.5M views | 2 weeks ago | 2 thumbs
+Normal fr0WIIZxvx0 | Pros Try Fake AI Photoshop | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 11:20 (680s) | 3.2M views | 2 weeks ago | 2 thumbs
+Normal 6BnWaewokes | Extras - Finishing What we Started Seven Years Ago | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 18:49 (1129s) | - | 3 weeks ago | members-only, 2 thumbs
+Normal LttGyjX-QxE | Finishing What we Started Seven Years Ago | Linus Tech Tips and Zip Tie Tuning - - | 31:21 (1881s) | 2.1M views | 3 weeks ago | 2 thumbs
+Normal RomFraj-AtY | Extras - The All COSTCO Gaming Setup | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 17:55 (1075s) | - | 3 weeks ago | members-only, 2 thumbs
+Normal t28bEMboL9Y | The All COSTCO Gaming Setup | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 25:38 (1538s) | 2.6M views | 3 weeks ago | 2 thumbs
+Normal evOOH_G2ti4 | Extras - I spent over 10 hours upgrading my controllers | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 18:07 (1087s) | - | 3 weeks ago | members-only, 2 thumbs
+Normal ijFSEb2W6_8 | I’ve Wanted This Robot for 10 Years | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 13:52 (832s) | 1.8M views | 3 weeks ago | 2 thumbs
+Normal 79s8O7Cipl0 | Don’t Buy a "Pro" Controller. Do This Instead | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 30:11 (1811s) | 2.3M views | 3 weeks ago | 2 thumbs
+Normal fOJ1UkSPW4Y | LMG Learns Life Skills - Oil Changing | Episode 3 | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 18:29 (1109s) | - | 3 weeks ago | members-only, 2 thumbs
+Normal LzxC-RzdfKg | They Reviewed Our Products, But Is THEIR Shirt Worth It? | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 18:58 (1138s) | - | 3 weeks ago | members-only, 2 thumbs
+Normal 1H20xp8Brnc | I Have Strong Feelings About Air Conditioning in the Tech House | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 21:04 (1264s) | 1.9M views | 4 weeks ago | 2 thumbs
+Normal y1hZ3EalPQU | I Found these Computers in a Ditch… | Linus Tech Tips UCXuqSBlHAE6Xw-yeJA0Tunw @LinusTechTips | 27:05 (1625s) | 2.2M views | 1 month ago | 2 thumbs

@@ -1,0 +1,33 @@
+---
+source: src/source/innertube/parse/video.rs
+assertion_line: 281
+expression: summary(&d)
+---
+id: rFZHOHl-L8A
+title: lofi hip hop radio 📚 beats to relax/study to
+channel: Some(ChannelRef { id: Some("UCSJ4gkVC6NrvII8umztf0Ow"), name: "Lofi Girl", handle: Some("@LofiGirl") })
+subscribers: 15.8M subscribers
+views: 10,132 watching now
+date: Started streaming on Aug 19, 2026
+publish date: 2026-08-19T00:31:51-07:00
+duration: None
+likes: 51K
+live: true
+description: 867 chars
+"Spooky season is officially upon us 🎃 2026 Halloween playlist available now: https://lnk.to/halloween-lofi02\n\n🎼 | Listen on Spotify, Apple music and more\n→  https://lnk.to/lofi-hiphop-beats-to-r...\n\n🌎"
+links: 8
+  77+31 "https://lnk.to/halloween-lofi02" -> Url("https://lnk.to/halloween-lofi02")
+  157+39 "https://lnk.to/lofi-hiphop-beats-to-r.." -> Url("https://lnk.to/lofi-hiphop-beats-to-r..")
+  236+37 "https://link.lofigirl.com/m/Community" -> Url("https://link.lofigirl.com/m/Community")
+  294+35 "https://link.lofigirl.com/m/website" -> Url("https://link.lofigirl.com/m/website")
+  354+34 "https://link.lofigirlshop.com/shop" -> Url("https://link.lofigirlshop.com/shop")
+  412+33 "https://link.lofigirl.com/m/games" -> Url("https://link.lofigirl.com/m/games")
+  482+31 "https://lofigirl.com/generator/" -> Url("https://lofigirl.com/generator/")
+  570+40 "https://www.instagram.com/p/CuChqFXs0..." -> Url("https://www.instagram.com/p/CuChqFXs08M/?img_index=6")
+chapters: 0
+thumbnails: 5
+  168x94 https://i.ytimg.com/vi/rFZHOHl-L8A/hqdefault.jpg?v=6ad62bed&sqp=CKD0j9cG-oaymwEbCKgBEF5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLChY_Ya7tKND4foA-jFlZiTMBQyrA
+  196x110 https://i.ytimg.com/vi/rFZHOHl-L8A/hqdefault.jpg?v=6ad62bed&sqp=CKD0j9cG-oaymwEbCMQBEG5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLAwNUHDisWqccIg8WO3MpFuXtHWfQ
+  246x138 https://i.ytimg.com/vi/rFZHOHl-L8A/hqdefault.jpg?v=6ad62bed&sqp=CKD0j9cG-oaymwEcCPYBEIoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLA4ZOuev-1qIzxx0K-BwnRzNXpPPA
+  336x188 https://i.ytimg.com/vi/rFZHOHl-L8A/hqdefault.jpg?v=6ad62bed&sqp=CKD0j9cG-oaymwEcCNACELwBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLAQ39_30yFR8UNEaLxULLuWAQOejA
+  1920x1080 https://i.ytimg.com/vi/rFZHOHl-L8A/maxresdefault.jpg?v=6ad62bed

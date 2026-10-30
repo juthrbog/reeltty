@@ -1,12 +1,11 @@
 ---
-source: src/ui.rs
-assertion_line: 131
+source: src/ui/mod.rs
+assertion_line: 141
 expression: "render(&app, 60, 20)"
 ---
  Search   Subscriptions   Playlists   History               
-┌Search────────────────────────────────────────────────────┐
-│Press┌Keys──────────────────────────────────────────┐     │
-│     │quit                 q, ctrl-c                │     │
+┌Searc┌Keys──────────────────────────────────────────┐─────┐
+│Press│quit                 q, ctrl-c                │     │
 │     │move up              k, up                    │     │
 │     │move down            j, down                  │     │
 │     │go to the top        g, home                  │     │
@@ -16,10 +15,11 @@ expression: "render(&app, 60, 20)"
 │     │open                 enter, l                 │     │
 │     │go back              esc, h                   │     │
 │     │search               /                        │     │
+│     │search filters       f                        │     │
 │     │next tab             tab                      │     │
 │     │previous tab         shift-tab                │     │
 │     │refresh              r                        │     │
 │     │show or hide help    ?                        │     │
 │     └──────────────────────────────────────────────┘     │
 └──────────────────────────────────────────────────────────┘
-                                  ? help  / search  q quit
+                       ? help  / search  f filters  q quit

@@ -1,0 +1,28 @@
+---
+source: src/source/innertube/parse/mod.rs
+assertion_line: 254
+expression: summary(&parse_fixture(&name))
+---
+continuation: yes
+estimated results: Some(17344)
+spelling: None
+items: 19
+Normal IT0187cHGfI | The biggest changes coming to Rust... | Let's Get Rusty UCSp-OaMpsO8K0KkOqyBl7_w @letsgetrusty | 6:56 (416s) | 57,845 views | 10 hours ago | New, 4K, snippet, 2 thumbs
+Normal R-tLX37Xgx8 | Why Rust Is The New GOAT For AI | Better Stack UCkVfrGwV-iG9bSsgCbrNPxQ @betterstack | 6:24 (384s) | 301,886 views | 5 days ago | New, 4K, snippet, 2 thumbs
+Normal lx9Q66VNCWA | Is Rust the perfect language for LLMs? | Let's Get Rusty UCSp-OaMpsO8K0KkOqyBl7_w @letsgetrusty | 7:38 (458s) | 34,330 views | 6 days ago | New, 4K, snippet, 2 thumbs
+Normal zkOSTnzFbUo | How to Learn Rust in 2026 (Step by Step Roadmap) | Byte Without Bite UCYy1LoLnpsTSTDBWDdRu49A @ByteWithoutBite | 9:55 (595s) | 79,281 views | 4 days ago | New, snippet, 2 thumbs
+Normal QxoljOSBMrc | How the Rust compiler actually works | Let's Get Rusty UCSp-OaMpsO8K0KkOqyBl7_w @letsgetrusty | 4:09 (249s) | 28,913 views | 3 days ago | New, 4K, snippet, 2 thumbs
+Normal QJyc3RVq24Q | Async Rust on a Tiny Chip? | Let's Get Rusty UCSp-OaMpsO8K0KkOqyBl7_w @letsgetrusty | 7:19 (439s) | 22,736 views | 1 day ago | New, 4K, snippet, 2 thumbs
+PastStream 6DKmniAOhok | CUDA Live:  Introduction to CUDA Rust | NVIDIA Developer UCBHcMCGaiJhv-ESTcWGJPcw @NVIDIADeveloper | 39:48 (2388s) | 9,183 views | Streamed 1 day ago | New, snippet, 2 thumbs
+Normal bKUi8LH-C9I | Google just released their internal Rust style guide | Let's Get Rusty UCSp-OaMpsO8K0KkOqyBl7_w @letsgetrusty | 10:21 (621s) | 91,463 views | 2 days ago | New, 4K, snippet, 2 thumbs
+Normal R8IeTvTHlxU | Rust Atomics Demystified | Code to the Moon UCjREVt2ZJU8ql-NC9Gu-TJw @codetothemoon | 10:44 (644s) | 15,046 views | 12 hours ago | New, 4K, snippet, 2 thumbs
+Normal gld0vhTqro0 | Rust Series Episode 1 -  Fearless Rust, The Toolchain & Your New Best Friend (rustc) | RicafortLabs UC29czJJhZSwKqMWJceoVOiA @RicafortLabs | 7:31 (451s) | 27 views | 4 days ago | New, 2 thumbs
+Normal v0pjH63YfPo | Rust Programming for Beginners: What I Learned in My First Week | The Coding Monkey UCxofQwgqKrRo3swyg1UOoXQ @The-Coding-Monkey | 8:53 (533s) | 72 views | 1 day ago | New, snippet, 2 thumbs
+Normal rVZ8gMWt4lI | Rust Wants Zero Known Type-System Soundness Bugs — Here’s What Project Zero Means | Aarambh Dev Hub UCm5U5uQiZA_mQY5wQ6WfUVA @AarambhDevHub | 9:01 (541s) | 646 views | 1 day ago | New, snippet, 2 thumbs
+Normal c94rfbd5J6I | Goose vs Rust: The Hidden Cost of Simplicity | Mohammad Ebrahimi UCJZD36adbw-B_Th06IR_mFQ @m.ebrahimi12 | 6:36 (396s) | 1,936 views | 12 hours ago | New, Overview, snippet, 2 thumbs
+Normal 5pKFt0l1Tjs | Scaling Rust in the Enterprise: What Changes When Rust Gets Big | JetBrains UCGp4UBwpTNegd_4nCpuBcow @JetBrainsTV | 59:24 (3564s) | 2,405 views | 3 days ago | New, snippet, 2 thumbs
+PastStream Ow8m_g8iCng | The Rise of Rust Over C++: Why Systems Programming Is Changing | quantlabs UCeYq5g4YHXzqDtFjGFhM_yw @quantlabs | 1:34:36 (5676s) | 373 views | Streamed 2 days ago | New, snippet, 1 thumbs
+Normal KYg94PrXl1c | Goose vs Rust: Is This New Language Really Faster? | Mohammad Ebrahimi UCJZD36adbw-B_Th06IR_mFQ @m.ebrahimi12 | 6:06 (366s) | 21,863 views | 6 days ago | New, Overview, snippet, 2 thumbs
+Normal i0m7WD8xBrc | How & Why Porting a C++ Codebase to Rust (Without a Rewrite) | Rustify — Rust in Production UChZ5nIDsmc_YEzkIqn1fZKQ @rustify-rs | 20:18 (1218s) | 233 views | 2 days ago | New, snippet, 2 thumbs
+Normal H6eONjLrCcA | Goose Explained: A New Programming Language Challenging Rust | Masa Tech Team UCsja60vihGzeoG_7uMTxLkw @MasaTechTeam | 11:32 (692s) | 17,665 views | 3 days ago | New, snippet, 2 thumbs
+Normal vCbIBJahOO4 | SE Radio 744: Danilo Krummrich on Rust in the Linux Kernel | IEEEComputerSociety UCSVKswAwikRd8ZS3AmSnuKg @IEEEComputerSociety | 53:57 (3237s) | 56 views | 6 hours ago | New, snippet, 2 thumbs

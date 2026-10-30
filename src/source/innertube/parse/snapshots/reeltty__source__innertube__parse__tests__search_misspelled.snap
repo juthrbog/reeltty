@@ -1,0 +1,54 @@
+---
+source: src/source/innertube/parse/mod.rs
+assertion_line: 254
+expression: summary(&parse_fixture(&name))
+---
+continuation: yes
+estimated results: Some(5307407)
+spelling: Some(ShowingResultsFor { corrected: "rust programing language", original: "rust programing langauge" })
+items: 45
+Normal 5C_HPTJg5ek | Rust in 100 Seconds | Fireship UCsBjURrPoezykLs9EqgamOA @Fireship | 2:29 (149s) | 2,622,094 views | 5 years ago | 4K, snippet, 2 thumbs
+Normal VXbRd5J0vNU | Rust is the ugliest programming language invented in the last 40 years | DHH and Lex Fridman | Lex Clips UCJIfeSCssxSC_Dhc5s7woww @LexClips | 1:37 (97s) | 17,034 views | 1 month ago | snippet, 2 thumbs
+Short H6ML7P19ySw | Linus Torvalds Reveals His Real Opinion On Rust #shorts #linux #rust #coding | - | - | 85K views | - | 2 thumbs
+Short -if38ssDN7c | Learn Rust with one Easy Trick | - | - | 371K views | - | 2 thumbs
+Short Zq59WXZP68g | DHH on Rust: The Ugliest Language, Yet a Wonderful Platform | - | - | 9.8K views | - | 2 thumbs
+Short -0dZv23KhCg | Rust vs Haskell: Which has the steeper learning curve? #programming #softwaredevelopment #bashbunni | - | - | 86K views | - | 2 thumbs
+Short vPYMZie__aM | Linus Torvalds Explaining C and Rust #rust #programming | - | - | 130K views | - | 2 thumbs
+Normal kHDsfGvMlPU | New Language Claims to Be as Safe as Rust, but Faster and Simpler | Code to the Moon UCjREVt2ZJU8ql-NC9Gu-TJw @codetothemoon | 10:26 (626s) | 211,429 views | 8 days ago | 4K, snippet, 2 thumbs
+Normal cA7flwaBiC0 | Rust programming language explained | ThePrimeagen and Lex Fridman | Lex Clips UCJIfeSCssxSC_Dhc5s7woww @LexClips | 4:03 (243s) | 127,433 views | 1 year ago | snippet, 2 thumbs
+Normal iu_ALBDtoHo | Why Everyone's Rewriting Everything in Rust | ForrestKnight UC2WHjPDvbE6O328n17ZGcfg @fknight | 25:37 (1537s) | 268,442 views | 2 months ago | snippet, 2 thumbs
+Short Fze6w1LbDmc | Rust Programming - No Inheritance | - | - | 916K views | - | 2 thumbs
+Short tyWpbq2e5aU | Mastering Rust (#rustlang) Why the Learning Curve is Worth It | - | - | 226K views | - | 2 thumbs
+Short w9VvbeOoXsA | Why Beginners Should AVOID Rust #programming #coding #software | - | - | 1.1M views | - | 2 thumbs
+Short OQ4PL-MEqLw | The BEST way to learn Rust 🦀👩‍💻 #programming #software #rust #technology #coding #developer | - | - | 419K views | - | 2 thumbs
+Short TS7SgkWVTGA | Linus Torvalds on Rust Programming Language 🤯  #LinusTorvalds #Rust #Linux #Programming | - | - | 16K views | - | 2 thumbs
+Short zPhP5n9DCS8 | Rust Vs Python | - | - | 33K views | - | 2 thumbs
+Short 6HXaQhyKFcM | Why developers love Rust #coding #programming #csmajors | - | - | 506K views | - | 2 thumbs
+Short s-D0jm9j7H0 | Rust vs Go: Which Backend Language Wins in 2026? 🦀 | - | - | 300K views | - | 2 thumbs
+Short I_I71AWkY6A | Will Rust Replace C? The Debate is ON! | - | - | 56K views | - | 2 thumbs
+Short RrT_JS6k2Rc | Rust devs are cooked | - | - | 76K views | - | 2 thumbs
+Short uosNE1yU6vM | Rust vs C++ vs Python | - | - | 217K views | - | 2 thumbs
+Short fWCQd97aKks | Is Rust only for those who write C/C++? | - | - | 40K views | - | 2 thumbs
+Short 6c83R8ScS4s | The Father Of Open Source Picks Rust Over C #shorts #linux #rust #coding #knowledge | - | - | 26K views | - | 2 thumbs
+Short X8yO6ziBDPw | Rust vs C | - | - | 217K views | - | 2 thumbs
+Short zOoUjwre_H4 | Why I Love Rust | - | - | 567K views | - | 2 thumbs
+Short GbonUWQb8XI | DHH: Why I Actually Love Rust (Sort Of) | - | - | 9.3K views | - | 2 thumbs
+Short 0xcFyb7fuOA | Rust vs Python Parellel programming #rustlang #rustprogramming #coding #python | - | - | 427K views | - | 2 thumbs
+Short a_FDwmvHkFM | my process for learning the Rust Programming Language | - | - | 75K views | - | 2 thumbs
+Short DUm6U201o4w | programming language, speed compilation #c++ #golang #rust | - | - | 1.9M views | - | 2 thumbs
+Short SEpNG5pzoWg | 🔥Fastest Programming Language? ⚡Speed Test Comparison! 🚀 #programming #coding #rust #java #ampire48 | - | - | 10K views | - | 2 thumbs
+Normal IT0187cHGfI | The future of Rust is coming... | Let's Get Rusty UCSp-OaMpsO8K0KkOqyBl7_w @letsgetrusty | 6:56 (416s) | 57,845 views | 10 hours ago | New, 4K, snippet, 2 thumbs
+Normal 0y6RKiIk6cs | Rust for Dummies in 12 Minutes | Let's Get Rusty UCSp-OaMpsO8K0KkOqyBl7_w @letsgetrusty | 12:30 (750s) | 495,516 views | 1 year ago | snippet, 2 thumbs
+Normal ngTZN09poqk | Keynote: Rust is not about memory safety - Helge Penne - NDC TechTown 2025 | NDC Conferences UCTdw38Cw6jcm0atBPA39a0Q @NDC | 46:06 (2766s) | 21,058 views | 9 months ago | snippet, 2 thumbs
+Normal br3GIIQeefY | Rust for the impatient | No Boilerplate UCUMwY9iS8oMyWDYIe6_RmoA @NoBoilerplate | 10:43 (643s) | 1,030,524 views | 4 years ago | 4K, snippet, 2 thumbs
+Course PLzMcBGfZo4-nyLTlSRBvo0zjSnCnqjHYQ | Rust Programming Tutorial | Tech With Tim UC4JX40jDee_tINbkjycV4Sg @TechWithTim | 9 lessons | first T_KrYLW4jw8 | 2 thumbs
+Normal 5JIc5av34hI | Rust is NOT hard to learn! - Francesco Ciulla | Rust Nation UK UCLksRXfBiEITZMUo2ssjSdA @rustnationuk | 42:38 (2558s) | 11,989 views | 8 months ago | snippet, 2 thumbs
+Normal lx9Q66VNCWA | Is Rust the perfect language for LLMs? | Let's Get Rusty UCSp-OaMpsO8K0KkOqyBl7_w @letsgetrusty | 7:38 (458s) | 34,330 views | 6 days ago | New, 4K, snippet, 2 thumbs
+Normal rQ_J9WH6CGk | Rust Programming Full Course  | Learn ⚙️ in 2024 | #rustprogramming #rust | BekBrace UC7EVSn5inapL20oPSwAwEUg @BekBrace | 3:05:04 (11104s) | 659,326 views | 2 years ago | snippet, 2 thumbs
+Normal zkOSTnzFbUo | How to Learn Rust in 2026 (Step by Step Roadmap) | Byte Without Bite UCYy1LoLnpsTSTDBWDdRu49A @ByteWithoutBite | 9:55 (595s) | 79,296 views | 4 days ago | New, snippet, 2 thumbs
+Normal QNPwKMOQIKM | Why Rust Can't Replace C++ | ForrestKnight UC2WHjPDvbE6O328n17ZGcfg @fknight | 16:30 (990s) | 480,852 views | 1 month ago | snippet, 2 thumbs
+Normal _2xQog4EBzg | I Tried to Learn Rust | commonLuke UCaEY7-07ueVWVauAbJc5zgw @commonLuke | 11:02 (662s) | 464,149 views | 5 months ago | 4K, snippet, 2 thumbs
+Normal TdDt7AiN6aw | Rust is taking over the web | Awesome UCXzw-OdotBUcNA9yhuYQBwA @awesome-coding | 8:10 (490s) | 59,431 views | 3 months ago | CC, snippet, 2 thumbs
+Normal 3lvofS5vktc | Rust Changed How I Code Forever | ForrestKnight UC2WHjPDvbE6O328n17ZGcfg @fknight | 15:06 (906s) | 97,327 views | 10 months ago | snippet, 2 thumbs
+Normal TSn2vCNvFkU | How to Learn Rust (For Hackers) | CyberFlow UCUvkPEm38w6pq8w5QYgtPPw @cyberflow10 | 6:29 (389s) | 56,232 views | 2 months ago | CC, snippet, 2 thumbs
+Normal BpPEoZW5IiY | Learn Rust Programming - Complete Course 🦀 | freeCodeCamp.org UC8butISFwT-Wl7EV0hUK0BQ @freecodecamp | 13:59:10 (50350s) | 1,290,198 views | 3 years ago | snippet, 2 thumbs

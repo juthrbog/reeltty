@@ -157,6 +157,7 @@ pub enum Action {
     Open,
     Back,
     Search,
+    Filters,
     NextTab,
     PrevTab,
     Refresh,
@@ -164,7 +165,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Quit,
         Self::Up,
         Self::Down,
@@ -175,6 +176,7 @@ impl Action {
         Self::Open,
         Self::Back,
         Self::Search,
+        Self::Filters,
         Self::NextTab,
         Self::PrevTab,
         Self::Refresh,
@@ -193,6 +195,7 @@ impl Action {
             Self::Open => "open",
             Self::Back => "go back",
             Self::Search => "search",
+            Self::Filters => "search filters",
             Self::NextTab => "next tab",
             Self::PrevTab => "previous tab",
             Self::Refresh => "refresh",
@@ -212,6 +215,7 @@ impl Action {
             Self::Open => &["enter", "l"],
             Self::Back => &["esc", "h"],
             Self::Search => &["/"],
+            Self::Filters => &["f"],
             Self::NextTab => &["tab"],
             Self::PrevTab => &["shift-tab"],
             Self::Refresh => &["r"],

@@ -35,12 +35,15 @@ impl Drop for TerminalFrontend {
 
 impl Frontend for TerminalFrontend {
     fn start_input(&mut self, tx: UnboundedSender<Message>) {
+        if let Ok(size) = self.terminal.size() {
+            let _ = tx.send(Message::Input(Input::Resize { width: size.width, height: size.height }));
+        }
         tokio::spawn(async move {
             let mut events = EventStream::new();
             let why = loop {
                 let input = match events.next().await {
                     Some(Ok(Event::Key(k))) => key_press(k).map(Input::Key),
-                    Some(Ok(Event::Resize(..))) => Some(Input::Resize),
+                    Some(Ok(Event::Resize(width, height))) => Some(Input::Resize { width, height }),
                     Some(Ok(_)) => None,
                     Some(Err(e)) => break e.to_string(),
                     None => break "end of input".to_string(),

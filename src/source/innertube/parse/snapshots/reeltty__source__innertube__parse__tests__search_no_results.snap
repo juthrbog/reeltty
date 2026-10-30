@@ -1,0 +1,12 @@
+---
+source: src/source/innertube/parse/mod.rs
+assertion_line: 254
+expression: summary(&parse_fixture(&name))
+---
+continuation: yes
+estimated results: Some(1640)
+spelling: None
+items: 3
+Normal IT0187cHGfI | The biggest changes coming to Rust... | Let's Get Rusty UCSp-OaMpsO8K0KkOqyBl7_w @letsgetrusty | 6:56 (416s) | 57,845 views | 10 hours ago | New, 4K, snippet, 2 thumbs
+Normal VFIOSWy93H0 | Understanding Ownership in Rust | Let's Get Rusty UCSp-OaMpsO8K0KkOqyBl7_w @letsgetrusty | 25:30 (1530s) | 369,471 views | 5 years ago | snippet, 2 thumbs
+Normal QJyc3RVq24Q | Async Rust on a Tiny Chip? | Let's Get Rusty UCSp-OaMpsO8K0KkOqyBl7_w @letsgetrusty | 7:19 (439s) | 22,736 views | 1 day ago | New, 4K, snippet, 2 thumbs

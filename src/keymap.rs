@@ -161,11 +161,14 @@ pub enum Action {
     NextTab,
     PrevTab,
     Refresh,
+    Details,
+    Channel,
+    Toggle,
     Help,
 }
 
 impl Action {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 18] = [
         Self::Quit,
         Self::Up,
         Self::Down,
@@ -180,6 +183,9 @@ impl Action {
         Self::NextTab,
         Self::PrevTab,
         Self::Refresh,
+        Self::Details,
+        Self::Channel,
+        Self::Toggle,
         Self::Help,
     ];
 
@@ -199,6 +205,9 @@ impl Action {
             Self::NextTab => "next tab",
             Self::PrevTab => "previous tab",
             Self::Refresh => "refresh",
+            Self::Details => "video details",
+            Self::Channel => "go to the channel",
+            Self::Toggle => "subscribe or save",
             Self::Help => "show or hide help",
         }
     }
@@ -219,6 +228,9 @@ impl Action {
             Self::NextTab => &["tab"],
             Self::PrevTab => &["shift-tab"],
             Self::Refresh => &["r"],
+            Self::Details => &["i"],
+            Self::Channel => &["c"],
+            Self::Toggle => &["s"],
             Self::Help => &["?"],
         }
     }

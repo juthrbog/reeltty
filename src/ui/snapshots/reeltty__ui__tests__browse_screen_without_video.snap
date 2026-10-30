@@ -1,11 +1,11 @@
 ---
-source: src/ui.rs
-assertion_line: 124
+source: src/ui/mod.rs
+assertion_line: 162
 expression: "render(&app, 100, 8)"
 ---
  Search   Subscriptions   Playlists   History                                                       
-┌Subscriptions─────────────────────────────────────────────────────────────────────────────────────┐
-│No subscriptions yet.                                                                             │
+┌Subscriptions (0)─────────────────────────────────────────────────────────────────────────────────┐
+│No subscriptions yet. Press s on a channel to subscribe.                                          │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │

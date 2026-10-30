@@ -1,0 +1,15 @@
+---
+source: src/ui/mod.rs
+assertion_line: 375
+expression: "render(&app, 70, 10)"
+---
+ Search   Subscriptions   Playlists   History                         
+┌Subscriptions (2)───────────────────────────────────────────────────┐
+│3Blue1Brown                                                         │
+│  @3blue1brown                                                      │
+│Jon Gjengset                                                        │
+│  @jonhoo                                                           │
+│                                                                    │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+                                            ? help  / search  q quit

@@ -9,6 +9,7 @@ use reeltty::app::App;
 use reeltty::config::{Config, Paths};
 use reeltty::frontend::Frontend as _;
 use reeltty::frontend::terminal::TerminalFrontend;
+use reeltty::runtime::Services;
 use reeltty::source::innertube::InnerTube;
 use reeltty::source::ytdlp::YtDlp;
 use reeltty::source::{Fallback, Source};
@@ -50,7 +51,9 @@ fn run_tui(paths: &Paths) -> Result<()> {
     let _log = init_logging(paths)?;
     let (config, _) = Config::load(&paths.config_file)?;
     let keymap = config.keymap()?;
-    let _store = Store::open(&paths.database)?;
+    let store = Store::open(&paths.database)?;
+    let subscriptions = store.subscriptions()?;
+    let saved_playlists = store.saved_playlists()?;
 
     let ytdlp = YtDlp { program: config.yt_dlp_program() };
     let source: Arc<dyn Source> = match InnerTube::new() {
@@ -65,7 +68,10 @@ fn run_tui(paths: &Paths) -> Result<()> {
     rt.block_on(async {
         let mut frontend = TerminalFrontend::start();
         let mut app = App::new(keymap, frontend.graphics().clone());
-        reeltty::runtime::run(&mut app, &mut frontend, source).await
+        app.subscriptions = subscriptions;
+        app.saved_playlists = saved_playlists;
+        let services = Services { source, store };
+        reeltty::runtime::run(&mut app, &mut frontend, services).await
     })
 }
 

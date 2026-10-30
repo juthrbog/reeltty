@@ -13,8 +13,10 @@ use unicode_width::UnicodeWidthStr as _;
 
 use super::items::{draw_image, truncate};
 use crate::app::App;
-use crate::app::player::{Phase, PlayerState};
+use crate::app::player::{Phase, PlayerState, UpNext};
+use crate::keymap::Action;
 use crate::keymap::PlayerAction;
+use crate::source::model::Item;
 use crate::terminal::kitty::VIDEO_ID;
 
 /// The status line keeps this many columns for the title and the chapter,
@@ -24,7 +26,9 @@ const MIN_TITLE_WIDTH: usize = 20;
 pub fn draw(app: &App, p: &PlayerState, f: &mut Frame) {
     let [video, progress, status] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(1), Constraint::Length(1)]).areas(f.area());
-    if p.is_running() {
+    if let (Phase::Ended, Some(up)) = (&p.phase, &p.up_next) {
+        draw_up_next(app, up, f, video);
+    } else if p.is_running() {
         let g = p.geometry;
         let area = Rect::new(video.x + g.x, video.y + g.y, g.cols, g.rows).intersection(video);
         draw_image(f.buffer_mut(), area, VIDEO_ID);
@@ -34,6 +38,32 @@ pub fn draw(app: &App, p: &PlayerState, f: &mut Frame) {
     }
     draw_progress(p, f, progress);
     draw_status(app, p, f, status);
+}
+
+/// The list of videos that can play next, after the video ended. It takes
+/// the place of the last frame.
+fn draw_up_next(app: &App, up: &UpNext, f: &mut Frame, area: Rect) {
+    let key = |a| app.keymap.first_key(a).map(|k| k.to_string()).unwrap_or_default();
+    let back = app.keymap.player.first_key(PlayerAction::Back).map(|k| k.to_string()).unwrap_or_default();
+    let header = match up.countdown {
+        Some(n) => format!("Up next in {n} s"),
+        None => "Up next".to_string(),
+    };
+    let help = format!("{}/{} choose · {} play · {back} back", key(Action::Down), key(Action::Up), key(Action::Open));
+    let width = area.width.min(100);
+    let [_, column, _] =
+        Layout::horizontal([Constraint::Fill(1), Constraint::Length(width), Constraint::Fill(1)]).areas(area);
+    let block = Block::bordered().title(format!(" {header} ")).title_bottom(Line::from(format!(" {help} ")).dim());
+    let inner = block.inner(column);
+    f.render_widget(block, column);
+    let text_width = usize::from(inner.width);
+    let items: Vec<ListItem> = up
+        .videos
+        .iter()
+        .map(|v| ListItem::new(super::items::rows(&Item::Video(v.clone()), text_width, false)))
+        .collect();
+    let list = List::new(items).highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+    f.render_stateful_widget(list, inner, &mut ListState::default().with_selected(Some(up.selection)));
 }
 
 fn draw_quality_menu(p: &PlayerState, f: &mut Frame, area: Rect) {

@@ -217,6 +217,7 @@ mod tests {
                 description: Description::default(),
                 chapters: Vec::new(),
                 thumbnails: Vec::new(),
+                related: Vec::new(),
             })
         }
     }

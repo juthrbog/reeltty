@@ -1,9 +1,8 @@
 ---
 source: src/ui/mod.rs
-assertion_line: 307
 expression: "render(&app, 70, 12)"
 ---
- Search   Subscriptions   Playlists   History                         
+ Search   Subscriptions   Playlists   Queue   History                 
 ┌Channel: Jon Gjengset ✓ [Subscribed]────────────────────────────────┐
 │@jonhoo · 111K subscribers · 120 videos                             │
 │Rust streams and videos.                                            │

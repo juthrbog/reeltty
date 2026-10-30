@@ -317,6 +317,8 @@ pub fn parse_video(json: &[u8]) -> Result<VideoDetails> {
             .filter(|t| t.width.is_some() && t.height.is_some())
             .filter_map(thumbnail)
             .collect(),
+        // yt-dlp does not give related videos.
+        related: Vec::new(),
     })
 }
 

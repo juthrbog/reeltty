@@ -222,4 +222,6 @@ pub struct VideoDetails {
     /// In order of start time. Empty when the video has none.
     pub chapters: Vec<Chapter>,
     pub thumbnails: Vec<Thumbnail>,
+    /// The videos that YouTube shows next to this one, without Shorts.
+    pub related: Vec<Video>,
 }

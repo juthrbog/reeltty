@@ -1,6 +1,5 @@
 ---
 source: src/source/ytdlp.rs
-assertion_line: 642
 expression: details
 ---
 VideoDetails {
@@ -137,4 +136,5 @@ VideoDetails {
             height: 1080,
         },
     ],
+    related: [],
 }

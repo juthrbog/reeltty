@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use crate::keymap::{Action, KeyMap, KeyPress};
 use crate::source::filters::SearchQuery;
-use crate::source::model::{ChannelPage, ChannelRef, Item, ItemPage, PlaylistPage, SearchPage, VideoDetails};
+use crate::source::model::{ChannelPage, ChannelRef, Item, ItemPage, PlaylistPage, SearchPage, Video, VideoDetails};
 use crate::source::streams::Streams;
 use crate::store::{SavedPlaylist, Subscription};
 use crate::terminal::detect::Graphics;
@@ -77,6 +77,11 @@ pub enum Message {
     Player {
         session: u64,
         event: PlayerEvent,
+    },
+    /// The reply to `Effect::LoadRelated`.
+    RelatedLoaded {
+        session: u64,
+        result: Result<Vec<Video>, String>,
     },
 }
 
@@ -149,6 +154,16 @@ pub enum Effect {
         session: u64,
         until: u64,
     },
+    /// Send `Message::Tick` once a second, `count` times.
+    Ticks {
+        session: u64,
+        count: u8,
+    },
+    /// Find the videos related to the one that plays.
+    LoadRelated {
+        session: u64,
+        id: String,
+    },
     Player(PlayerCommand),
 }
 
@@ -157,17 +172,19 @@ pub enum Tab {
     Search,
     Subscriptions,
     Playlists,
+    Queue,
     History,
 }
 
 impl Tab {
-    pub const ALL: [Self; 4] = [Self::Search, Self::Subscriptions, Self::Playlists, Self::History];
+    pub const ALL: [Self; 5] = [Self::Search, Self::Subscriptions, Self::Playlists, Self::Queue, Self::History];
 
     pub const fn title(self) -> &'static str {
         match self {
             Self::Search => "Search",
             Self::Subscriptions => "Subscriptions",
             Self::Playlists => "Playlists",
+            Self::Queue => "Queue",
             Self::History => "History",
         }
     }
@@ -252,6 +269,17 @@ pub struct App {
     pub captions_language: String,
     /// Show captions when a video starts.
     pub captions_on: bool,
+    /// Videos to play next, in order.
+    pub queue: Vec<Video>,
+    pub queue_selection: Selection,
+    /// When a video ends, play the next one from the queue or the related videos.
+    pub autoplay: bool,
+    /// The videos played before the one that plays now, oldest first. It
+    /// lasts until the player closes.
+    played: Vec<Video>,
+    /// The videos that "previous video" went back from, the latest last.
+    /// "Next video" plays them again before the queue.
+    forward: Vec<Video>,
     pub width: u16,
     pub height: u16,
     /// The pixel size of one cell, or 0 x 0 if the terminal does not say.
@@ -280,6 +308,11 @@ impl App {
             player: None,
             captions_language: "en".into(),
             captions_on: false,
+            queue: Vec::new(),
+            queue_selection: Selection::default(),
+            autoplay: true,
+            played: Vec::new(),
+            forward: Vec::new(),
             width: 80,
             height: 24,
             cell: (0, 0),
@@ -419,6 +452,7 @@ impl App {
             Message::StreamsResolved { session, now, result } => self.on_streams(session, now, result),
             Message::Tick { session, now } => self.on_tick(session, now),
             Message::Player { session, event } => self.on_player_event(session, event),
+            Message::RelatedLoaded { session, result } => self.on_related(session, result),
         }
     }
 
@@ -450,6 +484,7 @@ impl App {
         self.search.selection.clamp(self.search.results.len(), search);
         self.subscriptions_selection.clamp(self.subscriptions.len(), plain);
         self.saved_selection.clamp(self.saved_playlists.len(), plain);
+        self.queue_selection.clamp(self.queue.len(), plain);
         for screen in &mut self.screens {
             if let Some(list) = screen.list_mut() {
                 list.selection.clamp(list.items.len(), header);
@@ -484,7 +519,9 @@ impl App {
             Tab::Search => {
                 let captured = self.search.captures_keys();
                 if !captured
-                    && let Some(a @ (Action::Open | Action::Details | Action::Channel | Action::Toggle)) = action
+                    && let Some(
+                        a @ (Action::Open | Action::Details | Action::Channel | Action::Toggle | Action::Enqueue),
+                    ) = action
                 {
                     return match self.search.selected().cloned() {
                         Some(item) => self.on_item(&item, a),
@@ -505,6 +542,11 @@ impl App {
             }
             Tab::Playlists => {
                 if let Some(effects) = self.on_saved_key(action) {
+                    return effects;
+                }
+            }
+            Tab::Queue => {
+                if let Some(effects) = self.on_queue_key(action) {
                     return effects;
                 }
             }
@@ -596,6 +638,13 @@ impl App {
                         let (id, title) = (s.id.clone(), s.title.clone());
                         return self.play(id, title);
                     }
+                    Action::Enqueue => {
+                        let video = match &s.details {
+                            Some(d) => player::details_video(d),
+                            None => player::plain_video(&s.id, &s.title),
+                        };
+                        self.toggle_queued(&video);
+                    }
                     _ => {}
                 }
                 Vec::new()
@@ -628,6 +677,14 @@ impl App {
                     return self.open(t);
                 }
                 self.status = Some("The channel of this item is not known.".into());
+                Vec::new()
+            }
+            Action::Enqueue => {
+                if let Item::Video(v) = item {
+                    self.toggle_queued(v);
+                } else {
+                    self.status = Some("Only videos can go in the queue.".into());
+                }
                 Vec::new()
             }
             Action::Toggle => match item {
@@ -750,6 +807,40 @@ impl App {
         }
     }
 
+    /// Adds a video to the end of the queue, or removes it if it is there.
+    fn toggle_queued(&mut self, v: &Video) {
+        if let Some(i) = self.queue.iter().position(|q| q.id == v.id) {
+            self.queue.remove(i);
+            self.status = Some(format!("Removed from the queue. {} left.", self.queue.len()));
+        } else {
+            self.queue.push(v.clone());
+            self.status = Some(format!("Added to the queue. {} in the queue.", self.queue.len()));
+        }
+        self.queue_selection.clamp(self.queue.len(), self.plain_rows());
+    }
+
+    fn on_queue_key(&mut self, action: Option<Action>) -> Option<Vec<Effect>> {
+        let action = action?;
+        let rows = self.plain_rows();
+        if self.queue_selection.apply(action, self.queue.len(), rows) {
+            return Some(Vec::new());
+        }
+        let v = self.queue.get(self.queue_selection.index)?.clone();
+        match action {
+            Action::Open => Some(self.play(v.id, v.title)),
+            Action::Enqueue => {
+                self.toggle_queued(&v);
+                Some(Vec::new())
+            }
+            Action::Details => Some(self.open(Target::open(&Item::Video(v)))),
+            Action::Channel => match Target::channel_of(&Item::Video(v)) {
+                Some(t) => Some(self.open(t)),
+                None => Some(Vec::new()),
+            },
+            _ => None,
+        }
+    }
+
     fn on_saved_key(&mut self, action: Option<Action>) -> Option<Vec<Effect>> {
         let action = action?;
         let rows = self.plain_rows();
@@ -865,7 +956,7 @@ mod tests {
         // Video details have no thumbnails, and neither has the player.
         assert!(thumbnail_urls(&key(&mut a, "i")).is_empty());
         key(&mut a, "esc");
-        assert!(matches!(key(&mut a, "enter").as_slice(), [Effect::ResolveStreams { .. }]));
+        assert!(matches!(key(&mut a, "enter").as_slice(), [Effect::ResolveStreams { .. }, Effect::LoadRelated { .. }]));
         assert!(thumbnail_urls(&key(&mut a, "space")).is_empty());
     }
 
@@ -1150,12 +1241,21 @@ mod tests {
         assert_eq!(key(&mut a, "i"), vec![Effect::LoadVideo { request: 1, id: "v1".into() }]);
         assert!(matches!(a.screens.last(), Some(Screen::Video(_))));
         // Enter on the details plays the video. Back stops it, and the screens stay.
-        assert_eq!(key(&mut a, "enter"), [Effect::ResolveStreams { session: 1, id: "v1".into(), max_height: 480 }]);
+        assert_eq!(
+            key(&mut a, "enter"),
+            [
+                Effect::ResolveStreams { session: 1, id: "v1".into(), max_height: 480 },
+                Effect::LoadRelated { session: 1, id: "v1".into() }
+            ]
+        );
         assert_eq!(key(&mut a, "esc"), [Effect::Player(PlayerCommand::Stop)]);
         assert!(matches!(a.screens.last(), Some(Screen::Video(_))));
         key(&mut a, "esc");
         assert!(a.screens.is_empty());
-        assert!(matches!(key(&mut a, "enter").as_slice(), [Effect::ResolveStreams { session: 2, .. }]));
+        assert!(matches!(
+            key(&mut a, "enter").as_slice(),
+            [Effect::ResolveStreams { session: 2, .. }, Effect::LoadRelated { .. }]
+        ));
         key(&mut a, "q");
         key(&mut a, "j");
         assert_eq!(key(&mut a, "enter"), vec![Effect::LoadChannel { request: 2, id: "UC1".into() }]);
@@ -1288,5 +1388,54 @@ mod tests {
         s.apply(Action::Bottom, 0, 6);
         assert_eq!(s, Selection { index: 0, offset: 0 });
         assert!(!s.apply(Action::Open, 10, 6));
+    }
+
+    #[test]
+    fn the_queue_tab_adds_plays_and_removes() {
+        let mut a = app();
+        results(&mut a, vec![video("v1"), video("v2"), channel_item("UC1")]);
+        assert!(key(&mut a, "a").is_empty());
+        assert_eq!(a.status.as_deref(), Some("Added to the queue. 1 in the queue."));
+        key(&mut a, "j");
+        key(&mut a, "a");
+        key(&mut a, "j");
+        key(&mut a, "a");
+        assert_eq!(a.status.as_deref(), Some("Only videos can go in the queue."));
+        key(&mut a, "k");
+        key(&mut a, "a");
+        assert_eq!(a.status.as_deref(), Some("Removed from the queue. 1 left."));
+        key(&mut a, "a");
+        // The Queue tab.
+        key(&mut a, "tab");
+        key(&mut a, "tab");
+        key(&mut a, "tab");
+        assert_eq!(a.tab, Tab::Queue);
+        assert_eq!(a.queue.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(), ["v1", "v2"]);
+        key(&mut a, "j");
+        let effects = key(&mut a, "enter");
+        assert!(
+            matches!(effects.as_slice(), [Effect::ResolveStreams { id, .. }, Effect::LoadRelated { .. }] if id == "v2")
+        );
+        assert_eq!(a.queue.len(), 1);
+        key(&mut a, "q");
+        key(&mut a, "a");
+        assert!(a.queue.is_empty());
+    }
+
+    #[test]
+    fn queue_keeps_a_video_that_cannot_play_and_details_can_queue() {
+        let mut a = App::new(KeyMap::default(), Graphics::Unavailable("tmux".into()));
+        a.queue = vec![match video("v1") {
+            Item::Video(v) => v,
+            _ => unreachable!(),
+        }];
+        a.tab = Tab::Queue;
+        assert!(key(&mut a, "enter").is_empty());
+        assert_eq!(a.queue.len(), 1);
+
+        let mut a = app();
+        a.open(Target::Video { id: "v9".into(), title: "Video v9".into() });
+        key(&mut a, "a");
+        assert_eq!(a.queue.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(), ["v9"]);
     }
 }

@@ -47,6 +47,7 @@ fn draw_body(app: &App, f: &mut Frame, area: Rect) {
         Tab::Search => return search::draw(app, f, area),
         Tab::Subscriptions => return screens::draw_subscriptions(app, f, area),
         Tab::Playlists => return screens::draw_saved(app, f, area),
+        Tab::Queue => return screens::draw_queue(app, f, area),
         Tab::History => "No watch history yet.".to_string(),
     };
     let block = Block::bordered().title(app.tab.title());
@@ -449,6 +450,7 @@ mod tests {
                 Chapter { title: "Series preview".into(), start_secs: 67 },
             ],
             thumbnails: Vec::new(),
+            related: Vec::new(),
         };
         app.update(Message::VideoLoaded { request: 1, result: Ok(details) });
         insta::assert_snapshot!(render(&app, 70, 18));
@@ -610,5 +612,39 @@ mod tests {
         app.status = Some("This video has no captions in \"en\".".into());
         let text = render(&app, 40, 12);
         assert!(text.contains("This video has no captions in \"en\"."), "{text}");
+    }
+
+    #[test]
+    fn queue_tab() {
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        for _ in 0..3 {
+            press(&mut app, "tab");
+        }
+        insta::assert_snapshot!("queue_tab_empty", render(&app, 60, 8));
+        app.queue = sample_results()
+            .into_iter()
+            .filter_map(|i| match i {
+                Item::Video(v) => Some(v),
+                _ => None,
+            })
+            .take(2)
+            .collect();
+        insta::assert_snapshot!("queue_tab", render(&app, 60, 10));
+    }
+
+    #[test]
+    fn player_up_next() {
+        use crate::app::player::PlayerEvent;
+        let mut app = playing_app();
+        let videos: Vec<Video> = sample_results()
+            .into_iter()
+            .filter_map(|i| match i {
+                Item::Video(v) if v.kind == VideoKind::Normal => Some(v),
+                _ => None,
+            })
+            .collect();
+        app.update(Message::RelatedLoaded { session: 1, result: Ok(videos) });
+        app.update(Message::Player { session: 1, event: PlayerEvent::Ended });
+        insta::assert_snapshot!(render(&app, 60, 12));
     }
 }

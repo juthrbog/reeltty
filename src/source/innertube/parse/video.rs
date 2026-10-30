@@ -3,10 +3,11 @@
 use serde_json::Value;
 
 use super::text::{array, channel_ref, clean, str_at, text, text_at, thumbnails};
-use crate::source::model::{ChannelRef, Chapter, Description, Link, LinkTarget, VideoDetails};
+use crate::source::model::{ChannelRef, Chapter, Description, Item, Link, LinkTarget, Video, VideoDetails, VideoKind};
 use crate::source::{Result, SourceError};
 
 const CONTENTS: &str = "/contents/twoColumnWatchNextResults/results/results/contents";
+const RELATED: &str = "/contents/twoColumnWatchNextResults/secondaryResults/secondaryResults/results";
 const PLAYER_BAR: &str = "/playerOverlays/playerOverlayRenderer/decoratedPlayerBarRenderer/decoratedPlayerBarRenderer/playerBar/multiMarkersPlayerBarRenderer/markersMap";
 const LIKE_BUTTON: &str = "/likeButtonViewModel/likeButtonViewModel/toggleButtonViewModel/toggleButtonViewModel/defaultButtonViewModel/buttonViewModel/title";
 
@@ -54,8 +55,22 @@ pub fn details(next: &Value, player: Option<&Value>) -> Result<VideoDetails> {
             .unwrap_or_default(),
         chapters: chapters(next),
         thumbnails: thumbnails(pd, "/thumbnail/thumbnails"),
+        related: related(next),
         id,
     })
+}
+
+/// The related videos that can play next: no Shorts, playlists, or
+/// members-only videos.
+fn related(next: &Value) -> Vec<Video> {
+    array(next, RELATED)
+        .iter()
+        .flat_map(super::items)
+        .filter_map(|item| match item {
+            Item::Video(v) if v.kind != VideoKind::Short && !v.members_only => Some(v),
+            _ => None,
+        })
+        .collect()
 }
 
 /// The channel from `videoOwnerRenderer`, with the ID from `player` if it is missing.
@@ -302,6 +317,10 @@ mod tests {
         writeln!(out, "chapters: {}", d.chapters.len()).unwrap();
         for c in &d.chapters {
             writeln!(out, "  {} {}", c.start_secs, c.title).unwrap();
+        }
+        writeln!(out, "related: {}", d.related.len()).unwrap();
+        for v in d.related.iter().take(3) {
+            writeln!(out, "  {} {}", v.id, v.title).unwrap();
         }
         writeln!(out, "thumbnails: {}", d.thumbnails.len()).unwrap();
         for t in &d.thumbnails {

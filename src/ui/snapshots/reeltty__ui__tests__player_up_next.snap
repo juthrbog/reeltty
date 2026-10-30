@@ -1,0 +1,16 @@
+---
+source: src/ui/mod.rs
+expression: "render(&app, 60, 12)"
+---
+┌ Up next in 5 s ──────────────────────────────────────────┐
+│Rust in 100 seconds                                       │
+│  Fireship · 12:34 · 1.2M views · 3 years ago · 4K        │
+│MEMBERS Async Rust with a friend                          │
+│  Jon Gjengset and Ana · 12:34 · 1.2M views · 3 years ago │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+└ j/k choose · enter play · q back ────────────────────────┘
+ 1:05 ━━━━─────────────────────────────────────────── 10:35 
+ Big Buck Bunny               Ended  720p  vol 100%  q back

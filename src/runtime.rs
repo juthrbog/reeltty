@@ -273,22 +273,43 @@ fn handle(
                 let _ = tx.send(Message::StreamsResolved { session, now: now_unix(), result });
             });
         }
-        Effect::Countdown { session, until } => {
-            let tx = tx.clone();
-            playback.set_pending(async move {
-                let mut every = tokio::time::interval(Duration::from_secs(1));
-                loop {
-                    every.tick().await;
-                    let now = now_unix();
-                    if tx.send(Message::Tick { session, now }).is_err() || now >= until {
-                        return;
-                    }
-                }
+        Effect::Countdown { session, until } => playback.set_pending(countdown(tx.clone(), session, until)),
+        Effect::Ticks { session, count } => playback.set_pending(ticks(tx.clone(), session, count)),
+        Effect::LoadRelated { session, id } => {
+            let (tx, source) = (tx.clone(), Arc::clone(source));
+            tokio::spawn(async move {
+                let result = source.video(&id).await.map(|d| d.related).map_err(|e| e.to_string());
+                let _ = tx.send(Message::RelatedLoaded { session, result });
             });
         }
         Effect::Player(command) => playback.handle(command, tx),
     }
     ControlFlow::Continue(())
+}
+
+/// Sends `Message::Tick` once a second, from now until the Unix time `until`.
+async fn countdown(tx: UnboundedSender<Message>, session: u64, until: u64) {
+    let mut every = tokio::time::interval(Duration::from_secs(1));
+    loop {
+        every.tick().await;
+        let now = now_unix();
+        if tx.send(Message::Tick { session, now }).is_err() || now >= until {
+            return;
+        }
+    }
+}
+
+/// Sends `Message::Tick` once a second, `count` times, from a second from now.
+async fn ticks(tx: UnboundedSender<Message>, session: u64, count: u8) {
+    let mut every = tokio::time::interval(Duration::from_secs(1));
+    // The first tick comes at once.
+    every.tick().await;
+    for _ in 0..count {
+        every.tick().await;
+        if tx.send(Message::Tick { session, now: now_unix() }).is_err() {
+            return;
+        }
+    }
 }
 
 fn now_unix() -> u64 {

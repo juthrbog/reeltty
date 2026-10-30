@@ -10,7 +10,7 @@ use super::items::{self, truncate};
 use crate::app::list::{ItemList, Loading};
 use crate::app::screens::{ChannelScreen, PlaylistScreen, Screen, VideoScreen};
 use crate::app::{App, SCREEN_HEADER_ROWS};
-use crate::source::model::{Description, VideoDetails};
+use crate::source::model::{Description, Item, VideoDetails};
 
 pub fn draw(app: &App, screen: &Screen, f: &mut Frame, area: Rect) {
     match screen {
@@ -231,6 +231,23 @@ pub fn draw_subscriptions(app: &App, f: &mut Frame, area: Rect) {
         })
         .collect();
     items::draw_rows(rows, app.subscriptions_selection, f, inner);
+}
+
+pub fn draw_queue(app: &App, f: &mut Frame, area: Rect) {
+    let block = Block::bordered().title(format!("Queue ({})", app.queue.len()));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    if app.queue.is_empty() {
+        let key = app.keymap.first_key(crate::keymap::Action::Enqueue).map(|k| k.to_string()).unwrap_or_default();
+        let text = format!(
+            "The queue is empty. Press {key} on a video to add it. Videos in the queue play after the one that plays now."
+        );
+        f.render_widget(Paragraph::new(text).dim().wrap(Wrap { trim: true }), inner);
+        return;
+    }
+    let width = usize::from(inner.width);
+    let rows = app.queue.iter().map(|v| items::rows(&Item::Video(v.clone()), width, false)).collect();
+    items::draw_rows(rows, app.queue_selection, f, inner);
 }
 
 pub fn draw_saved(app: &App, f: &mut Frame, area: Rect) {

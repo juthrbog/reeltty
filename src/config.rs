@@ -38,8 +38,21 @@ pub struct Config {
     pub yt_dlp: Option<PathBuf>,
     /// Show thumbnails in lists.
     pub thumbnails: Thumbnails,
+    /// When a video ends, play the next one.
+    pub autoplay: Autoplay,
     pub captions: Captions,
     pub keys: Keys,
+}
+
+/// A wrapper so that the default is `true`.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(transparent)]
+pub struct Autoplay(pub bool);
+
+impl Default for Autoplay {
+    fn default() -> Self {
+        Self(true)
+    }
 }
 
 /// The `[captions]` table.

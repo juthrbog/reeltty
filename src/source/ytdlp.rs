@@ -64,6 +64,8 @@ impl Source for YtDlp {
 
     fn playlist<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<PlaylistPage>> {
         Box::pin(async move {
+            // Callers may pass the `VL` browse ID; the playlist URL takes the bare ID.
+            let id = id.strip_prefix("VL").unwrap_or(id);
             let url = format!("https://www.youtube.com/playlist?list={id}");
             let args = ["-J", "--flat-playlist", "--no-warnings", "--playlist-items", PLAYLIST_VIDEOS, &url];
             parse_playlist(&self.run(&args).await?)
@@ -783,6 +785,7 @@ mod tests {
             "playlist.json",
         );
         assert_eq!(y.playlist("PLBCF2DAC6FFB574DE").await.unwrap().info.id, "PLBCF2DAC6FFB574DE");
+        assert_eq!(y.playlist("VLPLBCF2DAC6FFB574DE").await.unwrap().info.id, "PLBCF2DAC6FFB574DE");
 
         let dir = tempfile::tempdir().unwrap();
         let y = expects(

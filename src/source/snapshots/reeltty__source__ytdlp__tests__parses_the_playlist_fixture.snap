@@ -1,0 +1,74 @@
+---
+source: src/source/ytdlp.rs
+assertion_line: 634
+expression: "format!(\"{:#?}\\n{}\", page.info, summary(&page.videos.items))"
+---
+PlaylistInfo {
+    id: "PLBCF2DAC6FFB574DE",
+    title: "Google Search Stories",
+    channel: Some(
+        ChannelRef {
+            id: Some(
+                "UCvceBgMIpKb4zK1ss-Sh90w",
+            ),
+            name: "Google Search Stories",
+            handle: Some(
+                "@SearchStories",
+            ),
+        },
+    ),
+    videos_text: Some(
+        "13 videos",
+    ),
+    views_text: Some(
+        "102,310 views",
+    ),
+    updated_text: Some(
+        "Last updated on Jun 17, 2014",
+    ),
+    description: Some(
+        "Searches can become stories. Some are inspiring, some change the way we see the world, and some just make us laugh. Here are a few of our favorites.",
+    ),
+    thumbnails: [
+        Thumbnail {
+            url: "https://i.ytimg.com/vi/GvgqDSnpRQM/hqdefault.jpg?sqp=-oaymwEWCKgBEF5IWvKriqkDCQgBFQAAiEIYAQ==&rs=AOn4CLDiXtMydl3IDRIICJ3bA1OSdz46cg",
+            width: 168,
+            height: 94,
+        },
+        Thumbnail {
+            url: "https://i.ytimg.com/vi/GvgqDSnpRQM/hqdefault.jpg?sqp=-oaymwEWCMQBEG5IWvKriqkDCQgBFQAAiEIYAQ==&rs=AOn4CLD61BExWvczh68WRXf4sSgGaDrpOA",
+            width: 196,
+            height: 110,
+        },
+        Thumbnail {
+            url: "https://i.ytimg.com/vi/GvgqDSnpRQM/hqdefault.jpg?sqp=-oaymwEXCPYBEIoBSFryq4qpAwkIARUAAIhCGAE=&rs=AOn4CLBqPxvlbC7vH3tzdXJqfNlRAyiimQ",
+            width: 246,
+            height: 138,
+        },
+        Thumbnail {
+            url: "https://i.ytimg.com/vi/GvgqDSnpRQM/hqdefault.jpg?sqp=-oaymwEXCNACELwBSFryq4qpAwkIARUAAIhCGAE=&rs=AOn4CLD31JQz2Ub_tzmymg09xNNk606pnw",
+            width: 336,
+            height: 188,
+        },
+    ],
+}
+GvgqDSnpRQM Normal 1:30 (90s) | 2,600,000 views | Google Search Stories @SearchStories UCvceBgMIpKb4zK1ss-Sh90w | thumbs 168x94 196x110 246x138 336x188 | members false
+  Andrew Willis, Skatepark Engineer
+V4DDt30Aat4 Normal 2:39 (159s) | 3,600,000 views | Google Search Stories @SearchStories UCvceBgMIpKb4zK1ss-Sh90w | thumbs 168x94 196x110 246x138 336x188 | members false
+  Mark Lesek: A New/Old Prosthetic
+XDgC4FMftpg Normal 2:01 (121s) | 5,500,000 views | Google Search Stories @SearchStories UCvceBgMIpKb4zK1ss-Sh90w | thumbs 168x94 196x110 246x138 336x188 | members false
+  Mark Kempton: Neighbors In Need
+OE63BYWdqC4 Normal 2:01 (121s) | 3,000,000 views | Google Search Stories @SearchStories UCvceBgMIpKb4zK1ss-Sh90w | thumbs 168x94 196x110 246x138 336x188 | members false
+  Zack Matere: Growing Knowledge
+RQbmXxU2dkg Normal 2:01 (121s) | 1,000,000 views | Google Search Stories @SearchStories UCvceBgMIpKb4zK1ss-Sh90w | thumbs 168x94 196x110 246x138 336x188 | members false
+  Mitch Dobrowner: Epic Storms
+7nJdEXpvi1g Normal 1:31 (91s) | 710,000 views | Google Search Stories @SearchStories UCvceBgMIpKb4zK1ss-Sh90w | thumbs 168x94 196x110 246x138 336x188 | members false
+  The Tofino Riders: A 1,000 Year-Old-Wave
+7hakGJU9xco Normal 2:34 (154s) | 1,800,000 views | Google Search Stories @SearchStories UCvceBgMIpKb4zK1ss-Sh90w | thumbs 168x94 196x110 246x138 336x188 | members false
+  David Kennedy: Ancient Ruins
+x9-F6dbCIHw Normal 1:31 (91s) | 454,000 views | Google Search Stories @SearchStories UCvceBgMIpKb4zK1ss-Sh90w | thumbs 168x94 196x110 246x138 336x188 | members false
+  Caroline: Supernova 2008ha
+18TknKGC7tY Normal 2:01 (121s) | 421,000 views | Google Search Stories @SearchStories UCvceBgMIpKb4zK1ss-Sh90w | thumbs 168x94 196x110 246x138 336x188 | members false
+  Erik-Jan Bos: A Letter from an Old Friend
+CyRQJBBVI7g Normal 2:13 (133s) | 3,600,000 views | Google Search Stories @SearchStories UCvceBgMIpKb4zK1ss-Sh90w | thumbs 168x94 196x110 246x138 336x188 | members false
+  Cheryl and Morgan: Learning Independence

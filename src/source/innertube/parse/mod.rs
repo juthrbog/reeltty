@@ -516,6 +516,48 @@ mod tests {
     }
 
     #[test]
+    fn shopping_badges_are_dropped() {
+        let v = only_video(&json!({"videoRenderer": {"videoId": "a", "badges": [
+            {"metadataBadgeRenderer": {"label": "8 products"}},
+            {"metadataBadgeRenderer": {"label": "1 product"}},
+            {"metadataBadgeRenderer": {"label": "4K"}},
+            {"metadataBadgeRenderer": {"label": "Top 10 products"}}
+        ]}}));
+        assert_eq!(v.badges, ["4K", "Top 10 products"]);
+    }
+
+    #[test]
+    fn short_badge_is_kept() {
+        let v = only_video(&json!({"shortsLockupViewModel": {
+            "entityId": "shorts-shelf-item-x",
+            "badge": {"badgeViewModel": {"badgeText": "New"}}
+        }}));
+        assert_eq!(v.badges, ["New"]);
+    }
+
+    #[test]
+    fn playlist_labels_are_not_channels() {
+        let lockup = |parts: Value| {
+            json!({"lockupViewModel": {"contentType": "LOCKUP_CONTENT_TYPE_PLAYLIST", "contentId": "PLx",
+                "metadata": {"lockupMetadataViewModel": {"title": {"content": "P"},
+                    "metadata": {"contentMetadataViewModel": {"metadataRows": [{"metadataParts": parts}]}}}}}})
+        };
+        let channel = |v: &Value| match items(v).as_slice() {
+            [Item::Playlist(p)] => p.channel.clone(),
+            other => panic!("expected one playlist, got {other:?}"),
+        };
+        // Channel home: only the label.
+        assert_eq!(channel(&lockup(json!([{"text": {"content": "Playlist"}}]))), None);
+        // Search: the channel, then the label.
+        let search = lockup(json!([
+            {"text": {"content": "Some Channel", "commandRuns": [{"onTap": {"innertubeCommand": {"browseEndpoint": {"browseId": "UCx"}}}}]}},
+            {"text": {"content": "Playlist"}}
+        ]));
+        let c = channel(&search).unwrap();
+        assert_eq!((c.name.as_str(), c.id.as_deref()), ("Some Channel", Some("UCx")));
+    }
+
+    #[test]
     fn unknown_and_broken_items_are_skipped() {
         assert!(items(&json!({"adSlotRenderer": {"x": 1}})).is_empty());
         assert!(items(&json!({"videoRenderer": {"title": {"simpleText": "no id"}}})).is_empty());

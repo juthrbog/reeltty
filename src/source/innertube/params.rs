@@ -166,6 +166,10 @@ mod tests {
             (f(V, None, video, over20), "CAMSBBABGAI%3D"),
             (f(V, week, video, None), "CAMSBAgDEAE%3D"),
             (f(V, Some(UploadDate::Today), video, over20), "CAMSBggCEAEYAg%3D%3D"),
+            (f(V, week, video, Some(Duration::Under3Min)), "CAMSBggDEAEYBA%3D%3D"),
+            (f(V, week, video, Some(Duration::From3To20Min)), "CAMSBggDEAEYBQ%3D%3D"),
+            (f(V, Some(UploadDate::ThisMonth), video, over20), "CAMSBggEEAEYAg%3D%3D"),
+            (f(V, Some(UploadDate::ThisYear), video, over20), "CAMSBggFEAEYAg%3D%3D"),
         ];
         for (filters, want) in cases {
             assert_eq!(enc(filters), url_decode(want), "{filters:?}");

@@ -81,8 +81,9 @@ impl YtDlp {
 
 #[derive(Deserialize)]
 struct Playlist {
+    /// yt-dlp writes `null` for entries it could not read.
     #[serde(default)]
-    entries: Vec<Entry>,
+    entries: Option<Vec<Option<Entry>>>,
 }
 
 #[derive(Deserialize)]
@@ -99,12 +100,12 @@ struct Entry {
     live_status: Option<String>,
     availability: Option<String>,
     #[serde(default)]
-    thumbnails: Vec<EntryThumbnail>,
+    thumbnails: Option<Vec<Option<EntryThumbnail>>>,
 }
 
 #[derive(Deserialize)]
 struct EntryThumbnail {
-    url: String,
+    url: Option<String>,
     width: Option<u32>,
     height: Option<u32>,
 }
@@ -113,7 +114,7 @@ struct EntryThumbnail {
 pub fn parse_search(json: &[u8]) -> Result<Vec<Item>> {
     let playlist: Playlist =
         serde_json::from_slice(json).map_err(|e| SourceError::Parse(format!("yt-dlp output: {e}")))?;
-    Ok(playlist.entries.into_iter().filter_map(video).map(Item::Video).collect())
+    Ok(playlist.entries.into_iter().flatten().flatten().filter_map(video).map(Item::Video).collect())
 }
 
 fn video(e: Entry) -> Option<Video> {
@@ -139,7 +140,7 @@ fn video(e: Entry) -> Option<Video> {
         duration_secs,
         views_text: e.view_count.map(views_text),
         published_text: None,
-        thumbnails: e.thumbnails.into_iter().filter_map(thumbnail).collect(),
+        thumbnails: e.thumbnails.into_iter().flatten().flatten().filter_map(thumbnail).collect(),
         members_only: e.availability.as_deref() == Some("subscriber_only"),
         badges: Vec::new(),
         description_snippet: e.description.filter(|d| !d.is_empty()),
@@ -147,9 +148,10 @@ fn video(e: Entry) -> Option<Video> {
 }
 
 fn thumbnail(t: EntryThumbnail) -> Option<Thumbnail> {
-    let url = if t.url.starts_with("https://") {
-        t.url
-    } else if let Some(rest) = t.url.strip_prefix("//") {
+    let raw = t.url?;
+    let url = if raw.starts_with("https://") {
+        raw
+    } else if let Some(rest) = raw.strip_prefix("//") {
         format!("https://{rest}")
     } else {
         return None;
@@ -231,6 +233,20 @@ mod tests {
             assert!(v.description_snippet.is_some());
         }
         insta::assert_snapshot!(summary(&items));
+    }
+
+    #[test]
+    fn skips_null_entries_and_bad_thumbnails() {
+        let json = br#"{"entries": [
+            null,
+            {"id": "a", "thumbnails": null},
+            {"id": "b", "thumbnails": [null, {"width": 1}, {"url": "https://i.ytimg.com/b.jpg"}]}
+        ]}"#;
+        let items = parse_search(json).unwrap();
+        let thumbs: Vec<usize> =
+            items.iter().map(|i| if let Item::Video(v) = i { v.thumbnails.len() } else { 99 }).collect();
+        assert_eq!(thumbs, [0, 1]);
+        assert!(parse_search(br#"{"entries": null}"#).unwrap().is_empty());
     }
 
     #[test]

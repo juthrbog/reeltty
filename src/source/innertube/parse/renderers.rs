@@ -42,6 +42,7 @@ pub fn video_renderer(v: &Value) -> Option<Video> {
             Some("BADGE_STYLE_TYPE_LIVE_NOW") => live = true,
             Some("BADGE_STYLE_TYPE_MEMBERS_ONLY") => members_only = true,
             _ if label.as_deref() == Some("Members only") => members_only = true,
+            _ if label.as_deref().is_some_and(is_shopping_label) => {}
             _ => badges.extend(label),
         }
     }
@@ -63,6 +64,17 @@ pub fn video_renderer(v: &Value) -> Option<Video> {
         description_snippet: text_at(v, "/detailedMetadataSnippets/0/snippetText")
             .or_else(|| text_at(v, "/descriptionSnippet")),
     })
+}
+
+/// "8 products": a shopping badge, not a property of the video.
+fn is_shopping_label(label: &str) -> bool {
+    let count = label.strip_suffix(" products").or_else(|| label.strip_suffix(" product"));
+    count.is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Text in playlist lockup rows that is not a channel name.
+fn is_playlist_label(s: &str) -> bool {
+    matches!(s, "Playlist" | "Course" | "View full playlist" | "View full course") || s.starts_with("Updated ")
 }
 
 /// The channels of a byline run: one channel, or the collaborators when the
@@ -210,10 +222,12 @@ fn lockup_playlist(l: &Value, kind: PlaylistKind) -> Option<Playlist> {
         .flat_map(|o| array(o, "/thumbnailOverlayBadgeViewModel/thumbnailBadges"))
         .find_map(|b| str_at(b, "/thumbnailBadgeViewModel/text"))
         .map(clean);
-    let byline = m.pointer("/metadata/contentMetadataViewModel/metadataRows/0/metadataParts/0/text");
-    let channel = byline.and_then(|b| {
-        let name = text(b)?;
-        Some(channel_ref(name, b.pointer("/commandRuns/0/onTap/innertubeCommand/browseEndpoint")))
+    // Search lockups have [channel, "Playlist"] in row 0. Channel home lockups
+    // have only ["Playlist"]; there the caller knows the channel.
+    let channel = array(m, "/metadata/contentMetadataViewModel/metadataRows/0/metadataParts").iter().find_map(|part| {
+        let t = &part["text"];
+        let name = text(t).filter(|n| !is_playlist_label(n))?;
+        Some(channel_ref(name, t.pointer("/commandRuns/0/onTap/innertubeCommand/browseEndpoint")))
     });
 
     Some(Playlist {
@@ -243,7 +257,7 @@ pub fn shorts_lockup(s: &Value) -> Option<Video> {
         published_text: None,
         thumbnails: thumbnails(s, "/thumbnailViewModel/thumbnailViewModel/image/sources"),
         members_only: false,
-        badges: Vec::new(),
+        badges: text_at(s, "/badge/badgeViewModel/badgeText").into_iter().collect(),
         description_snippet: None,
     })
 }

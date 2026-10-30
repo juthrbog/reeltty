@@ -89,16 +89,12 @@ impl InnerTube {
         if !status.is_success() {
             return Err(SourceError::Http { status: status.as_u16(), message: "home page".into() });
         }
-        let mut html = Vec::new();
+        let mut scanner = VersionScanner::default();
         while let Some(chunk) = response.chunk().await.map_err(|e| network(&e))? {
-            // Search only the new bytes, plus enough old ones for a marker
-            // that is split between two chunks.
-            let start = html.len().saturating_sub(VERSION_MARKER.len());
-            html.extend_from_slice(&chunk);
-            if let Some(version) = find_client_version(&html[start..]) {
+            if let Some(version) = scanner.push(&chunk) {
                 return Ok(version);
             }
-            if html.len() >= HOME_PAGE_MAX_BYTES {
+            if scanner.html.len() >= HOME_PAGE_MAX_BYTES {
                 break;
             }
         }
@@ -162,13 +158,60 @@ fn continuation_fields(token: &str) -> Map<String, Value> {
     fields
 }
 
+/// Finds the client version in HTML that arrives in chunks. A marker or a
+/// value can be split between two chunks.
+#[derive(Default)]
+struct VersionScanner {
+    html: Vec<u8>,
+    /// Where the search goes on. Bytes before it cannot start a match.
+    start: usize,
+}
+
+impl VersionScanner {
+    fn push(&mut self, chunk: &[u8]) -> Option<String> {
+        self.html.extend_from_slice(chunk);
+        match scan_client_version(&self.html[self.start..]) {
+            Scan::Found(version) => return Some(version),
+            // The value goes on in the next chunk. Keep the marker.
+            Scan::Unfinished(at) => self.start += at,
+            // Keep enough bytes for a marker split between two chunks.
+            Scan::NotFound => self.start = self.html.len().saturating_sub(VERSION_MARKER.len() - 1),
+        }
+        None
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Scan {
+    Found(String),
+    /// A marker at this offset has no closing quote yet.
+    Unfinished(usize),
+    NotFound,
+}
+
+/// Looks for `"INNERTUBE_CLIENT_VERSION":"<digits and dots>"`. A marker with
+/// a value that is not a version is skipped.
+fn scan_client_version(html: &[u8]) -> Scan {
+    let mut from = 0;
+    while let Some(i) = html[from..].windows(VERSION_MARKER.len()).position(|w| w == VERSION_MARKER) {
+        let at = from + i;
+        let rest = &html[at + VERSION_MARKER.len()..];
+        let Some(end) = rest.iter().position(|&b| b == b'"') else { return Scan::Unfinished(at) };
+        let value = &rest[..end];
+        if !value.is_empty() && value.iter().all(|b| b.is_ascii_digit() || *b == b'.') {
+            return Scan::Found(String::from_utf8_lossy(value).into_owned());
+        }
+        from = at + VERSION_MARKER.len();
+    }
+    Scan::NotFound
+}
+
+#[cfg(test)]
 fn find_client_version(html: &[u8]) -> Option<String> {
-    let at = html.windows(VERSION_MARKER.len()).position(|w| w == VERSION_MARKER)?;
-    let rest = &html[at + VERSION_MARKER.len()..];
-    let end = rest.iter().position(|&b| b == b'"')?;
-    let version = std::str::from_utf8(&rest[..end]).ok()?;
-    let valid = !version.is_empty() && version.bytes().all(|b| b.is_ascii_digit() || b == b'.');
-    valid.then(|| version.to_string())
+    match scan_client_version(html) {
+        Scan::Found(v) => Some(v),
+        _ => None,
+    }
 }
 
 fn network(err: &reqwest::Error) -> SourceError {
@@ -443,6 +486,25 @@ mod tests {
         assert_eq!(find_client_version(br#""INNERTUBE_CLIENT_VERSION":"<x>""#), None);
         assert_eq!(find_client_version(br#""INNERTUBE_CLIENT_VERSION":"2.1"#), None);
         assert_eq!(find_client_version(b"nothing"), None);
+        // A non-version value is skipped; a later marker can still match.
+        let two = br#""INNERTUBE_CLIENT_VERSION":"x" "INNERTUBE_CLIENT_VERSION":"2.5""#;
+        assert_eq!(find_client_version(two).as_deref(), Some("2.5"));
+    }
+
+    #[test]
+    fn version_split_between_chunks() {
+        let html = br#"<script>ytcfg.set({"INNERTUBE_CLIENT_VERSION":"2.20261029.01.00","x":1})"#;
+        // Every split point: inside the marker, inside the value, and at the quotes.
+        for cut in 1..html.len() {
+            let mut scanner = VersionScanner::default();
+            let first = scanner.push(&html[..cut]);
+            let found = first.or_else(|| scanner.push(&html[cut..]));
+            assert_eq!(found.as_deref(), Some("2.20261029.01.00"), "cut at {cut}");
+        }
+        // Many one-byte chunks.
+        let mut scanner = VersionScanner::default();
+        let found = html.iter().find_map(|b| scanner.push(std::slice::from_ref(b)));
+        assert_eq!(found.as_deref(), Some("2.20261029.01.00"));
     }
 
     #[tokio::test]

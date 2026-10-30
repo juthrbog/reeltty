@@ -55,7 +55,8 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect) {
     let hints: Vec<Span> = wanted.into_iter().filter_map(|(a, l)| hint(a, l)).flatten().collect();
     let hints = Line::from(hints).right_aligned();
     let hints_width = u16::try_from(hints.width()).unwrap_or(u16::MAX);
-    let [left, right] = Layout::horizontal([Constraint::Min(0), Constraint::Length(hints_width)]).spacing(2).areas(area);
+    let [left, right] =
+        Layout::horizontal([Constraint::Min(0), Constraint::Length(hints_width)]).spacing(2).areas(area);
     let message = app
         .status
         .clone()

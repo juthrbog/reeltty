@@ -254,7 +254,9 @@ pub fn draw_feed(app: &App, f: &mut Frame, area: Rect) {
         (_, n) if n > 0 => Line::from(format!("Loading {}…", crate::takeout::channels(n))).dim(),
         (Some(e), _) => Line::from(format!("Could not load {e}")).red(),
         (None, _) => {
-            Line::from(format!("{} videos. Press {refresh} to load all channels again.", feed.items.len())).dim()
+            let n = feed.items.len();
+            let videos = if n == 1 { "1 video".to_string() } else { format!("{n} videos") };
+            Line::from(format!("{videos}. Press {refresh} to load all channels again.")).dim()
         }
     };
     f.render_widget(line, status);

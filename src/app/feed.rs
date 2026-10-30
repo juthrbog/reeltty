@@ -5,10 +5,10 @@
 //! videos tab gives only relative dates ("3 days ago"), so each video gets an
 //! approximate time: the time the channel was loaded, less that age.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::Selection;
-use crate::source::model::{Item, Video, VideoKind};
+use crate::source::model::{ChannelRef, Item, Video, VideoKind};
 pub use crate::store::FeedVideo;
 
 /// A channel is loaded again after this many seconds.
@@ -46,23 +46,40 @@ impl FeedState {
     }
 
     /// Replaces the videos of one channel. `videos` are newest first, as the
-    /// channel's videos tab gives them. Returns them with their times, for the database.
-    pub fn set_channel(&mut self, channel_id: &str, fetched_at: i64, videos: Vec<Video>) -> Vec<FeedVideo> {
-        self.fetched.insert(channel_id.to_string(), fetched_at);
+    /// channel's videos tab gives them. Returns them with their times, for
+    /// the database, or `None` when no video has a date (the yt-dlp
+    /// fallback gives none): then the old videos stay.
+    ///
+    /// Videos without a date before the first dated one are upcoming
+    /// premieres and streams, which cannot play yet: they are left out. A
+    /// video without a date after a dated one gets the time of that one.
+    pub fn set_channel(&mut self, channel: &ChannelRef, fetched_at: i64, videos: Vec<Video>) -> Option<Vec<FeedVideo>> {
+        let channel_id = channel.id.clone().unwrap_or_default();
+        let mut last = None;
+        let mut new = Vec::new();
+        for mut video in videos {
+            let at = video.published_text.as_deref().and_then(age_secs).map(|age| fetched_at - age);
+            let Some(at) = at.or(last) else { continue };
+            let at = last.map_or(at, |l: i64| at.min(l));
+            last = Some(at);
+            // A collaboration names its channels without IDs. The feed knows
+            // which channel it came from.
+            if !video.channels.iter().any(|c| c.id.is_some()) {
+                match video.channels.first_mut() {
+                    Some(c) => c.id = Some(channel_id.clone()),
+                    None => video.channels.push(channel.clone()),
+                }
+            }
+            new.push(FeedVideo { channel_id: channel_id.clone(), published_at: at, video });
+        }
+        if new.is_empty() {
+            return None;
+        }
+        self.fetched.insert(channel_id.clone(), fetched_at);
         self.videos.retain(|v| v.channel_id != channel_id);
-        let mut last = fetched_at;
-        let new: Vec<FeedVideo> = videos
-            .into_iter()
-            .map(|video| {
-                // A video without a date is older than the one before it.
-                let at = video.published_text.as_deref().and_then(age_secs).map_or(last, |age| fetched_at - age);
-                last = at.min(last);
-                FeedVideo { channel_id: channel_id.to_string(), published_at: last, video }
-            })
-            .collect();
         self.videos.extend(new.iter().cloned());
         sort(&mut self.videos);
-        new
+        Some(new)
     }
 
     /// Forgets a channel, for example after an unsubscribe.
@@ -75,11 +92,14 @@ impl FeedState {
     pub fn rebuild(&mut self, subscribed: &[&str], rows: usize) {
         let selected = self.items.get(self.selection.index).map(item_id);
         let filter = self.filter;
+        // A collaboration is on the videos tab of each of its channels.
+        let mut seen = HashSet::new();
         self.items = self
             .videos
             .iter()
             .filter(|v| subscribed.contains(&v.channel_id.as_str()))
             .filter(|v| shows(&v.video, filter))
+            .filter(|v| seen.insert(v.video.id.clone()))
             .map(|v| Item::Video(v.video.clone()))
             .collect();
         // Keep the selection on the same video when new ones come in above it.
@@ -165,6 +185,10 @@ mod tests {
         }
     }
 
+    fn chan(id: &str) -> ChannelRef {
+        ChannelRef { id: Some(id.into()), name: format!("Channel {id}"), handle: None }
+    }
+
     fn ids(f: &FeedState) -> Vec<String> {
         f.items.iter().map(item_id).collect()
     }
@@ -183,15 +207,15 @@ mod tests {
     #[test]
     fn mixes_channels_by_time() {
         let mut f = FeedState::default();
-        f.set_channel("A", 1_000_000, vec![video("a1", Some("1 hour ago")), video("a2", Some("3 days ago"))]);
-        f.set_channel("B", 1_000_000, vec![video("b1", Some("5 hours ago")), video("b2", None)]);
+        f.set_channel(&chan("A"), 1_000_000, vec![video("a1", Some("1 hour ago")), video("a2", Some("3 days ago"))]);
+        f.set_channel(&chan("B"), 1_000_000, vec![video("b1", Some("5 hours ago")), video("b2", None)]);
         f.rebuild(&["A", "B"], 10);
-        assert_eq!(ids(&f), ["a1", "b1", "b2", "a2"], "a video without a date takes the one before it");
+        assert_eq!(ids(&f), ["a1", "b1", "b2", "a2"], "a video without a date takes the time of the one before it");
         // Unsubscribed channels do not show.
         f.rebuild(&["B"], 10);
         assert_eq!(ids(&f), ["b1", "b2"]);
         // A new load replaces the channel's videos.
-        f.set_channel("B", 1_000_100, vec![video("b3", Some("1 minute ago"))]);
+        f.set_channel(&chan("B"), 1_000_100, vec![video("b3", Some("1 minute ago"))]);
         f.rebuild(&["A", "B"], 10);
         assert_eq!(ids(&f), ["b3", "a1", "a2"]);
         f.forget_channel("A");
@@ -210,7 +234,7 @@ mod tests {
         members.members_only = true;
         let mut past = video("p", Some("Streamed 1 day ago"));
         past.kind = VideoKind::PastStream;
-        f.set_channel("A", 1_000_000, vec![short, live, members, past]);
+        f.set_channel(&chan("A"), 1_000_000, vec![short, live, members, past]);
         f.rebuild(&["A"], 10);
         assert_eq!(ids(&f), ["p"]);
         f.filter = FeedFilter { shorts: true, live: true };
@@ -221,10 +245,10 @@ mod tests {
     #[test]
     fn the_selection_stays_on_its_video() {
         let mut f = FeedState::default();
-        f.set_channel("A", 1_000_000, vec![video("a1", Some("1 day ago")), video("a2", Some("2 days ago"))]);
+        f.set_channel(&chan("A"), 1_000_000, vec![video("a1", Some("1 day ago")), video("a2", Some("2 days ago"))]);
         f.rebuild(&["A", "B"], 10);
         f.selection.index = 1;
-        f.set_channel("B", 1_000_000, vec![video("b1", Some("1 hour ago"))]);
+        f.set_channel(&chan("B"), 1_000_000, vec![video("b1", Some("1 hour ago"))]);
         f.rebuild(&["A", "B"], 10);
         assert_eq!(item_id(&f.items[f.selection.index]), "a2");
     }
@@ -235,5 +259,33 @@ mod tests {
             [("A".to_string(), Some(1000)), ("B".to_string(), Some(1000 - MAX_AGE_SECS)), ("C".to_string(), None)];
         assert_eq!(stale(&channels, 1000, false), ["B", "C"]);
         assert_eq!(stale(&channels, 1000, true), ["A", "B", "C"]);
+    }
+
+    #[test]
+    fn upcoming_and_undated_videos() {
+        let mut f = FeedState::default();
+        // A premiere first, with no date: left out.
+        let new = f.set_channel(&chan("A"), 1_000_000, vec![video("p", None), video("a1", Some("3 days ago"))]);
+        assert_eq!(new.unwrap().len(), 1);
+        f.rebuild(&["A"], 10);
+        assert_eq!(ids(&f), ["a1"]);
+        // No dates at all, as from yt-dlp: the old videos stay.
+        assert_eq!(f.set_channel(&chan("A"), 2_000_000, vec![video("x", None)]), None);
+        assert_eq!(f.fetched.get("A"), Some(&1_000_000));
+        f.rebuild(&["A"], 10);
+        assert_eq!(ids(&f), ["a1"]);
+    }
+
+    #[test]
+    fn collaborations_show_once_and_know_their_channel() {
+        let mut f = FeedState::default();
+        let mut collab = video("c", Some("1 day ago"));
+        collab.channels = vec![ChannelRef { id: None, name: "A and B".into(), handle: None }];
+        f.set_channel(&chan("A"), 1_000_000, vec![collab.clone()]);
+        f.set_channel(&chan("B"), 1_000_000, vec![collab]);
+        f.rebuild(&["A", "B"], 10);
+        assert_eq!(ids(&f), ["c"]);
+        let Item::Video(v) = &f.items[0] else { panic!() };
+        assert!(v.channels[0].id.is_some(), "the keys for the channel work");
     }
 }

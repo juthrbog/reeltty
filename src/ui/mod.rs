@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn browse_screen_without_video() {
         let mut app = App::new(KeyMap::default(), Graphics::Unavailable("herdr".into()));
-        press(&mut app, "tab");
+        app.tab = Tab::Subscriptions;
         insta::assert_snapshot!(render(&app, 100, 8));
     }
 
@@ -485,7 +485,7 @@ mod tests {
                 subscribed_at: 0,
             },
         ];
-        press(&mut app, "tab");
+        app.tab = Tab::Subscriptions;
         press(&mut app, "j");
         insta::assert_snapshot!(render(&app, 70, 10));
     }
@@ -625,9 +625,7 @@ mod tests {
     #[test]
     fn queue_tab() {
         let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
-        for _ in 0..3 {
-            press(&mut app, "tab");
-        }
+        app.tab = Tab::Queue;
         insta::assert_snapshot!("queue_tab_empty", render(&app, 60, 8));
         app.queue = sample_results()
             .into_iter()

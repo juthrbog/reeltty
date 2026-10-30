@@ -3,9 +3,9 @@ source: src/ui/mod.rs
 expression: "render(&app, 60, 8)"
 ---
  Search   Feed   Subscriptions   Playlists   Queue   History
-┌Saved playlists (0)───────────────────────────────────────┐
-│No saved playlists yet. Press s on a playlist to save it. │
-│                                                          │
+┌Queue (0)─────────────────────────────────────────────────┐
+│The queue is empty. Press a on a video to add it. Videos  │
+│in the queue play after the one that plays now.           │
 │                                                          │
 │                                                          │
 └──────────────────────────────────────────────────────────┘

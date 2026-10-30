@@ -3,9 +3,9 @@ source: src/ui/mod.rs
 expression: "render(&app, 100, 8)"
 ---
  Search   Feed   Subscriptions   Playlists   Queue   History                                        
-┌Feed (0 channels)─────────────────────────────────────────────────────────────────────────────────┐
-│No subscriptions yet. Press s on a channel to subscribe, or import your YouTube subscriptions with│
-│reeltty import (see the README).                                                                  │
+┌Subscriptions (0)─────────────────────────────────────────────────────────────────────────────────┐
+│No subscriptions yet. Press s on a channel to subscribe.                                          │
+│                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘

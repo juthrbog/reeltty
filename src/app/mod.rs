@@ -885,16 +885,20 @@ impl App {
         result: Result<Vec<Video>, String>,
     ) -> Vec<Effect> {
         self.feed.loading = self.feed.loading.saturating_sub(1);
-        match result {
-            Ok(videos) => {
-                let videos = self.feed.set_channel(&channel_id, fetched_at, videos);
+        // The user unsubscribed while it loaded.
+        let Some(sub) = self.subscriptions.iter().find(|s| s.channel_id == channel_id) else { return Vec::new() };
+        let channel = ChannelRef { id: Some(channel_id.clone()), name: sub.name.clone(), handle: sub.handle.clone() };
+        match result.map(|videos| self.feed.set_channel(&channel, fetched_at, videos)) {
+            Ok(Some(videos)) => {
                 self.rebuild_feed();
                 vec![Effect::SaveFeed { channel_id, fetched_at, videos }]
             }
+            Ok(None) => {
+                self.feed.error = Some(format!("{}: no dates for its videos", channel.name));
+                Vec::new()
+            }
             Err(e) => {
-                let name = self.subscriptions.iter().find(|s| s.channel_id == channel_id);
-                let name = name.map_or(channel_id.as_str(), |s| s.name.as_str());
-                self.feed.error = Some(format!("{name}: {e}"));
+                self.feed.error = Some(format!("{}: {e}", channel.name));
                 Vec::new()
             }
         }
@@ -914,6 +918,10 @@ impl App {
             return Some(Vec::new());
         }
         if action == Action::Refresh {
+            if self.feed.loading > 0 {
+                self.status = Some("The feed is loading already.".into());
+                return Some(Vec::new());
+            }
             return Some(self.load_feed(true));
         }
         let item = self.feed.items.get(self.feed.selection.index)?.clone();
@@ -1746,5 +1754,26 @@ mod tests {
         a.tab = Tab::Subscriptions;
         key(&mut a, "s");
         assert!(a.feed.items.is_empty());
+    }
+
+    #[test]
+    fn late_replies_and_refresh_while_loading() {
+        let mut a = app();
+        a.subscriptions =
+            vec![Subscription { channel_id: "UC1".into(), name: "A".into(), handle: None, subscribed_at: 1 }];
+        a.tab = Tab::Feed;
+        a.update(Message::FeedLoading { count: 1 });
+        assert!(key(&mut a, "r").is_empty());
+        assert_eq!(a.status.as_deref(), Some("The feed is loading already."));
+        // Unsubscribed while it loaded: the reply is dropped.
+        a.subscriptions.clear();
+        let effects = a.update(Message::FeedChannelLoaded {
+            channel_id: "UC1".into(),
+            fetched_at: 1_000_000,
+            result: Ok(vec![feed_video("a1", "1 hour ago")]),
+        });
+        assert!(effects.is_empty());
+        assert!(a.feed.fetched.is_empty());
+        assert_eq!(a.feed.loading, 0);
     }
 }

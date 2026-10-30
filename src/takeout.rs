@@ -1,9 +1,11 @@
 //! Imports subscriptions from Google Takeout.
 //!
-//! Takeout writes `subscriptions.csv` with three columns: the channel ID, the
-//! channel URL, and the channel title. The header names change with the
-//! language, so the columns are read by position, and the header is the row
-//! whose first field is not a channel ID.
+//! Takeout writes a CSV file with three columns: the channel ID, the channel
+//! URL, and the channel title. Its name, its folders, and its header change
+//! with the account language (`subscriptions.csv` in English, `Abos.csv` in
+//! German). So a folder search takes the CSV file whose rows are channels,
+//! the columns are read by position, and the header is the row whose first
+//! field is not a channel ID.
 
 use std::path::{Path, PathBuf};
 
@@ -11,8 +13,10 @@ use anyhow::{Context as _, Result, bail};
 
 use crate::store::{Store, Subscription};
 
-/// The file name in Takeout. The folders above it change with the language.
+/// The file name in an English Takeout.
 const FILE_NAME: &str = "subscriptions.csv";
+/// Larger CSV files in a folder search are not subscription lists.
+const MAX_FILE_BYTES: u64 = 20 * 1024 * 1024;
 /// How deep `find_csv` looks into a Takeout folder.
 const MAX_DEPTH: usize = 5;
 
@@ -68,32 +72,58 @@ pub fn import(store: &Store, path: &Path, now: i64) -> Result<Summary> {
     Ok(summary)
 }
 
-/// Finds `subscriptions.csv` in a folder and the folders below it.
+/// Finds the subscriptions file in a folder and the folders below it: the
+/// CSV file whose rows are channels. If there are several, the one named
+/// `subscriptions.csv`. Folders that cannot be read are skipped.
 pub fn find_csv(dir: &Path) -> Result<PathBuf> {
     let mut found = Vec::new();
     let mut folders = vec![(dir.to_path_buf(), 0)];
     while let Some((folder, depth)) = folders.pop() {
-        let entries = std::fs::read_dir(&folder).with_context(|| format!("read {}", folder.display()))?;
+        let entries = match std::fs::read_dir(&folder) {
+            Ok(entries) => entries,
+            Err(e) if depth == 0 => return Err(e).with_context(|| format!("read {}", folder.display())),
+            Err(e) => {
+                tracing::debug!("skip {}: {e}", folder.display());
+                continue;
+            }
+        };
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() && depth < MAX_DEPTH {
+            // Symbolic links are not followed, so a loop cannot happen.
+            let Ok(kind) = entry.file_type() else { continue };
+            if kind.is_dir() && depth < MAX_DEPTH {
                 folders.push((path, depth + 1));
-            } else if path.file_name().is_some_and(|n| n.eq_ignore_ascii_case(FILE_NAME)) {
+            } else if kind.is_file()
+                && path.extension().is_some_and(|e| e.eq_ignore_ascii_case("csv"))
+                && has_channels(&path)
+            {
                 found.push(path);
             }
         }
     }
     found.sort();
-    match found.as_slice() {
-        [] => bail!("found no {FILE_NAME} in {}. Give the path of the file.", dir.display()),
-        [one] => Ok(one.clone()),
-        many => bail!(
-            "found {} files named {FILE_NAME} in {}. Give the path of one:\n{}",
+    let named: Vec<&PathBuf> =
+        found.iter().filter(|p| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case(FILE_NAME))).collect();
+    match (found.as_slice(), named.as_slice()) {
+        ([], _) => bail!(
+            "found no subscriptions file in {}. Give the path of the CSV file. Its name changes with the language.",
+            dir.display()
+        ),
+        ([one], _) => Ok(one.clone()),
+        (_, [one]) => Ok((*one).clone()),
+        (many, _) => bail!(
+            "found {} files with channels in {}. Give the path of one:\n{}",
             many.len(),
             dir.display(),
             many.iter().map(|p| format!("  {}", p.display())).collect::<Vec<_>>().join("\n")
         ),
     }
+}
+
+/// Whether a CSV file has at least one channel row.
+fn has_channels(path: &Path) -> bool {
+    let small = std::fs::metadata(path).is_ok_and(|m| m.len() <= MAX_FILE_BYTES);
+    small && std::fs::read_to_string(path).is_ok_and(|text| !parse(&text).channels.is_empty())
 }
 
 /// Reads the rows of the file. A row is a channel when its first field
@@ -223,10 +253,13 @@ mod tests {
     #[test]
     fn imports_into_the_store_and_finds_the_file() {
         let dir = tempfile::tempdir().unwrap();
+        // A German export: the file name changes too.
         let folder = dir.path().join("Takeout/YouTube und YouTube Music/Abos");
         std::fs::create_dir_all(&folder).unwrap();
-        let file = folder.join("subscriptions.csv");
-        std::fs::write(&file, format!("Channel Id,Channel Url,Channel Title\n{ALPHA},,Alpha\n{BETA},,Beta\n")).unwrap();
+        let file = folder.join("Abos.csv");
+        std::fs::write(&file, format!("Kanal-ID,Kanal-URL,Kanaltitel\n{ALPHA},,Alpha\n{BETA},,Beta\n")).unwrap();
+        // Other CSV files in Takeout are not subscriptions.
+        std::fs::write(folder.join("Playlists.csv"), "Playlist-ID,Titel\nPL1,x\n").unwrap();
         assert_eq!(find_csv(dir.path()).unwrap(), file);
 
         let store = Store::open_in_memory().unwrap();
@@ -242,11 +275,25 @@ mod tests {
         assert_eq!(subs.iter().find(|s| s.channel_id == ALPHA).unwrap().subscribed_at, 100);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn skips_folders_it_cannot_read() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("subscriptions.csv"), format!("{ALPHA},,A\n")).unwrap();
+        let locked = dir.path().join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let found = find_csv(dir.path());
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(found.unwrap(), dir.path().join("subscriptions.csv"));
+    }
+
     #[test]
     fn clear_errors() {
         let dir = tempfile::tempdir().unwrap();
         let err = import(&Store::open_in_memory().unwrap(), dir.path(), 0).unwrap_err();
-        assert!(err.to_string().contains("found no subscriptions.csv"), "{err}");
+        assert!(err.to_string().contains("found no subscriptions file"), "{err}");
         let err = import(&Store::open_in_memory().unwrap(), &dir.path().join("none.zip"), 0).unwrap_err();
         assert!(err.to_string().contains("was not found"), "{err}");
         let zip = dir.path().join("takeout-1.zip");
@@ -260,9 +307,12 @@ mod tests {
         for name in ["a", "b"] {
             let d = dir.path().join(name);
             std::fs::create_dir_all(&d).unwrap();
-            std::fs::write(d.join("subscriptions.csv"), "").unwrap();
+            std::fs::write(d.join("export.csv"), format!("{ALPHA},,A\n")).unwrap();
         }
         let err = find_csv(dir.path()).unwrap_err();
-        assert!(err.to_string().contains("found 2 files"), "{err}");
+        assert!(err.to_string().contains("found 2 files with channels"), "{err}");
+        // With several, the English name wins.
+        std::fs::write(dir.path().join("b/subscriptions.csv"), format!("{ALPHA},,A\n")).unwrap();
+        assert_eq!(find_csv(dir.path()).unwrap(), dir.path().join("b/subscriptions.csv"));
     }
 }

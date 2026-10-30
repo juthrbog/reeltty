@@ -64,7 +64,8 @@ fn import(paths: &Paths, path: &std::path::Path) -> Result<()> {
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
     let s = takeout::import(&store, path, now)?;
     let (added, already) = (takeout::channels(s.added), takeout::channels(s.already));
-    println!("Added {added}. {already} were there already.");
+    let were = if s.already == 1 { "was" } else { "were" };
+    println!("Added {added}. {already} {were} there already.");
     if s.skipped > 0 {
         println!(
             "Skipped {} that are not channels.",

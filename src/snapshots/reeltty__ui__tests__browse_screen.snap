@@ -1,0 +1,13 @@
+---
+source: src/ui.rs
+assertion_line: 117
+expression: "render(&app, 60, 8)"
+---
+ Search   Subscriptions   Playlists   History               
+┌Search────────────────────────────────────────────────────┐
+│Press / to search.                                        │
+│                                                          │
+│                                                          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+                                  ? help  / search  q quit

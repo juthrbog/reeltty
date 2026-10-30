@@ -4,9 +4,16 @@
 //! and an audio URL in `requested_formats`. For a stream with one muxed
 //! format (live streams), the URL is at the top level.
 
+use std::collections::BTreeMap;
+
 use serde::Deserialize;
 
+use super::model::Chapter;
 use super::{Result, SourceError};
+
+/// The quality menu offers sizes up to this many pixels on the short side.
+/// Larger ones would be scaled down to 720p anyway (DESIGN.md Q13).
+pub const MAX_QUALITY: u32 = 720;
 
 /// The format selector for DESIGN.md Q13: H.264 first, then VP9, never AV1.
 /// Opus or stereo AAC audio, never IAMF. The last choice, one muxed format,
@@ -55,6 +62,54 @@ pub struct Streams {
     /// Unix time when the URLs stop working.
     pub expires_at: Option<u64>,
     pub format: FormatInfo,
+    pub chapters: Vec<Chapter>,
+    /// The other sizes of the video stream, smallest first. Empty when the
+    /// video and audio come in one stream, as for live streams.
+    pub qualities: Vec<Quality>,
+    /// Captions in the `WebVTT` format, in the order YouTube gives them.
+    pub captions: Vec<Caption>,
+}
+
+/// One size of the video stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Quality {
+    /// Pixels on the short side, as in "720p".
+    pub res: u32,
+    pub url: String,
+}
+
+/// One caption track.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Caption {
+    /// A language code such as `en`, `en-US`, or `en-orig`.
+    pub lang: String,
+    /// The language name, such as "English".
+    pub name: String,
+    pub url: String,
+    /// Made by speech recognition, not by a person.
+    pub auto: bool,
+}
+
+/// The best caption track for `lang`, in this order:
+/// 1. Made by a person, in the same language and region.
+/// 2. Made by a person, in the same language (`pt` for `pt-BR`, or `en-US` for `en`).
+/// 3. Made by speech recognition, in that language.
+/// 4. Translated by machine into that language.
+pub fn pick_caption<'a>(captions: &'a [Caption], lang: &str) -> Option<&'a Caption> {
+    let base = |l: &str| l.split('-').next().unwrap_or_default().to_ascii_lowercase();
+    let same = |c: &&Caption| c.lang.eq_ignore_ascii_case(lang);
+    let related = |c: &&Caption| base(&c.lang) == base(lang);
+    // YouTube translates the speech recognition track into every language.
+    let translated = |c: &&Caption| c.url.contains("tlang=");
+    let manual = || captions.iter().filter(|c| !c.auto);
+    let recognized = || captions.iter().filter(|c| c.auto && !translated(c));
+    let machine = || captions.iter().filter(|c| c.auto && translated(c));
+    manual()
+        .find(same)
+        .or_else(|| manual().find(related))
+        .or_else(|| recognized().find(related))
+        .or_else(|| machine().find(same))
+        .or_else(|| machine().find(related))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -79,13 +134,67 @@ struct Info {
     fps: Option<f64>,
     vcodec: Option<String>,
     acodec: Option<String>,
+    protocol: Option<String>,
     requested_formats: Option<Vec<Info>>,
+    formats: Option<Vec<Info>>,
+    chapters: Option<Vec<YtChapter>>,
+    subtitles: Option<BTreeMap<String, Vec<Track>>>,
+    automatic_captions: Option<BTreeMap<String, Vec<Track>>>,
+}
+
+#[derive(Deserialize)]
+struct YtChapter {
+    title: Option<String>,
+    start_time: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct Track {
+    ext: Option<String>,
+    url: Option<String>,
+    name: Option<String>,
 }
 
 impl Info {
     fn has_video(&self) -> bool {
         self.vcodec.as_deref().is_some_and(|c| c != "none")
     }
+
+    fn has_audio(&self) -> bool {
+        self.acodec.as_deref().is_some_and(|c| c != "none")
+    }
+}
+
+/// One video-only stream for each size, H.264 before VP9, as the selector chooses.
+fn qualities(formats: &[Info]) -> Vec<Quality> {
+    let mut by_res: BTreeMap<u32, (bool, String)> = BTreeMap::new();
+    for f in formats {
+        let (Some(w), Some(h), Some(url)) = (f.width, f.height, &f.url) else { continue };
+        let codec = f.vcodec.as_deref().unwrap_or_default();
+        let (avc, vp9) = (codec.starts_with("avc1"), codec == "vp9" || codec.starts_with("vp09"));
+        let res = w.min(h);
+        if !(avc || vp9) || f.has_audio() || f.protocol.as_deref() != Some("https") || res > MAX_QUALITY {
+            continue;
+        }
+        // Keep the last H.264 stream of a size: yt-dlp lists the better ones last.
+        match by_res.get(&res) {
+            Some((true, _)) if !avc => {}
+            _ => {
+                by_res.insert(res, (avc, url.clone()));
+            }
+        }
+    }
+    by_res.into_iter().map(|(res, (_, url))| Quality { res, url }).collect()
+}
+
+fn captions(manual: Option<BTreeMap<String, Vec<Track>>>, auto: Option<BTreeMap<String, Vec<Track>>>) -> Vec<Caption> {
+    let tracks = |map: Option<BTreeMap<String, Vec<Track>>>, auto: bool| {
+        map.unwrap_or_default().into_iter().filter_map(move |(lang, tracks)| {
+            let vtt = tracks.into_iter().find(|t| t.ext.as_deref() == Some("vtt"))?;
+            Some(Caption { name: vtt.name.unwrap_or_else(|| lang.clone()), lang, url: vtt.url?, auto })
+        })
+    };
+    tracks(manual, false).chain(tracks(auto, true)).collect()
 }
 
 pub fn parse_streams(json: &[u8]) -> Result<Streams> {
@@ -124,7 +233,29 @@ pub fn parse_streams(json: &[u8]) -> Result<Streams> {
         vcodec: codec(Some(video), |f| f.vcodec.as_ref()),
         acodec: if acodec.is_empty() { codec(Some(video), |f| f.acodec.as_ref()) } else { acodec },
     };
-    Ok(Streams { video_url, audio_url, headers: headers.into_iter().collect(), available_at, expires_at, format })
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "video lengths")]
+    let chapters = info
+        .chapters
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|c| {
+            let start = c.start_time.filter(|t| t.is_finite() && *t >= 0.0)?;
+            Some(Chapter { title: c.title.unwrap_or_default(), start_secs: start as u32 })
+        })
+        .collect();
+    let qualities =
+        if audio_url.is_some() { qualities(info.formats.as_deref().unwrap_or_default()) } else { Vec::new() };
+    Ok(Streams {
+        video_url,
+        audio_url,
+        headers: headers.into_iter().collect(),
+        available_at,
+        expires_at,
+        format,
+        chapters,
+        qualities,
+        captions: captions(info.subtitles, info.automatic_captions),
+    })
 }
 
 /// The `expire=` value in a googlevideo URL.
@@ -172,12 +303,56 @@ mod tests {
         assert!(s.audio_url.as_deref().unwrap().contains("itag=251"));
         assert_eq!(s.headers.len(), 4);
         assert!(s.headers.iter().any(|(k, v)| k == "Accept" && v.contains(',')));
-        // The latest of the formats.
-        assert_eq!(s.available_at, Some(1_793_373_881));
+        assert_eq!(s.available_at, Some(1_793_373_866));
         assert_eq!(s.expires_at, Some(1_793_395_466));
         let f = &s.format;
-        assert_eq!((f.id.as_str(), f.width, f.height, f.fps), ("298+251", Some(1280), Some(720), Some(60)));
+        assert_eq!((f.id.as_str(), f.width, f.height, f.fps), ("298+251-8", Some(1280), Some(720), Some(60)));
         assert_eq!((f.vcodec.as_str(), f.acodec.as_str()), ("avc1.4D4020", "opus"));
+    }
+
+    #[test]
+    fn parses_chapters_qualities_and_captions() {
+        let s = parse_streams(&fixture()).unwrap();
+        let chapters: Vec<(u32, &str)> = s.chapters.iter().map(|c| (c.start_secs, c.title.as_str())).collect();
+        assert_eq!(chapters, [(0, "Introduction example"), (67, "Series preview"), (162, "What are neurons?")]);
+        // H.264 where there is one, VP9 for the other sizes. No 1080p, and no muxed format 18.
+        let q: Vec<(u32, &str)> = s.qualities.iter().map(|q| (q.res, q.url.as_str())).collect();
+        assert_eq!(q.len(), 5);
+        assert_eq!(q.iter().map(|q| q.0).collect::<Vec<_>>(), [144, 240, 360, 480, 720]);
+        assert!(q[1].1.contains("itag=242"), "VP9 when there is no H.264");
+        assert!(q[2].1.contains("itag=134"));
+        assert!(q[4].1.contains("itag=298"), "the last, best H.264 stream of a size");
+        let langs: Vec<(&str, bool)> = s.captions.iter().map(|c| (c.lang.as_str(), c.auto)).collect();
+        assert_eq!(langs, [("de", false), ("en", false), ("en-orig", true), ("fr", true)]);
+        assert!(s.captions.iter().all(|c| c.url.contains("fmt=vtt")));
+    }
+
+    fn caption(lang: &str, auto: bool) -> Caption {
+        Caption { lang: lang.into(), name: lang.into(), url: format!("https://x/{lang}/{auto}"), auto }
+    }
+
+    #[test]
+    fn picks_captions_by_language() {
+        let translated = |lang: &str| Caption {
+            lang: lang.into(),
+            name: lang.into(),
+            url: format!("https://x/{lang}?tlang={lang}"),
+            auto: true,
+        };
+        let all = [caption("de", false), caption("en-US", false), caption("en-orig", true), translated("en")];
+        assert_eq!(pick_caption(&all, "en").unwrap().lang, "en-US");
+        assert_eq!(pick_caption(&all, "EN-us").unwrap().lang, "en-US", "case does not matter");
+        assert_eq!(pick_caption(&all[2..], "en").unwrap().lang, "en-orig", "recognition before translation");
+        assert_eq!(pick_caption(&all[3..], "en").unwrap().lang, "en");
+        assert_eq!(pick_caption(&all, "e"), None, "a prefix is not a language");
+        assert_eq!(pick_caption(&all, "fr"), None);
+        // A human track in a related form beats a machine translation.
+        let pt = [caption("pt", false), translated("pt-BR")];
+        assert_eq!(pick_caption(&pt, "pt-BR").unwrap().lang, "pt");
+        let zh = [translated("zh-Hans"), caption("zh-CN", false)];
+        assert_eq!(pick_caption(&zh, "zh-Hans").unwrap().lang, "zh-CN");
+        let en = [caption("en", false)];
+        assert_eq!(pick_caption(&en, "en-GB").unwrap().lang, "en");
     }
 
     #[test]

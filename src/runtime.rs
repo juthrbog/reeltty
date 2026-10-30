@@ -62,14 +62,14 @@ impl Playback {
 
     fn handle(&mut self, command: PlayerCommand, tx: &UnboundedSender<Message>) {
         match command {
-            PlayerCommand::Start { session, streams, geometry } => {
+            PlayerCommand::Start { session, streams, geometry, start_secs } => {
                 self.stop();
                 let send = player::to_app(tx.clone(), session);
                 let Some(sink) = self.sink.clone() else {
                     send(PlayerEvent::Failed("this terminal cannot show video".into()));
                     return;
                 };
-                match Player::start(session, &streams, geometry, sink, send, &[]) {
+                match Player::start(session, &streams, geometry, sink, send, start_secs, &[]) {
                     Ok(p) => self.player = Some(p),
                     Err(e) => {
                         tracing::error!("cannot start the player: {e}");

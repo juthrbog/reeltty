@@ -248,6 +248,10 @@ pub struct App {
     pub thumbnails: Thumbnails,
     /// The full-screen player, over everything else.
     pub player: Option<PlayerState>,
+    /// The caption language, such as `en`.
+    pub captions_language: String,
+    /// Show captions when a video starts.
+    pub captions_on: bool,
     pub width: u16,
     pub height: u16,
     /// The pixel size of one cell, or 0 x 0 if the terminal does not say.
@@ -274,6 +278,8 @@ impl App {
             status: None,
             thumbnails: Thumbnails::new(false),
             player: None,
+            captions_language: "en".into(),
+            captions_on: false,
             width: 80,
             height: 24,
             cell: (0, 0),

@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::app::Message;
-use crate::app::player::{Geometry, PlayerCommand, PlayerEvent};
+use crate::app::player::{Geometry, PlayerCommand, PlayerEvent, SpeedStep};
 use crate::source::streams::Streams;
 use crate::terminal::kitty::{Presented, VideoSink};
 use mpv::{EndReason, Event, Events, Format, Frame, Mpv, Renderer, Signal, Value};
@@ -59,6 +59,10 @@ const OPTIONS: &[(&str, &str)] = &[
     ("audio-client-name", "reeltty"),
 ];
 
+/// The reply ID of the command that loads captions, so that a failure can be
+/// told to the app.
+const CAPTIONS_REPLY: u64 = 1;
+
 /// The properties that the event thread observes, by ID.
 const PROPERTIES: &[(u64, &str, Format)] = &[
     (1, "time-pos", Format::Double),
@@ -67,6 +71,7 @@ const PROPERTIES: &[(u64, &str, Format)] = &[
     (4, "paused-for-cache", Format::Flag),
     (5, "volume", Format::Double),
     (6, "mute", Format::Flag),
+    (7, "speed", Format::Double),
 ];
 
 /// The libmpv client API version as (major, minor).
@@ -117,6 +122,7 @@ impl Player {
         geometry: Geometry,
         sink: Arc<VideoSink>,
         send: EventSender,
+        start_secs: u32,
         extra_options: &[(&str, &str)],
     ) -> Result<Self, String> {
         let api = api_version();
@@ -128,6 +134,10 @@ impl Player {
         let mut options: Vec<(&str, &str)> = OPTIONS.iter().chain(extra_options).copied().collect();
         if let Some((_, ua)) = user_agent {
             options.push(("user-agent", ua));
+        }
+        let start = start_secs.to_string();
+        if start_secs > 0 {
+            options.push(("start", &start));
         }
         let (mpv, events) = Mpv::new(&options).map_err(|e| e.to_string())?;
         let setup = || -> mpv::Result<Renderer> {
@@ -174,13 +184,30 @@ impl Player {
         Ok(Self { session, mpv, sink, shared, events_quit, threads: vec![render, events] })
     }
 
-    /// Runs a control command. Commands never wait for mpv.
+    /// Runs a control command. Commands never wait for mpv. mpv runs them
+    /// in the order they come.
     pub fn command(&self, command: &PlayerCommand) {
+        let run = |args: &[&str]| self.mpv.command_async(0, args);
         let result = match command {
-            PlayerCommand::TogglePause => self.mpv.command_async(0, &["cycle", "pause"]),
-            PlayerCommand::Seek { secs } => self.mpv.command_async(0, &["seek", &secs.to_string(), "relative"]),
-            PlayerCommand::Volume { delta } => self.mpv.command_async(0, &["add", "volume", &delta.to_string()]),
-            PlayerCommand::ToggleMute => self.mpv.command_async(0, &["cycle", "mute"]),
+            PlayerCommand::TogglePause => run(&["cycle", "pause"]),
+            PlayerCommand::Seek { secs } => run(&["seek", &secs.to_string(), "relative"]),
+            PlayerCommand::SeekTo { secs } => run(&["seek", &secs.to_string(), "absolute"]),
+            PlayerCommand::Volume { delta } => run(&["add", "volume", &delta.to_string()]),
+            PlayerCommand::ToggleMute => run(&["cycle", "mute"]),
+            // The same steps as mpv's keys.
+            PlayerCommand::Speed(SpeedStep::Up) => run(&["multiply", "speed", "1.1"]),
+            PlayerCommand::Speed(SpeedStep::Down) => run(&["multiply", "speed", "0.9091"]),
+            PlayerCommand::Speed(SpeedStep::Reset) => run(&["set", "speed", "1"]),
+            PlayerCommand::AddCaptions { url, lang, name } => {
+                let add = self.mpv.command_async(CAPTIONS_REPLY, &["sub-add", url, "select", name, lang]);
+                add.and_then(|()| run(&["set", "sub-visibility", "yes"]))
+            }
+            PlayerCommand::ShowCaptions(show) => run(&["set", "sub-visibility", if *show { "yes" } else { "no" }]),
+            // `start` applies to the next file. The audio track and the
+            // headers are options too, so they stay.
+            PlayerCommand::SwitchVideo { url, secs } => {
+                run(&["set", "start", &secs.to_string()]).and_then(|()| run(&["loadfile", url, "replace"]))
+            }
             PlayerCommand::Resize(g) => {
                 *self.shared.geometry.lock().unwrap_or_else(PoisonError::into_inner) = *g;
                 self.shared.generation.fetch_add(1, Ordering::Relaxed);
@@ -312,6 +339,14 @@ impl Errors {
     }
 
     /// The most useful line: an HTTP error if there is one, else the last.
+    /// Takes the most useful line, and forgets the others, so that a later
+    /// failure does not show them.
+    fn take(&mut self) -> Option<String> {
+        let best = self.best().cloned();
+        self.0.clear();
+        best
+    }
+
     fn best(&self) -> Option<&String> {
         self.0.iter().rev().find(|l| l.contains("HTTP error")).or_else(|| self.0.last())
     }
@@ -330,11 +365,18 @@ fn event_loop(mut events: Events, quit: &AtomicBool, send: &EventSender) {
                     errors.push(format!("{prefix}: {text}"));
                 }
             }
+            Event::CommandReply { id: CAPTIONS_REPLY, error: Some(e) } => {
+                let why = errors.take().unwrap_or(e);
+                send(PlayerEvent::CaptionsFailed(why));
+            }
             Event::CommandReply { error: Some(e), .. } => tracing::debug!("mpv command failed: {e}"),
-            Event::FileLoaded => send(PlayerEvent::FileLoaded),
+            Event::FileLoaded => {
+                errors.0.clear();
+                send(PlayerEvent::FileLoaded);
+            }
             Event::EndFile { reason: EndReason::Eof, .. } => send(PlayerEvent::Ended),
             Event::EndFile { reason: EndReason::Error, error } => {
-                let why = errors.best().cloned().or(error).unwrap_or_else(|| "playback failed".into());
+                let why = errors.take().or(error).unwrap_or_else(|| "playback failed".into());
                 send(PlayerEvent::Failed(why));
             }
             // Show the new position at once after a seek.
@@ -369,6 +411,8 @@ fn property_event(id: u64, value: Value, second: &mut Option<u64>) -> Option<Pla
         #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "clamped to 0..=100")]
         (5, Value::Double(v)) => Some(PlayerEvent::Volume(v.clamp(0.0, 100.0).round() as u8)),
         (6, Value::Flag(b)) => Some(PlayerEvent::Muted(b)),
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "mpv allows 0.01 to 100")]
+        (7, Value::Double(v)) => Some(PlayerEvent::Speed((v.clamp(0.0, 100.0) * 100.0).round() as u16)),
         _ => None,
     }
 }
@@ -385,6 +429,7 @@ mod tests {
         assert_eq!(position(0.5), None);
         assert_eq!(position(1.02), Some(PlayerEvent::Position(1020)));
         assert_eq!(property_event(5, Value::Double(42.4), &mut None), Some(PlayerEvent::Volume(42)));
+        assert_eq!(property_event(7, Value::Double(1.21), &mut None), Some(PlayerEvent::Speed(121)));
         assert_eq!(property_event(2, Value::None, &mut None), None);
     }
 

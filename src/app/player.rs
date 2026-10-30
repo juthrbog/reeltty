@@ -9,8 +9,9 @@
 //! The app never reads the clock. The runtime puts the time in the messages.
 
 use super::{App, Effect};
-use crate::keymap::{KeyPress, PlayerAction};
-use crate::source::streams::{Streams, rung};
+use crate::keymap::{Action, KeyPress, PlayerAction};
+use crate::source::model::Chapter;
+use crate::source::streams::{Caption, Quality, Streams, pick_caption, rung};
 use crate::terminal::kitty::MAX_CELLS;
 
 /// Rows under the video for the progress bar and the status line.
@@ -24,6 +25,9 @@ const DEFAULT_ASPECT: (u32, u32) = (16, 9);
 const SEEK_SECS: i32 = 5;
 const SEEK_LONG_SECS: i32 = 60;
 const VOLUME_STEP: i8 = 2;
+/// Going to the previous chapter in the first seconds of a chapter goes to
+/// the one before it, as in mpv.
+const CHAPTER_GRACE_MS: u64 = 2000;
 
 /// Where the video goes on screen, in cells, and the pixel size that mpv
 /// renders.
@@ -109,6 +113,10 @@ pub enum PlayerEvent {
     Buffering(bool),
     Volume(u8),
     Muted(bool),
+    /// Percent: 100 is normal speed.
+    Speed(u16),
+    /// mpv could not load the caption track.
+    CaptionsFailed(String),
     Ended,
     Failed(String),
     /// A player thread stopped by a bug. The app quits.
@@ -122,6 +130,8 @@ pub enum PlayerCommand {
         session: u64,
         streams: Box<Streams>,
         geometry: Geometry,
+        /// Where to start, in seconds. Not 0 after an HTTP 403 retry.
+        start_secs: u32,
     },
     TogglePause,
     Seek {
@@ -131,9 +141,48 @@ pub enum PlayerCommand {
         delta: i8,
     },
     ToggleMute,
+    /// Faster, slower, or normal speed.
+    Speed(SpeedStep),
+    /// Seconds from the start.
+    SeekTo {
+        secs: u32,
+    },
+    /// Loads a caption track and shows it.
+    AddCaptions {
+        url: String,
+        lang: String,
+        name: String,
+    },
+    ShowCaptions(bool),
+    /// Plays another size of the video stream from `secs`.
+    SwitchVideo {
+        url: String,
+        secs: u32,
+    },
     Resize(Geometry),
     /// Stops playback, and the stream search or the wait before it.
     Stop,
+}
+
+/// mpv's speed keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpeedStep {
+    Up,
+    Down,
+    Reset,
+}
+
+/// What played before a quality change, to go back to if the change fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Switch {
+    url: String,
+    quality: Option<u32>,
+}
+
+/// The menu of video sizes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QualityMenu {
+    pub selection: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -147,9 +196,25 @@ pub struct PlayerState {
     pub buffering: bool,
     pub volume: u8,
     pub muted: bool,
+    /// Percent: 100 is normal speed.
+    pub speed: u16,
     pub position_ms: u64,
     pub duration_ms: Option<u64>,
     pub geometry: Geometry,
+    pub chapters: Vec<Chapter>,
+    pub qualities: Vec<Quality>,
+    /// The size that plays now, in pixels on the short side.
+    pub quality: Option<u32>,
+    pub quality_menu: Option<QualityMenu>,
+    /// The URL of the video stream that plays.
+    video_url: String,
+    /// A quality change that has not loaded yet, with what played before it.
+    switch: Option<Switch>,
+    captions: Vec<Caption>,
+    /// The caption track that is shown, by name.
+    pub caption: Option<String>,
+    /// mpv has the caption track of `caption` for this file.
+    caption_loaded: bool,
     /// The width and height of the video, for its shape on screen.
     aspect: (u32, u32),
     /// Kept for the end of the wait.
@@ -159,9 +224,23 @@ pub struct PlayerState {
 }
 
 impl PlayerState {
-    /// Whether mpv runs, so that the controls work.
+    /// Whether mpv runs, so that the video shows.
     pub fn is_running(&self) -> bool {
         matches!(self.phase, Phase::Loading | Phase::Playing | Phase::Ended)
+    }
+
+    /// Whether mpv has a file, so that the controls work. After the end, mpv
+    /// has none.
+    pub fn has_file(&self) -> bool {
+        matches!(self.phase, Phase::Loading | Phase::Playing)
+    }
+
+    /// Changes the phase. The quality menu only stays while there is a file.
+    fn set_phase(&mut self, phase: Phase) {
+        self.phase = phase;
+        if !self.has_file() {
+            self.quality_menu = None;
+        }
     }
 
     /// Seconds left to wait for the ads.
@@ -169,6 +248,44 @@ impl PlayerState {
         match self.phase {
             Phase::Waiting { until, now } => Some(until.saturating_sub(now)),
             _ => None,
+        }
+    }
+
+    /// The chapter that plays now.
+    pub fn chapter(&self) -> Option<&Chapter> {
+        self.chapters.iter().rev().find(|c| u64::from(c.start_secs) * 1000 <= self.position_ms)
+    }
+
+    /// The start of the next chapter, or of the previous one, in seconds.
+    fn chapter_seek(&self, forward: bool) -> Option<u32> {
+        let starts = self.chapters.iter().map(|c| c.start_secs);
+        let ms = |s: u32| u64::from(s) * 1000;
+        if forward {
+            starts.into_iter().find(|s| ms(*s) > self.position_ms)
+        } else {
+            // Before the first chapter, or in its first seconds, go to the start.
+            let before = self.position_ms.saturating_sub(CHAPTER_GRACE_MS);
+            if self.chapters.is_empty() {
+                return None;
+            }
+            Some(starts.rev().find(|s| ms(*s) < before).unwrap_or(0))
+        }
+    }
+
+    /// The commands to show the caption track again after a file loads.
+    fn reload_captions(&mut self) -> Vec<Effect> {
+        self.caption_loaded = false;
+        let Some(name) = &self.caption else { return Vec::new() };
+        match self.captions.iter().find(|c| c.name == *name) {
+            Some(c) => {
+                self.caption_loaded = true;
+                vec![Effect::Player(PlayerCommand::AddCaptions {
+                    url: c.url.clone(),
+                    lang: c.lang.clone(),
+                    name: c.name.clone(),
+                })]
+            }
+            None => Vec::new(),
         }
     }
 }
@@ -195,9 +312,19 @@ impl App {
             buffering: false,
             volume: 100,
             muted: false,
+            speed: 100,
             position_ms: 0,
             duration_ms: None,
             geometry,
+            chapters: Vec::new(),
+            qualities: Vec::new(),
+            quality: None,
+            quality_menu: None,
+            video_url: String::new(),
+            switch: None,
+            captions: Vec::new(),
+            caption: None,
+            caption_loaded: false,
             aspect: DEFAULT_ASPECT,
             streams: None,
             retried: false,
@@ -220,6 +347,7 @@ impl App {
 
     pub(super) fn on_streams(&mut self, session: u64, now: u64, result: Result<Box<Streams>, String>) -> Vec<Effect> {
         let (width, height, cell) = (self.width, self.height, self.cell);
+        let (language, captions_on) = (self.captions_language.clone(), self.captions_on);
         let Some(p) = self.player_of(session) else { return Vec::new() };
         if p.phase != Phase::Resolving {
             return Vec::new();
@@ -227,13 +355,24 @@ impl App {
         let streams = match result {
             Ok(s) => s,
             Err(e) => {
-                p.phase = Phase::Failed(e);
+                p.set_phase(Phase::Failed(e));
                 return Vec::new();
             }
         };
+        p.video_url.clone_from(&streams.video_url);
+        p.switch = None;
         if let (Some(w), Some(h)) = (streams.format.width, streams.format.height) {
             p.aspect = (w, h);
             p.geometry = Geometry::fit(width, height, cell, p.aspect);
+            p.quality = Some(w.min(h));
+        }
+        p.chapters.clone_from(&streams.chapters);
+        p.qualities.clone_from(&streams.qualities);
+        p.captions.clone_from(&streams.captions);
+        // The configuration turns captions on once. After a 403 retry, they
+        // stay as the user left them.
+        if !p.retried && p.caption.is_none() && captions_on {
+            p.caption = pick_caption(&p.captions, &language).map(|c| c.name.clone());
         }
         match streams.available_at {
             Some(until) if until > now => {
@@ -264,24 +403,45 @@ impl App {
         }
         let Some(p) = self.player_of(session) else { return Vec::new() };
         match event {
-            PlayerEvent::FileLoaded if p.phase == Phase::Loading => p.phase = Phase::Playing,
+            PlayerEvent::FileLoaded => {
+                if p.phase == Phase::Loading {
+                    p.phase = Phase::Playing;
+                }
+                p.switch = None;
+                // Caption tracks belong to one file, and a quality change loads a new one.
+                return p.reload_captions();
+            }
             PlayerEvent::Position(ms) => p.position_ms = ms,
             PlayerEvent::Duration(ms) => p.duration_ms = Some(ms),
             PlayerEvent::Paused(b) => p.paused = b,
             PlayerEvent::Buffering(b) => p.buffering = b,
             PlayerEvent::Volume(v) => p.volume = v,
             PlayerEvent::Muted(b) => p.muted = b,
-            PlayerEvent::Ended if p.is_running() => p.phase = Phase::Ended,
+            PlayerEvent::Speed(s) => p.speed = s,
+            PlayerEvent::CaptionsFailed(e) => {
+                p.caption = None;
+                p.caption_loaded = false;
+                self.status = Some(format!("Cannot load the captions: {e}"));
+            }
+            PlayerEvent::Ended if p.is_running() => p.set_phase(Phase::Ended),
             PlayerEvent::Failed(e) if p.is_running() => {
-                // The URLs can expire, or the ads wait was too short. Find them once more.
+                // A new size that does not load: go back to the one that played.
+                if let Some(back) = p.switch.take() {
+                    p.quality = back.quality;
+                    p.video_url.clone_from(&back.url);
+                    let secs = u32::try_from(p.position_ms / 1000).unwrap_or(u32::MAX);
+                    self.status = Some(format!("Cannot play that size: {e}"));
+                    return vec![Effect::Player(PlayerCommand::SwitchVideo { url: back.url, secs })];
+                }
+                // The URLs can expire, or the ads wait was too short. Find
+                // them once more, and go on from the same place.
                 if e.contains("403") && !p.retried {
                     p.retried = true;
-                    p.phase = Phase::Resolving;
-                    p.position_ms = 0;
+                    p.set_phase(Phase::Resolving);
                     let resolve = self.player.as_ref().map(|p| self.resolve(p));
                     return [Some(Effect::Player(PlayerCommand::Stop)), resolve].into_iter().flatten().collect();
                 }
-                p.phase = Phase::Failed(e);
+                p.set_phase(Phase::Failed(e));
                 return vec![Effect::Player(PlayerCommand::Stop)];
             }
             _ => {}
@@ -291,15 +451,54 @@ impl App {
 
     pub(super) fn on_player_key(&mut self, key: KeyPress) -> Vec<Effect> {
         let action = self.keymap.player.action(key);
+        if self.player.as_ref().is_some_and(|p| p.quality_menu.is_some() && p.has_file()) {
+            return self.on_quality_menu_key(key, action);
+        }
         if action == Some(PlayerAction::Back) {
             self.player = None;
             return vec![Effect::Player(PlayerCommand::Stop)];
         }
-        let Some(p) = &self.player else { return Vec::new() };
-        if !p.is_running() {
+        let language = self.captions_language.clone();
+        let Some(p) = &mut self.player else { return Vec::new() };
+        if !p.has_file() {
             return Vec::new();
         }
         let command = match action {
+            Some(PlayerAction::SpeedUp) => PlayerCommand::Speed(SpeedStep::Up),
+            Some(PlayerAction::SpeedDown) => PlayerCommand::Speed(SpeedStep::Down),
+            Some(PlayerAction::SpeedReset) => PlayerCommand::Speed(SpeedStep::Reset),
+            Some(a @ (PlayerAction::NextChapter | PlayerAction::PrevChapter)) => {
+                let Some(secs) = p.chapter_seek(a == PlayerAction::NextChapter) else {
+                    if p.chapters.is_empty() {
+                        self.status = Some("This video has no chapters.".into());
+                    }
+                    return Vec::new();
+                };
+                PlayerCommand::SeekTo { secs }
+            }
+            Some(PlayerAction::Captions) => {
+                if p.caption.take().is_some() {
+                    return vec![Effect::Player(PlayerCommand::ShowCaptions(false))];
+                }
+                let Some(track) = pick_caption(&p.captions, &language) else {
+                    self.status = Some(format!("This video has no captions in \"{language}\"."));
+                    return Vec::new();
+                };
+                p.caption = Some(track.name.clone());
+                if p.caption_loaded {
+                    return vec![Effect::Player(PlayerCommand::ShowCaptions(true))];
+                }
+                return p.reload_captions();
+            }
+            Some(PlayerAction::Quality) => {
+                if p.qualities.is_empty() {
+                    self.status = Some("This video has no other sizes.".into());
+                    return Vec::new();
+                }
+                let selection = p.qualities.iter().position(|q| Some(q.res) == p.quality).unwrap_or(0);
+                p.quality_menu = Some(QualityMenu { selection });
+                return Vec::new();
+            }
             Some(PlayerAction::TogglePause) => PlayerCommand::TogglePause,
             Some(PlayerAction::SeekForward) => PlayerCommand::Seek { secs: SEEK_SECS },
             Some(PlayerAction::SeekBack) => PlayerCommand::Seek { secs: -SEEK_SECS },
@@ -311,6 +510,36 @@ impl App {
             Some(PlayerAction::Back) | None => return Vec::new(),
         };
         vec![Effect::Player(command)]
+    }
+
+    /// Keys while the quality menu is open. It moves with the browse keys.
+    fn on_quality_menu_key(&mut self, key: KeyPress, action: Option<PlayerAction>) -> Vec<Effect> {
+        let browse = self.keymap.action(key);
+        let Some(p) = &mut self.player else { return Vec::new() };
+        let Some(menu) = &mut p.quality_menu else { return Vec::new() };
+        let last = p.qualities.len().saturating_sub(1);
+        match (browse, action) {
+            (Some(Action::Up), _) => menu.selection = menu.selection.saturating_sub(1),
+            (Some(Action::Down), _) => menu.selection = (menu.selection + 1).min(last),
+            (Some(Action::Top), _) => menu.selection = 0,
+            (Some(Action::Bottom), _) => menu.selection = last,
+            (Some(Action::Open), _) => {
+                let chosen = p.qualities.get(menu.selection).cloned();
+                p.quality_menu = None;
+                let Some(q) = chosen.filter(|q| Some(q.res) != p.quality) else { return Vec::new() };
+                let previous = Switch { url: std::mem::replace(&mut p.video_url, q.url.clone()), quality: p.quality };
+                // After a failed change, it goes back to the first size, not to the failed one.
+                p.switch.get_or_insert(previous);
+                p.quality = Some(q.res);
+                let secs = u32::try_from(p.position_ms / 1000).unwrap_or(u32::MAX);
+                return vec![Effect::Player(PlayerCommand::SwitchVideo { url: q.url, secs })];
+            }
+            (Some(Action::Back | Action::Quit), _) | (_, Some(PlayerAction::Back | PlayerAction::Quality)) => {
+                p.quality_menu = None;
+            }
+            _ => {}
+        }
+        Vec::new()
     }
 
     /// Fits the video to a new screen or cell size.
@@ -327,8 +556,10 @@ impl App {
 }
 
 fn start(p: &mut PlayerState, streams: Box<Streams>) -> Vec<Effect> {
+    p.caption_loaded = false;
     p.phase = Phase::Loading;
-    vec![Effect::Player(PlayerCommand::Start { session: p.session, streams, geometry: p.geometry })]
+    let start_secs = u32::try_from(p.position_ms / 1000).unwrap_or(0);
+    vec![Effect::Player(PlayerCommand::Start { session: p.session, streams, geometry: p.geometry, start_secs })]
 }
 
 #[cfg(test)]
@@ -336,7 +567,7 @@ mod tests {
     use super::*;
     use crate::app::{Input, Message};
     use crate::keymap::KeyMap;
-    use crate::source::streams::FormatInfo;
+    use crate::source::streams::{Caption, FormatInfo, Quality};
     use crate::terminal::detect::Graphics;
 
     fn app() -> App {
@@ -358,6 +589,9 @@ mod tests {
             available_at,
             expires_at: None,
             format: FormatInfo { width: Some(1280), height: Some(720), ..FormatInfo::default() },
+            chapters: Vec::new(),
+            qualities: Vec::new(),
+            captions: Vec::new(),
         })
     }
 
@@ -418,7 +652,7 @@ mod tests {
         let geometry = a.player.as_ref().unwrap().geometry;
         assert_eq!(
             effects,
-            [Effect::Player(PlayerCommand::Start { session: 1, streams: streams(Some(115)), geometry })]
+            [Effect::Player(PlayerCommand::Start { session: 1, streams: streams(Some(115)), geometry, start_secs: 0 })]
         );
         assert_eq!(phase(&a), Phase::Loading);
         a.update(Message::Player { session: 1, event: PlayerEvent::FileLoaded });
@@ -511,5 +745,210 @@ mod tests {
         assert!(a.play("v1".into(), "Title".into()).is_empty());
         assert_eq!(a.player, None);
         assert!(a.status.unwrap().contains("tmux"));
+    }
+
+    /// A playing video with chapters at 0, 60 and 120 s, three sizes, and English captions.
+    fn playing(captions_on: bool) -> App {
+        let mut a = app();
+        a.captions_on = captions_on;
+        a.play("v1".into(), "Title".into());
+        let mut s = streams(None);
+        s.chapters = [(0, "Intro"), (60, "Middle"), (120, "End")]
+            .into_iter()
+            .map(|(start_secs, title)| Chapter { title: title.into(), start_secs })
+            .collect();
+        s.qualities = [360, 480, 720].into_iter().map(|res| Quality { res, url: format!("https://v/{res}") }).collect();
+        s.captions = vec![
+            Caption { lang: "de".into(), name: "German".into(), url: "https://c/de".into(), auto: false },
+            Caption {
+                lang: "en-orig".into(),
+                name: "English (Original)".into(),
+                url: "https://c/en".into(),
+                auto: true,
+            },
+        ];
+        a.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(s) });
+        a
+    }
+
+    fn event(a: &mut App, event: PlayerEvent) -> Vec<Effect> {
+        a.update(Message::Player { session: 1, event })
+    }
+
+    #[test]
+    fn speed_keys() {
+        let mut a = playing(false);
+        assert_eq!(key(&mut a, "]"), [Effect::Player(PlayerCommand::Speed(SpeedStep::Up))]);
+        assert_eq!(key(&mut a, "["), [Effect::Player(PlayerCommand::Speed(SpeedStep::Down))]);
+        assert_eq!(key(&mut a, "backspace"), [Effect::Player(PlayerCommand::Speed(SpeedStep::Reset))]);
+        event(&mut a, PlayerEvent::Speed(121));
+        assert_eq!(a.player.as_ref().unwrap().speed, 121);
+    }
+
+    #[test]
+    fn chapter_keys() {
+        let mut a = playing(false);
+        let seek = |secs| [Effect::Player(PlayerCommand::SeekTo { secs })];
+        event(&mut a, PlayerEvent::Position(70_000));
+        assert_eq!(a.player.as_ref().unwrap().chapter().unwrap().title, "Middle");
+        assert_eq!(key(&mut a, "pgdn"), seek(120));
+        assert_eq!(key(&mut a, "pgup"), seek(60));
+        // In the first seconds of a chapter, back goes to the one before.
+        event(&mut a, PlayerEvent::Position(61_000));
+        assert_eq!(key(&mut a, "pgup"), seek(0));
+        event(&mut a, PlayerEvent::Position(130_000));
+        assert!(key(&mut a, "pgdn").is_empty());
+        event(&mut a, PlayerEvent::Position(500));
+        assert_eq!(key(&mut a, "pgup"), seek(0));
+
+        let mut a = app();
+        a.play("v2".into(), "Title".into());
+        a.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(streams(None)) });
+        assert!(key(&mut a, "pgdn").is_empty());
+        assert_eq!(a.status.as_deref(), Some("This video has no chapters."));
+    }
+
+    #[test]
+    fn captions_toggle_and_reload() {
+        let mut a = playing(false);
+        // Nothing to load until the key.
+        assert!(event(&mut a, PlayerEvent::FileLoaded).is_empty());
+        let add = Effect::Player(PlayerCommand::AddCaptions {
+            url: "https://c/en".into(),
+            lang: "en-orig".into(),
+            name: "English (Original)".into(),
+        });
+        assert_eq!(key(&mut a, "c"), std::slice::from_ref(&add));
+        assert_eq!(a.player.as_ref().unwrap().caption.as_deref(), Some("English (Original)"));
+        assert_eq!(key(&mut a, "c"), [Effect::Player(PlayerCommand::ShowCaptions(false))]);
+        assert_eq!(key(&mut a, "c"), [Effect::Player(PlayerCommand::ShowCaptions(true))]);
+        // A new file (a quality change) needs the track again.
+        assert_eq!(event(&mut a, PlayerEvent::FileLoaded), std::slice::from_ref(&add));
+
+        // On from the start, from the configuration file.
+        let mut a = playing(true);
+        assert_eq!(event(&mut a, PlayerEvent::FileLoaded), [add]);
+
+        a.captions_language = "fr".into();
+        key(&mut a, "c");
+        assert!(key(&mut a, "c").is_empty());
+        assert_eq!(a.status.as_deref(), Some("This video has no captions in \"fr\"."));
+    }
+
+    #[test]
+    fn quality_menu() {
+        let mut a = playing(false);
+        event(&mut a, PlayerEvent::Position(42_500));
+        assert!(key(&mut a, "v").is_empty());
+        // The menu starts on the size that plays.
+        assert_eq!(a.player.as_ref().unwrap().quality_menu, Some(QualityMenu { selection: 2 }));
+        // The arrows move in the menu, and do not seek.
+        assert!(key(&mut a, "up").is_empty());
+        assert!(key(&mut a, "k").is_empty());
+        assert!(key(&mut a, "k").is_empty());
+        assert_eq!(a.player.as_ref().unwrap().quality_menu, Some(QualityMenu { selection: 0 }));
+        let switch = key(&mut a, "enter");
+        assert_eq!(switch, [Effect::Player(PlayerCommand::SwitchVideo { url: "https://v/360".into(), secs: 42 })]);
+        let p = a.player.as_ref().unwrap();
+        assert_eq!((p.quality, p.quality_menu.clone()), (Some(360), None));
+        // The same size again does nothing, and q closes the menu but not the player.
+        key(&mut a, "v");
+        assert!(key(&mut a, "enter").is_empty());
+        key(&mut a, "v");
+        assert!(key(&mut a, "q").is_empty());
+        assert!(a.player.as_ref().unwrap().quality_menu.is_none());
+        assert!(a.player.is_some());
+
+        let mut a = app();
+        a.play("v2".into(), "Title".into());
+        a.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(streams(None)) });
+        key(&mut a, "v");
+        assert_eq!(a.player.as_ref().unwrap().quality_menu, None);
+        assert_eq!(a.status.as_deref(), Some("This video has no other sizes."));
+    }
+
+    #[test]
+    fn a_failed_caption_load_can_be_tried_again() {
+        let mut a = playing(false);
+        event(&mut a, PlayerEvent::FileLoaded);
+        assert!(matches!(key(&mut a, "c").as_slice(), [Effect::Player(PlayerCommand::AddCaptions { .. })]));
+        event(&mut a, PlayerEvent::CaptionsFailed("HTTP error 429".into()));
+        assert_eq!(a.player.as_ref().unwrap().caption, None);
+        assert_eq!(a.status.as_deref(), Some("Cannot load the captions: HTTP error 429"));
+        // The next key loads the track again, not only shows it.
+        assert!(matches!(key(&mut a, "c").as_slice(), [Effect::Player(PlayerCommand::AddCaptions { .. })]));
+    }
+
+    #[test]
+    fn a_failed_quality_change_goes_back() {
+        let mut a = playing(false);
+        event(&mut a, PlayerEvent::FileLoaded);
+        event(&mut a, PlayerEvent::Position(42_000));
+        key(&mut a, "v");
+        key(&mut a, "k");
+        assert!(matches!(key(&mut a, "enter").as_slice(), [Effect::Player(PlayerCommand::SwitchVideo { .. })]));
+        assert_eq!(a.player.as_ref().unwrap().quality, Some(480));
+        // The new size fails: back to the stream that played, at the same place.
+        let effects = event(&mut a, PlayerEvent::Failed("HTTP error 403".into()));
+        assert_eq!(effects, [Effect::Player(PlayerCommand::SwitchVideo { url: "https://v".into(), secs: 42 })]);
+        let p = a.player.as_ref().unwrap();
+        assert_eq!((p.quality, &p.phase), (Some(720), &Phase::Playing));
+        assert!(a.status.as_deref().unwrap().starts_with("Cannot play that size"));
+        // A change that loads is not undone by a later failure.
+        key(&mut a, "v");
+        key(&mut a, "k");
+        key(&mut a, "enter");
+        event(&mut a, PlayerEvent::FileLoaded);
+        let effects = event(&mut a, PlayerEvent::Failed("HTTP error 403".into()));
+        assert!(matches!(effects.as_slice(), [Effect::Player(PlayerCommand::Stop), Effect::ResolveStreams { .. }]));
+    }
+
+    #[test]
+    fn a_403_retry_goes_on_from_the_same_place_and_keeps_captions_off() {
+        let mut a = playing(true);
+        event(&mut a, PlayerEvent::FileLoaded);
+        // The user turns off the captions that the configuration turned on.
+        assert_eq!(key(&mut a, "c"), [Effect::Player(PlayerCommand::ShowCaptions(false))]);
+        event(&mut a, PlayerEvent::Position(90_500));
+        event(&mut a, PlayerEvent::Failed("HTTP error 403".into()));
+        let effects = a.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(streams(None)) });
+        assert!(matches!(effects.as_slice(), [Effect::Player(PlayerCommand::Start { start_secs: 90, .. })]));
+        assert_eq!(a.player.as_ref().unwrap().caption, None);
+        assert!(event(&mut a, PlayerEvent::FileLoaded).is_empty());
+    }
+
+    #[test]
+    fn no_controls_after_the_end_or_a_failure() {
+        let mut a = playing(false);
+        event(&mut a, PlayerEvent::FileLoaded);
+        key(&mut a, "v");
+        event(&mut a, PlayerEvent::Ended);
+        // The menu closed with the file, so q leaves the player at once.
+        assert_eq!(a.player.as_ref().unwrap().quality_menu, None);
+        for k in ["v", "c", "pgup", "space", "right", "]"] {
+            assert!(key(&mut a, k).is_empty(), "{k}");
+        }
+        assert_eq!(key(&mut a, "q"), [Effect::Player(PlayerCommand::Stop)]);
+
+        let mut a = playing(false);
+        event(&mut a, PlayerEvent::FileLoaded);
+        key(&mut a, "v");
+        event(&mut a, PlayerEvent::Failed("demuxer error".into()));
+        assert_eq!(key(&mut a, "q"), [Effect::Player(PlayerCommand::Stop)]);
+    }
+
+    #[test]
+    fn previous_chapter_never_goes_forward() {
+        let mut a = playing(false);
+        a.player.as_mut().unwrap().chapters = [(10, "First"), (60, "Second")]
+            .into_iter()
+            .map(|(start_secs, title)| Chapter { title: title.into(), start_secs })
+            .collect();
+        event(&mut a, PlayerEvent::Position(5_000));
+        assert_eq!(key(&mut a, "pgup"), [Effect::Player(PlayerCommand::SeekTo { secs: 0 })]);
+        event(&mut a, PlayerEvent::Position(11_000));
+        assert_eq!(key(&mut a, "pgup"), [Effect::Player(PlayerCommand::SeekTo { secs: 0 })]);
+        event(&mut a, PlayerEvent::Position(30_000));
+        assert_eq!(key(&mut a, "pgup"), [Effect::Player(PlayerCommand::SeekTo { secs: 10 })]);
     }
 }

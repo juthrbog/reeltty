@@ -250,10 +250,17 @@ pub enum PlayerAction {
     VolumeUp,
     VolumeDown,
     Mute,
+    SpeedUp,
+    SpeedDown,
+    SpeedReset,
+    NextChapter,
+    PrevChapter,
+    Captions,
+    Quality,
 }
 
 impl PlayerAction {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 16] = [
         Self::Back,
         Self::TogglePause,
         Self::SeekForward,
@@ -263,6 +270,13 @@ impl PlayerAction {
         Self::VolumeUp,
         Self::VolumeDown,
         Self::Mute,
+        Self::SpeedUp,
+        Self::SpeedDown,
+        Self::SpeedReset,
+        Self::NextChapter,
+        Self::PrevChapter,
+        Self::Captions,
+        Self::Quality,
     ];
 
     pub const fn description(self) -> &'static str {
@@ -276,6 +290,13 @@ impl PlayerAction {
             Self::VolumeUp => "volume up",
             Self::VolumeDown => "volume down",
             Self::Mute => "mute or unmute",
+            Self::SpeedUp => "faster",
+            Self::SpeedDown => "slower",
+            Self::SpeedReset => "normal speed",
+            Self::NextChapter => "next chapter",
+            Self::PrevChapter => "previous chapter",
+            Self::Captions => "captions on or off",
+            Self::Quality => "video quality",
         }
     }
 
@@ -291,6 +312,14 @@ impl PlayerAction {
             Self::VolumeUp => &["0", "*"],
             Self::VolumeDown => &["9", "/"],
             Self::Mute => &["m"],
+            Self::SpeedUp => &["]"],
+            Self::SpeedDown => &["["],
+            Self::SpeedReset => &["backspace"],
+            Self::NextChapter => &["pgdn"],
+            Self::PrevChapter => &["pgup"],
+            Self::Captions => &["c"],
+            // mpv has no quality key.
+            Self::Quality => &["v"],
         }
     }
 }

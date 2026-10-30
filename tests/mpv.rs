@@ -93,6 +93,36 @@ fn renders_frames_and_ends() {
     assert_eq!(reason, EndReason::Eof);
 }
 
+/// Captions are drawn into the frames: white text on a black video.
+#[test]
+fn draws_captions_into_frames() {
+    let dir = tempfile::tempdir().unwrap();
+    let vtt = dir.path().join("en.vtt");
+    std::fs::write(&vtt, "WEBVTT\n\n00:00:00.000 --> 00:00:09.000\nHELLO WORLD\n").unwrap();
+    let (mpv, mut events) = Mpv::new(OPTIONS).unwrap();
+    let mut renderer = Renderer::new(&mpv).unwrap();
+    let signal = renderer.signal();
+    mpv.command(&["loadfile", "av://lavfi:color=c=black:size=320x240:rate=30:duration=10"]).unwrap();
+    wait_for(&mut events, |e| (*e == Event::FileLoaded).then_some(()));
+    mpv.command(&["sub-add", vtt.to_str().unwrap(), "select", "English", "en"]).unwrap();
+
+    let mut frame = Frame::new(320, 240);
+    let end = Instant::now() + Duration::from_secs(5);
+    let bright = |f: &Frame| f.bytes().chunks(4).filter(|p| p[0] > 128 && p[1] > 128 && p[2] > 128).count();
+    while bright(&frame) < 20 {
+        assert!(
+            Instant::now() < end,
+            "no caption in the frames: sub-text {:?} max {:?}",
+            mpv.get_string("sub-text"),
+            frame.bytes().iter().max()
+        );
+        if signal.wait(Duration::from_millis(100)) && renderer.has_frame() {
+            renderer.render(&mut frame).unwrap();
+            renderer.report_swap();
+        }
+    }
+}
+
 #[test]
 fn observes_pause_and_controls() {
     let (mpv, mut events) = Mpv::new(OPTIONS).unwrap();
@@ -162,7 +192,7 @@ mod player {
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::{Duration, Instant};
 
-    use reeltty::app::player::{Geometry, PlayerCommand, PlayerEvent};
+    use reeltty::app::player::{Geometry, PlayerCommand, PlayerEvent, SpeedStep};
     use reeltty::player::{EventSender, Player};
     use reeltty::source::streams::{FormatInfo, Streams};
     use reeltty::terminal::kitty::VideoSink;
@@ -240,6 +270,9 @@ mod player {
             available_at: None,
             expires_at: None,
             format: FormatInfo::default(),
+            chapters: Vec::new(),
+            qualities: Vec::new(),
+            captions: Vec::new(),
         }
     }
 
@@ -269,7 +302,7 @@ mod player {
         let screen = Screen::default();
         let sink = Arc::new(VideoSink::new(Box::new(screen.clone())));
         let (send, rx) = channel();
-        let player = Player::start(7, &streams(super::testsrc(10)), geometry(64, 36), sink, send, OPTIONS).unwrap();
+        let player = Player::start(7, &streams(super::testsrc(10)), geometry(64, 36), sink, send, 0, OPTIONS).unwrap();
         wait_for(&rx, |e| *e == PlayerEvent::FileLoaded);
         screen.wait_for("s=64,v=36,c=4,r=2");
 
@@ -295,13 +328,14 @@ mod player {
         let screen = Screen::slow();
         let sink = Arc::new(VideoSink::new(Box::new(screen.clone())));
         let (send, rx) = channel();
-        let player = Player::start(10, &streams(super::testsrc(10)), geometry(64, 36), sink, send, OPTIONS).unwrap();
+        let player = Player::start(10, &streams(super::testsrc(10)), geometry(64, 36), sink, send, 0, OPTIONS).unwrap();
         player.command(&PlayerCommand::TogglePause);
         wait_for(&rx, |e| *e == PlayerEvent::Paused(true));
         screen.wait_for("s=64,v=36");
-        // The terminal is slow: two frames wait, so the last size is dropped.
+        // The terminal is slow and reads nothing. After the first frame and
+        // one resize, at least two frames wait, so the next size is dropped.
         player.command(&PlayerCommand::Resize(geometry(48, 26)));
-        screen.wait_for("s=48,v=26");
+        std::thread::sleep(Duration::from_millis(300));
         player.command(&PlayerCommand::Resize(geometry(32, 18)));
         std::thread::sleep(Duration::from_millis(300));
         assert!(!screen.text().contains("s=32,v=18"));
@@ -313,17 +347,66 @@ mod player {
     }
 
     #[test]
+    fn starts_at_a_position_and_reports_caption_failures() {
+        let sink = Arc::new(VideoSink::new(Box::new(Screen::default())));
+        let (send, rx) = channel();
+        let player = Player::start(12, &streams(super::testsrc(10)), geometry(32, 18), sink, send, 5, OPTIONS).unwrap();
+        wait_for(&rx, |e| matches!(e, PlayerEvent::Position(ms) if (4500..7000).contains(ms)));
+        player.command(&PlayerCommand::AddCaptions {
+            url: "/no/such/captions.vtt".into(),
+            lang: "en".into(),
+            name: "English".into(),
+        });
+        wait_for(&rx, |e| matches!(e, PlayerEvent::CaptionsFailed(_)));
+        player.stop().join().unwrap();
+    }
+
+    #[test]
+    fn changes_speed_and_switches_the_video_stream() {
+        let screen = Screen::default();
+        let sink = Arc::new(VideoSink::new(Box::new(screen.clone())));
+        let (send, rx) = channel();
+        let player = Player::start(11, &streams(super::testsrc(10)), geometry(32, 18), sink, send, 0, OPTIONS).unwrap();
+        wait_for(&rx, |e| *e == PlayerEvent::FileLoaded);
+        player.command(&PlayerCommand::Speed(SpeedStep::Up));
+        wait_for(&rx, |e| *e == PlayerEvent::Speed(110));
+        player.command(&PlayerCommand::Speed(SpeedStep::Reset));
+        wait_for(&rx, |e| *e == PlayerEvent::Speed(100));
+        player.command(&PlayerCommand::SeekTo { secs: 3 });
+        wait_for(&rx, |e| matches!(e, PlayerEvent::Position(ms) if (2500..4000).contains(ms)));
+
+        // Another stream of the same video, from 6 s.
+        let other = "av://lavfi:testsrc=size=160x120:rate=30:duration=10";
+        player.command(&PlayerCommand::SwitchVideo { url: other.into(), secs: 6 });
+        wait_for(&rx, |e| *e == PlayerEvent::FileLoaded);
+        wait_for(&rx, |e| matches!(e, PlayerEvent::Position(ms) if (5500..8000).contains(ms)));
+        // The speed stays, and no end or error came from the switch.
+        player.command(&PlayerCommand::Speed(SpeedStep::Down));
+        let mut events = Vec::new();
+        let end = Instant::now() + Duration::from_secs(5);
+        while let Ok(e) = rx.recv_timeout(end.saturating_duration_since(Instant::now())) {
+            if e == PlayerEvent::Speed(91) {
+                break;
+            }
+            events.push(e);
+        }
+        assert!(!events.iter().any(|e| matches!(e, PlayerEvent::Ended | PlayerEvent::Failed(_))), "{events:?}");
+        player.stop().join().unwrap();
+    }
+
+    #[test]
     fn reports_the_end_and_errors() {
         let sink = Arc::new(VideoSink::new(Box::new(Screen::default())));
         let (send, rx) = channel();
         let player =
-            Player::start(8, &streams(super::testsrc(1)), geometry(32, 18), Arc::clone(&sink), send, OPTIONS).unwrap();
+            Player::start(8, &streams(super::testsrc(1)), geometry(32, 18), Arc::clone(&sink), send, 0, OPTIONS)
+                .unwrap();
         wait_for(&rx, |e| *e == PlayerEvent::Ended);
         player.stop().join().unwrap();
 
         let (send, rx) = channel();
         let player =
-            Player::start(9, &streams("/no/such/file.mp4".into()), geometry(32, 18), sink, send, OPTIONS).unwrap();
+            Player::start(9, &streams("/no/such/file.mp4".into()), geometry(32, 18), sink, send, 0, OPTIONS).unwrap();
         let PlayerEvent::Failed(why) = wait_for(&rx, |e| matches!(e, PlayerEvent::Failed(_))) else { unreachable!() };
         assert!(!why.is_empty());
         player.stop().join().unwrap();

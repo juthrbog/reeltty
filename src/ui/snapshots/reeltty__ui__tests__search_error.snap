@@ -1,9 +1,8 @@
 ---
 source: src/ui/mod.rs
-assertion_line: 252
 expression: "render(&app, 70, 8)"
 ---
- Search   Subscriptions   Playlists   History                         
+ Search   Subscriptions   Playlists   Queue   History                 
 ┌Search: x───────────────────────────────────────────────────────────┐
 │x                                                                   │
 │Search failed: network: timed out                                   │

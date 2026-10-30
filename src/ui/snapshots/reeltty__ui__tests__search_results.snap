@@ -1,9 +1,8 @@
 ---
 source: src/ui/mod.rs
-assertion_line: 210
 expression: "render(&app, 70, 16)"
 ---
- Search   Subscriptions   Playlists   History                         
+ Search   Subscriptions   Playlists   Queue   History                 
 ┌Search: rust (6,192,373 results)────────────────────────────────────┐
 │rust                                                                │
 │Rust in 100 seconds                                                 │

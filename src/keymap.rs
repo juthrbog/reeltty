@@ -165,11 +165,12 @@ pub enum Action {
     Details,
     Channel,
     Toggle,
+    Enqueue,
     Help,
 }
 
 impl Action {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::Quit,
         Self::Up,
         Self::Down,
@@ -187,6 +188,7 @@ impl Action {
         Self::Details,
         Self::Channel,
         Self::Toggle,
+        Self::Enqueue,
         Self::Help,
     ];
 
@@ -209,6 +211,7 @@ impl Action {
             Self::Details => "video details",
             Self::Channel => "go to the channel",
             Self::Toggle => "subscribe or save",
+            Self::Enqueue => "add to the queue",
             Self::Help => "show or hide help",
         }
     }
@@ -232,6 +235,7 @@ impl Action {
             Self::Details => &["i"],
             Self::Channel => &["c"],
             Self::Toggle => &["s"],
+            Self::Enqueue => &["a"],
             Self::Help => &["?"],
         }
     }
@@ -257,10 +261,12 @@ pub enum PlayerAction {
     PrevChapter,
     Captions,
     Quality,
+    NextVideo,
+    PrevVideo,
 }
 
 impl PlayerAction {
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 18] = [
         Self::Back,
         Self::TogglePause,
         Self::SeekForward,
@@ -277,6 +283,8 @@ impl PlayerAction {
         Self::PrevChapter,
         Self::Captions,
         Self::Quality,
+        Self::NextVideo,
+        Self::PrevVideo,
     ];
 
     pub const fn description(self) -> &'static str {
@@ -297,6 +305,8 @@ impl PlayerAction {
             Self::PrevChapter => "previous chapter",
             Self::Captions => "captions on or off",
             Self::Quality => "video quality",
+            Self::NextVideo => "next video",
+            Self::PrevVideo => "previous video",
         }
     }
 
@@ -320,6 +330,9 @@ impl PlayerAction {
             Self::Captions => &["c"],
             // mpv has no quality key.
             Self::Quality => &["v"],
+            // mpv's playlist keys.
+            Self::NextVideo => &[">"],
+            Self::PrevVideo => &["<"],
         }
     }
 }

@@ -1,9 +1,8 @@
 ---
 source: src/ui/mod.rs
-assertion_line: 217
 expression: "render(&app, 70, 10)"
 ---
- Search   Subscriptions   Playlists   History                         
+ Search   Subscriptions   Playlists   Queue   History                 
 ┌Search: rust (6,192,373 results)────────────────────────────────────┐
 │rust                                                                │
 │CHANNEL Jon Gjengset ✓                                              │

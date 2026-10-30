@@ -1,9 +1,8 @@
 ---
 source: src/ui/mod.rs
-assertion_line: 316
 expression: "format!(\"{loading}{}\", render(&app, 70, 8))"
 ---
- Search   Subscriptions   Playlists   History                         
+ Search   Subscriptions   Playlists   Queue   History                 
 ┌Playlist: Crust of Rust─────────────────────────────────────────────┐
 │                                                                    │
 │                                                                    │
@@ -11,7 +10,7 @@ expression: "format!(\"{loading}{}\", render(&app, 70, 8))"
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 Loading...                        ? help  / search  esc back  q quit  
- Search   Subscriptions   Playlists   History                         
+ Search   Subscriptions   Playlists   Queue   History                 
 ┌Playlist: Crust of Rust─────────────────────────────────────────────┐
 │                                                                    │
 │                                                                    │

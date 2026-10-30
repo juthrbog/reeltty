@@ -1,9 +1,8 @@
 ---
 source: src/ui/mod.rs
-assertion_line: 127
 expression: "render(&app, 60, 8)"
 ---
- Search   Subscriptions   Playlists   History               
+ Search   Subscriptions   Playlists   Queue   History       
 ┌Search────────────────────────────────────────────────────┐
 │Press / to search, f for filters.                         │
 │                                                          │

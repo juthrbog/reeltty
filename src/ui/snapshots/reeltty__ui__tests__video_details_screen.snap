@@ -1,9 +1,8 @@
 ---
 source: src/ui/mod.rs
-assertion_line: 353
 expression: "render(&app, 70, 18)"
 ---
- Search   Subscriptions   Playlists   History                         
+ Search   Subscriptions   Playlists   Queue   History                 
 ┌Video: But what is a neural network?────────────────────────────────┐
 │But what is a neural network?                                       │
 │3Blue1Brown · 8.73M subscribers                                     │

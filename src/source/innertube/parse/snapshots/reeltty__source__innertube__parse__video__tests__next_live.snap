@@ -1,6 +1,5 @@
 ---
 source: src/source/innertube/parse/video.rs
-assertion_line: 281
 expression: summary(&d)
 ---
 id: rFZHOHl-L8A
@@ -25,6 +24,10 @@ links: 8
   482+31 "https://lofigirl.com/generator/" -> Url("https://lofigirl.com/generator/")
   570+40 "https://www.instagram.com/p/CuChqFXs0..." -> Url("https://www.instagram.com/p/CuChqFXs08M/?img_index=6")
 chapters: 0
+related: 20
+  JD-kMIpDfnY lofi hip hop radio 💤 beats to sleep/chill to
+  VAlMDl00mYY sleep lofi radio 🌌 relaxing music to sleep/dream to
+  E2vONfzoyRI jazz lofi radio 🎷 beats to chill/study to
 thumbnails: 5
   168x94 https://i.ytimg.com/vi/rFZHOHl-L8A/hqdefault.jpg?v=6ad62bed&sqp=CKD0j9cG-oaymwEbCKgBEF5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLChY_Ya7tKND4foA-jFlZiTMBQyrA
   196x110 https://i.ytimg.com/vi/rFZHOHl-L8A/hqdefault.jpg?v=6ad62bed&sqp=CKD0j9cG-oaymwEbCMQBEG5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLAwNUHDisWqccIg8WO3MpFuXtHWfQ

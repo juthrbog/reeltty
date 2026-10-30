@@ -1,6 +1,5 @@
 ---
 source: src/source/innertube/parse/video.rs
-assertion_line: 281
 expression: summary(&d)
 ---
 id: aircAruvnKk
@@ -59,6 +58,10 @@ chapters: 12
   917 Recap
   987 Some final words
   1023 ReLU vs Sigmoid
+related: 19
+  IHZwWFHWa-w Gradient descent, how neural networks learn | Deep Learning Chapter 2
+  wjZofJX0v4M Transformers, the tech behind LLMs | Deep Learning Chapter 5
+  Ilg3gGewQ5U Backpropagation, intuitively | Deep Learning Chapter 3
 thumbnails: 5
   168x94 https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg?sqp=-oaymwEbCKgBEF5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLCRb7N9hUh2kjPG_02KySywgX62DA
   196x110 https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg?sqp=-oaymwEbCMQBEG5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLDYQMgvn7MoKqQn35eD76G63V9IWQ

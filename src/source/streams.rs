@@ -90,19 +90,26 @@ pub struct Caption {
     pub auto: bool,
 }
 
-/// The best caption track for `lang`: one made by a person first, then one
-/// made by speech recognition. A track for a regional form (`en-US` for
-/// `en`) is also good.
+/// The best caption track for `lang`, in this order:
+/// 1. Made by a person, in the same language and region.
+/// 2. Made by a person, in the same language (`pt` for `pt-BR`, or `en-US` for `en`).
+/// 3. Made by speech recognition, in that language.
+/// 4. Translated by machine into that language.
 pub fn pick_caption<'a>(captions: &'a [Caption], lang: &str) -> Option<&'a Caption> {
-    let regional = |c: &&Caption| c.lang.strip_prefix(lang).is_some_and(|rest| rest.starts_with('-'));
+    let base = |l: &str| l.split('-').next().unwrap_or_default().to_ascii_lowercase();
+    let same = |c: &&Caption| c.lang.eq_ignore_ascii_case(lang);
+    let related = |c: &&Caption| base(&c.lang) == base(lang);
+    // YouTube translates the speech recognition track into every language.
+    let translated = |c: &&Caption| c.url.contains("tlang=");
     let manual = || captions.iter().filter(|c| !c.auto);
-    let auto = || captions.iter().filter(|c| c.auto);
+    let recognized = || captions.iter().filter(|c| c.auto && !translated(c));
+    let machine = || captions.iter().filter(|c| c.auto && translated(c));
     manual()
-        .find(|c| c.lang == lang)
-        .or_else(|| manual().find(regional))
-        .or_else(|| auto().find(|c| c.lang == format!("{lang}-orig")))
-        .or_else(|| auto().find(|c| c.lang == lang))
-        .or_else(|| auto().find(regional))
+        .find(same)
+        .or_else(|| manual().find(related))
+        .or_else(|| recognized().find(related))
+        .or_else(|| machine().find(same))
+        .or_else(|| machine().find(related))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -326,13 +333,26 @@ mod tests {
 
     #[test]
     fn picks_captions_by_language() {
-        let all = [caption("de", false), caption("en-US", false), caption("en", true), caption("en-orig", true)];
+        let translated = |lang: &str| Caption {
+            lang: lang.into(),
+            name: lang.into(),
+            url: format!("https://x/{lang}?tlang={lang}"),
+            auto: true,
+        };
+        let all = [caption("de", false), caption("en-US", false), caption("en-orig", true), translated("en")];
         assert_eq!(pick_caption(&all, "en").unwrap().lang, "en-US");
-        assert_eq!(pick_caption(&all[2..], "en").unwrap().lang, "en-orig");
-        assert_eq!(pick_caption(&all[2..3], "en").unwrap().lang, "en");
-        assert_eq!(pick_caption(&all, "de").unwrap().lang, "de");
+        assert_eq!(pick_caption(&all, "EN-us").unwrap().lang, "en-US", "case does not matter");
+        assert_eq!(pick_caption(&all[2..], "en").unwrap().lang, "en-orig", "recognition before translation");
+        assert_eq!(pick_caption(&all[3..], "en").unwrap().lang, "en");
         assert_eq!(pick_caption(&all, "e"), None, "a prefix is not a language");
         assert_eq!(pick_caption(&all, "fr"), None);
+        // A human track in a related form beats a machine translation.
+        let pt = [caption("pt", false), translated("pt-BR")];
+        assert_eq!(pick_caption(&pt, "pt-BR").unwrap().lang, "pt");
+        let zh = [translated("zh-Hans"), caption("zh-CN", false)];
+        assert_eq!(pick_caption(&zh, "zh-Hans").unwrap().lang, "zh-CN");
+        let en = [caption("en", false)];
+        assert_eq!(pick_caption(&en, "en-GB").unwrap().lang, "en");
     }
 
     #[test]

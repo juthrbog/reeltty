@@ -538,7 +538,7 @@ mod tests {
         }
         app.update(Message::Player { session: 1, event: crate::app::player::PlayerEvent::Paused(true) });
         app.update(Message::Player { session: 1, event: crate::app::player::PlayerEvent::Muted(true) });
-        let text = render(&app, 40, 12);
+        let text = render(&app, 80, 12);
         assert!(text.contains("Paused  720p  muted"), "{text}");
     }
 
@@ -602,5 +602,13 @@ mod tests {
         }
         press(&mut app, "v");
         insta::assert_snapshot!(render(&app, 60, 14));
+    }
+
+    #[test]
+    fn player_messages_take_the_whole_status_line() {
+        let mut app = playing_app();
+        app.status = Some("This video has no captions in \"en\".".into());
+        let text = render(&app, 40, 12);
+        assert!(text.contains("This video has no captions in \"en\"."), "{text}");
     }
 }

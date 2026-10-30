@@ -59,6 +59,10 @@ const OPTIONS: &[(&str, &str)] = &[
     ("audio-client-name", "reeltty"),
 ];
 
+/// The reply ID of the command that loads captions, so that a failure can be
+/// told to the app.
+const CAPTIONS_REPLY: u64 = 1;
+
 /// The properties that the event thread observes, by ID.
 const PROPERTIES: &[(u64, &str, Format)] = &[
     (1, "time-pos", Format::Double),
@@ -118,6 +122,7 @@ impl Player {
         geometry: Geometry,
         sink: Arc<VideoSink>,
         send: EventSender,
+        start_secs: u32,
         extra_options: &[(&str, &str)],
     ) -> Result<Self, String> {
         let api = api_version();
@@ -129,6 +134,10 @@ impl Player {
         let mut options: Vec<(&str, &str)> = OPTIONS.iter().chain(extra_options).copied().collect();
         if let Some((_, ua)) = user_agent {
             options.push(("user-agent", ua));
+        }
+        let start = start_secs.to_string();
+        if start_secs > 0 {
+            options.push(("start", &start));
         }
         let (mpv, events) = Mpv::new(&options).map_err(|e| e.to_string())?;
         let setup = || -> mpv::Result<Renderer> {
@@ -190,7 +199,8 @@ impl Player {
             PlayerCommand::Speed(SpeedStep::Down) => run(&["multiply", "speed", "0.9091"]),
             PlayerCommand::Speed(SpeedStep::Reset) => run(&["set", "speed", "1"]),
             PlayerCommand::AddCaptions { url, lang, name } => {
-                run(&["sub-add", url, "select", name, lang]).and_then(|()| run(&["set", "sub-visibility", "yes"]))
+                let add = self.mpv.command_async(CAPTIONS_REPLY, &["sub-add", url, "select", name, lang]);
+                add.and_then(|()| run(&["set", "sub-visibility", "yes"]))
             }
             PlayerCommand::ShowCaptions(show) => run(&["set", "sub-visibility", if *show { "yes" } else { "no" }]),
             // `start` applies to the next file. The audio track and the
@@ -329,6 +339,14 @@ impl Errors {
     }
 
     /// The most useful line: an HTTP error if there is one, else the last.
+    /// Takes the most useful line, and forgets the others, so that a later
+    /// failure does not show them.
+    fn take(&mut self) -> Option<String> {
+        let best = self.best().cloned();
+        self.0.clear();
+        best
+    }
+
     fn best(&self) -> Option<&String> {
         self.0.iter().rev().find(|l| l.contains("HTTP error")).or_else(|| self.0.last())
     }
@@ -347,11 +365,18 @@ fn event_loop(mut events: Events, quit: &AtomicBool, send: &EventSender) {
                     errors.push(format!("{prefix}: {text}"));
                 }
             }
+            Event::CommandReply { id: CAPTIONS_REPLY, error: Some(e) } => {
+                let why = errors.take().unwrap_or(e);
+                send(PlayerEvent::CaptionsFailed(why));
+            }
             Event::CommandReply { error: Some(e), .. } => tracing::debug!("mpv command failed: {e}"),
-            Event::FileLoaded => send(PlayerEvent::FileLoaded),
+            Event::FileLoaded => {
+                errors.0.clear();
+                send(PlayerEvent::FileLoaded);
+            }
             Event::EndFile { reason: EndReason::Eof, .. } => send(PlayerEvent::Ended),
             Event::EndFile { reason: EndReason::Error, error } => {
-                let why = errors.best().cloned().or(error).unwrap_or_else(|| "playback failed".into());
+                let why = errors.take().or(error).unwrap_or_else(|| "playback failed".into());
                 send(PlayerEvent::Failed(why));
             }
             // Show the new position at once after a seek.

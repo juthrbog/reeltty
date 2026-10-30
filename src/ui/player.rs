@@ -110,6 +110,13 @@ fn draw_progress(p: &PlayerState, f: &mut Frame, area: Rect) {
 }
 
 fn draw_status(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
+    // A message from the last key takes the whole line, because it is the
+    // only answer to that key.
+    if let Some(status) = &app.status {
+        let width = usize::from(area.width).saturating_sub(1);
+        f.render_widget(Line::from(format!(" {}", truncate(status, width))).yellow(), area);
+        return;
+    }
     let state = match p.phase {
         Phase::Ended => "Ended",
         Phase::Loading => "Loading…",
@@ -118,43 +125,54 @@ fn draw_status(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
         Phase::Playing => "Playing",
         Phase::Resolving | Phase::Waiting { .. } | Phase::Failed(_) => "",
     };
-    let mut parts = vec![state.to_string()];
-    if p.speed != 100 {
-        parts.push(format!("{}.{:02}x", p.speed / 100, p.speed % 100));
-    }
-    if p.caption.is_some() {
-        parts.push("CC".into());
-    }
-    if let Some(q) = p.quality {
-        parts.push(format!("{q}p"));
-    }
-    parts.push(if p.muted { "muted".to_string() } else { format!("vol {}%", p.volume) });
-    let key = |a| app.keymap.player.first_key(a).map(|k| k.to_string()).unwrap_or_default();
-    let hint = |a, label: &'static str| [Span::from("  "), Span::from(key(a)).bold(), Span::from(label)];
-    let state = if p.is_running() { vec![Span::from(parts.join("  ")).dim()] } else { Vec::new() };
-    // Drop the hints that do not fit, the last one first.
-    let mut hints = vec![hint(PlayerAction::Back, " back")];
+    let mut parts = Vec::new();
     if p.is_running() {
-        hints.push(hint(PlayerAction::TogglePause, " pause"));
+        parts.push(state.to_string());
+        if p.speed != 100 {
+            parts.push(format!("{}.{:02}x", p.speed / 100, p.speed % 100));
+        }
+        if p.caption.is_some() {
+            parts.push("CC".into());
+        }
+        if let Some(q) = p.quality {
+            parts.push(format!("{q}p"));
+        }
+        parts.push(if p.muted { "muted".to_string() } else { format!("vol {}%", p.volume) });
     }
+    let key = |a| app.keymap.player.first_key(a).map(|k| k.to_string()).unwrap_or_default();
+    let hint = |a, label: &'static str| vec![Span::from("  "), Span::from(key(a)).bold(), Span::from(label)];
+    let mut pause = p.is_running().then(|| hint(PlayerAction::TogglePause, " pause"));
+    let mut back = Some(hint(PlayerAction::Back, " back"));
+    // Leave room for the title. Drop the pause hint first, then the state
+    // from its end, and the back hint last.
     let right = loop {
-        let line = Line::from(state.iter().cloned().chain(hints.iter().flatten().cloned()).collect::<Vec<_>>());
-        if line.width() + MIN_TITLE_WIDTH <= usize::from(area.width) || hints.is_empty() {
+        let mut spans = vec![Span::from(parts.join("  ")).dim()];
+        spans.extend(back.iter().chain(&pause).flatten().cloned());
+        let line = Line::from(spans);
+        if line.width() + MIN_TITLE_WIDTH <= usize::from(area.width) {
             break line;
         }
-        hints.pop();
+        if pause.take().is_some() {
+            continue;
+        }
+        if parts.len() > 1 {
+            parts.pop();
+            continue;
+        }
+        if back.take().is_some() {
+            continue;
+        }
+        break line;
     };
     let right_width = u16::try_from(right.width()).unwrap_or(u16::MAX).saturating_add(1).min(area.width);
     let [left, hints] = Layout::horizontal([Constraint::Min(0), Constraint::Length(right_width)]).areas(area);
     // A space before the title and one after it.
     let width = usize::from(left.width).saturating_sub(2);
-    // A message from the last key, else the chapter and the title. The
-    // chapter goes first, because it changes and a long title would hide it.
-    let line = match (&app.status, p.chapter()) {
-        (Some(status), _) => Line::from(format!(" {}", truncate(status, width))).yellow(),
-        (None, Some(c)) => Line::from(format!(" {}", truncate(&format!("{} · {}", c.title, p.title), width))).bold(),
-        (None, None) => Line::from(format!(" {}", truncate(&p.title, width))).bold(),
+    // The chapter goes first, because it changes and a long title would hide it.
+    let title = match p.chapter() {
+        Some(c) => format!("{} · {}", c.title, p.title),
+        None => p.title.clone(),
     };
-    f.render_widget(line, left);
+    f.render_widget(Line::from(format!(" {}", truncate(&title, width))).bold(), left);
     f.render_widget(right, hints);
 }

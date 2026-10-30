@@ -302,7 +302,7 @@ mod player {
         let screen = Screen::default();
         let sink = Arc::new(VideoSink::new(Box::new(screen.clone())));
         let (send, rx) = channel();
-        let player = Player::start(7, &streams(super::testsrc(10)), geometry(64, 36), sink, send, OPTIONS).unwrap();
+        let player = Player::start(7, &streams(super::testsrc(10)), geometry(64, 36), sink, send, 0, OPTIONS).unwrap();
         wait_for(&rx, |e| *e == PlayerEvent::FileLoaded);
         screen.wait_for("s=64,v=36,c=4,r=2");
 
@@ -328,7 +328,7 @@ mod player {
         let screen = Screen::slow();
         let sink = Arc::new(VideoSink::new(Box::new(screen.clone())));
         let (send, rx) = channel();
-        let player = Player::start(10, &streams(super::testsrc(10)), geometry(64, 36), sink, send, OPTIONS).unwrap();
+        let player = Player::start(10, &streams(super::testsrc(10)), geometry(64, 36), sink, send, 0, OPTIONS).unwrap();
         player.command(&PlayerCommand::TogglePause);
         wait_for(&rx, |e| *e == PlayerEvent::Paused(true));
         screen.wait_for("s=64,v=36");
@@ -346,11 +346,26 @@ mod player {
     }
 
     #[test]
+    fn starts_at_a_position_and_reports_caption_failures() {
+        let sink = Arc::new(VideoSink::new(Box::new(Screen::default())));
+        let (send, rx) = channel();
+        let player = Player::start(12, &streams(super::testsrc(10)), geometry(32, 18), sink, send, 5, OPTIONS).unwrap();
+        wait_for(&rx, |e| matches!(e, PlayerEvent::Position(ms) if (4500..7000).contains(ms)));
+        player.command(&PlayerCommand::AddCaptions {
+            url: "/no/such/captions.vtt".into(),
+            lang: "en".into(),
+            name: "English".into(),
+        });
+        wait_for(&rx, |e| matches!(e, PlayerEvent::CaptionsFailed(_)));
+        player.stop().join().unwrap();
+    }
+
+    #[test]
     fn changes_speed_and_switches_the_video_stream() {
         let screen = Screen::default();
         let sink = Arc::new(VideoSink::new(Box::new(screen.clone())));
         let (send, rx) = channel();
-        let player = Player::start(11, &streams(super::testsrc(10)), geometry(32, 18), sink, send, OPTIONS).unwrap();
+        let player = Player::start(11, &streams(super::testsrc(10)), geometry(32, 18), sink, send, 0, OPTIONS).unwrap();
         wait_for(&rx, |e| *e == PlayerEvent::FileLoaded);
         player.command(&PlayerCommand::Speed(SpeedStep::Up));
         wait_for(&rx, |e| *e == PlayerEvent::Speed(110));
@@ -383,13 +398,14 @@ mod player {
         let sink = Arc::new(VideoSink::new(Box::new(Screen::default())));
         let (send, rx) = channel();
         let player =
-            Player::start(8, &streams(super::testsrc(1)), geometry(32, 18), Arc::clone(&sink), send, OPTIONS).unwrap();
+            Player::start(8, &streams(super::testsrc(1)), geometry(32, 18), Arc::clone(&sink), send, 0, OPTIONS)
+                .unwrap();
         wait_for(&rx, |e| *e == PlayerEvent::Ended);
         player.stop().join().unwrap();
 
         let (send, rx) = channel();
         let player =
-            Player::start(9, &streams("/no/such/file.mp4".into()), geometry(32, 18), sink, send, OPTIONS).unwrap();
+            Player::start(9, &streams("/no/such/file.mp4".into()), geometry(32, 18), sink, send, 0, OPTIONS).unwrap();
         let PlayerEvent::Failed(why) = wait_for(&rx, |e| matches!(e, PlayerEvent::Failed(_))) else { unreachable!() };
         assert!(!why.is_empty());
         player.stop().join().unwrap();

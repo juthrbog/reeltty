@@ -20,7 +20,7 @@ const BASE_URL: &str = "https://www.youtube.com";
 /// still work, so this does not need to be current.
 const FALLBACK_CLIENT_VERSION: &str = "2.20261029.01.00";
 
-const USER_AGENT: &str =
+pub(crate) const USER_AGENT: &str =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 
 const TIMEOUT: Duration = Duration::from_secs(20);
@@ -300,7 +300,7 @@ fn network(err: &reqwest::Error) -> SourceError {
 
 /// The error and all its causes. reqwest's own message hides the cause,
 /// such as "connection refused".
-fn error_chain(err: &dyn std::error::Error) -> String {
+pub(crate) fn error_chain(err: &dyn std::error::Error) -> String {
     let mut message = err.to_string();
     let mut source = err.source();
     while let Some(cause) = source {

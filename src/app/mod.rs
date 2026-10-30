@@ -8,15 +8,20 @@
 pub mod list;
 pub mod screens;
 pub mod search;
+pub mod thumbnails;
+
+use std::sync::Arc;
 
 use crate::keymap::{Action, KeyMap, KeyPress};
 use crate::source::filters::SearchQuery;
 use crate::source::model::{ChannelPage, ChannelRef, Item, ItemPage, PlaylistPage, SearchPage, VideoDetails};
 use crate::store::{SavedPlaylist, Subscription};
 use crate::terminal::detect::Graphics;
+use crate::thumbnails::{Picture, Slot};
 use list::ItemList;
 use screens::{ChannelScreen, PlaylistScreen, Screen, Target, VideoScreen};
 use search::{KeyResult, SearchState};
+use thumbnails::{THUMBNAIL_ROWS, Thumbnails};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Message {
@@ -49,13 +54,24 @@ pub enum Message {
     },
     /// A change to the local database failed.
     StoreFailed(String),
+    /// The reply to `Effect::LoadThumbnail`.
+    ThumbnailLoaded {
+        url: String,
+        slot: Slot,
+        result: Result<Arc<Picture>, String>,
+    },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Input {
     Key(KeyPress),
     /// The size of the UI in cells.
     Resize {
+        width: u16,
+        height: u16,
+    },
+    /// The size of one cell in pixels.
+    CellSize {
         width: u16,
         height: u16,
     },
@@ -98,6 +114,11 @@ pub enum Effect {
     SavePlaylist(SavedPlaylist),
     UnsavePlaylist {
         playlist_id: String,
+    },
+    /// Download `url` and fit it into `slot`.
+    LoadThumbnail {
+        url: String,
+        slot: Slot,
     },
 }
 
@@ -176,7 +197,7 @@ const CHROME_ROWS: u16 = 4;
 pub const SEARCH_HEADER_ROWS: u16 = 1;
 /// Rows above the list on a channel or playlist screen.
 pub const SCREEN_HEADER_ROWS: u16 = 2;
-/// Each list item takes this many rows.
+/// Each list item takes this many rows without thumbnails.
 pub const ROWS_PER_ITEM: u16 = 2;
 
 #[derive(Debug, Clone)]
@@ -194,6 +215,7 @@ pub struct App {
     pub saved_selection: Selection,
     /// A short message for the status bar, cleared by the next key.
     pub status: Option<String>,
+    pub thumbnails: Thumbnails,
     pub height: u16,
     /// The number of the last screen request.
     request: u64,
@@ -213,14 +235,26 @@ impl App {
             saved_playlists: Vec::new(),
             saved_selection: Selection::default(),
             status: None,
+            thumbnails: Thumbnails::new(false),
             height: 24,
             request: 0,
         }
     }
 
+    /// The rows of one item in a list of videos, channels, and playlists.
+    pub fn rows_per_item(&self) -> u16 {
+        if self.thumbnails.enabled { THUMBNAIL_ROWS } else { ROWS_PER_ITEM }
+    }
+
     /// The number of list items that fit below `header` rows.
     pub fn rows(&self, header: u16) -> usize {
-        usize::from(self.height.saturating_sub(CHROME_ROWS + header) / ROWS_PER_ITEM).max(1)
+        usize::from(self.height.saturating_sub(CHROME_ROWS + header) / self.rows_per_item()).max(1)
+    }
+
+    /// The number of entries that fit in the Subscriptions and Playlists tabs,
+    /// which have no thumbnails.
+    pub fn plain_rows(&self) -> usize {
+        usize::from(self.height.saturating_sub(CHROME_ROWS) / ROWS_PER_ITEM).max(1)
     }
 
     /// The number of search results that fit on screen.
@@ -229,16 +263,23 @@ impl App {
     }
 
     pub fn update(&mut self, msg: Message) -> Vec<Effect> {
+        let mut effects = self.handle(msg);
+        if self.thumbnails.enabled {
+            // The visible items and the next screen of them.
+            let (items, selection, rows) = match self.screens.last() {
+                Some(Screen::Channel(s)) => (s.list.items.as_slice(), s.list.selection, self.rows(SCREEN_HEADER_ROWS)),
+                Some(Screen::Playlist(s)) => (s.list.items.as_slice(), s.list.selection, self.rows(SCREEN_HEADER_ROWS)),
+                None if self.tab == Tab::Search => (self.search.results.as_slice(), self.search.selection, self.page()),
+                Some(Screen::Video(_)) | None => (&[][..], Selection::default(), 0),
+            };
+            effects.extend(self.thumbnails.want(items.iter().skip(selection.offset).take(rows * 2)));
+        }
+        effects
+    }
+
+    fn handle(&mut self, msg: Message) -> Vec<Effect> {
         match msg {
-            Message::Input(Input::Resize { height, .. }) => {
-                self.height = height;
-                self.clamp_all();
-                Vec::new()
-            }
-            Message::Input(Input::Key(key)) => {
-                self.status = None;
-                self.on_key(key)
-            }
+            Message::Input(input) => self.on_input(input),
             Message::InputClosed(why) => vec![Effect::Fail(format!("terminal input stopped: {why}"))],
             Message::Terminate => vec![Effect::Quit],
             Message::SearchResult { generation, append, result } => {
@@ -324,6 +365,28 @@ impl App {
                 self.status = Some(format!("Could not save: {e}"));
                 Vec::new()
             }
+            Message::ThumbnailLoaded { url, slot, result } => {
+                self.thumbnails.loaded(&url, slot, result);
+                Vec::new()
+            }
+        }
+    }
+
+    fn on_input(&mut self, input: Input) -> Vec<Effect> {
+        match input {
+            Input::Resize { height, .. } => {
+                self.height = height;
+                self.clamp_all();
+                Vec::new()
+            }
+            Input::CellSize { width, height } => {
+                self.thumbnails.set_cell(width, height);
+                Vec::new()
+            }
+            Input::Key(key) => {
+                self.status = None;
+                self.on_key(key)
+            }
         }
     }
 
@@ -332,7 +395,7 @@ impl App {
     }
 
     fn clamp_all(&mut self) {
-        let (search, header, plain) = (self.page(), self.rows(SCREEN_HEADER_ROWS), self.rows(0));
+        let (search, header, plain) = (self.page(), self.rows(SCREEN_HEADER_ROWS), self.plain_rows());
         self.search.selection.clamp(self.search.results.len(), search);
         self.subscriptions_selection.clamp(self.subscriptions.len(), plain);
         self.saved_selection.clamp(self.saved_playlists.len(), plain);
@@ -609,7 +672,7 @@ impl App {
 
     fn on_subscriptions_key(&mut self, action: Option<Action>) -> Option<Vec<Effect>> {
         let action = action?;
-        let rows = self.rows(0);
+        let rows = self.plain_rows();
         if self.subscriptions_selection.apply(action, self.subscriptions.len(), rows) {
             return Some(Vec::new());
         }
@@ -627,7 +690,7 @@ impl App {
 
     fn on_saved_key(&mut self, action: Option<Action>) -> Option<Vec<Effect>> {
         let action = action?;
-        let rows = self.rows(0);
+        let rows = self.plain_rows();
         if self.saved_selection.apply(action, self.saved_playlists.len(), rows) {
             return Some(Vec::new());
         }
@@ -696,11 +759,49 @@ mod tests {
             duration_secs: None,
             views_text: None,
             published_text: None,
-            thumbnails: Vec::new(),
+            thumbnails: vec![crate::source::model::Thumbnail {
+                url: format!("https://i.ytimg.com/vi/{id}/hq.jpg"),
+                width: 336,
+                height: 188,
+            }],
             members_only: false,
             badges: Vec::new(),
             description_snippet: None,
         })
+    }
+
+    fn thumbnail_urls(effects: &[Effect]) -> Vec<&str> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::LoadThumbnail { url, .. } => Some(url.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn loads_the_thumbnails_of_visible_items() {
+        let mut a = app();
+        a.thumbnails = Thumbnails::new(true);
+        a.update(Message::Input(Input::Resize { width: 80, height: 14 }));
+        // Items are three rows high: (14 - 4 - 1) / 3.
+        assert_eq!(a.page(), 3);
+        assert_eq!(a.plain_rows(), 5);
+        let generation = search(&mut a, "rust");
+        let effects = a.update(Message::SearchResult { generation, append: false, result: Ok(page_of(10, 0, false)) });
+        // The visible items and the next screen of them.
+        let urls = thumbnail_urls(&effects);
+        assert_eq!(urls.len(), 6);
+        assert_eq!(urls[0], "https://i.ytimg.com/vi/0/hq.jpg");
+        let mut later = Vec::new();
+        for _ in 0..3 {
+            later.extend(key(&mut a, "j"));
+        }
+        // Item 3 is selected, so the list scrolls by one and item 6 comes into range.
+        assert_eq!(thumbnail_urls(&later), ["https://i.ytimg.com/vi/6/hq.jpg"]);
+        // Video details have no thumbnails.
+        assert!(thumbnail_urls(&key(&mut a, "enter")).is_empty());
     }
 
     fn page_of(n: usize, from: usize, more: bool) -> SearchPage {

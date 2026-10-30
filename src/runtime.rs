@@ -12,11 +12,14 @@ use crate::app::{App, Effect, Message};
 use crate::frontend::Frontend;
 use crate::source::Source;
 use crate::store::Store;
+use crate::thumbnails::Fetcher;
 
 /// What effects need to do their work.
 pub struct Services {
     pub source: Arc<dyn Source>,
     pub store: Store,
+    /// `None` when thumbnails are off.
+    pub thumbnails: Option<Fetcher>,
 }
 
 type Write = Box<dyn FnOnce(&Store) -> Result<()> + Send>;
@@ -69,7 +72,7 @@ impl Drop for Writer {
 pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services) -> Result<()> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let writer = Writer::start(services.store, tx.clone());
-    let source = services.source;
+    let (source, thumbnails) = (services.source, services.thumbnails);
     frontend.start_input(tx.clone());
     watch_signals(tx.clone());
     frontend.draw(app)?;
@@ -78,7 +81,7 @@ pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services
         let mut next = Some(msg);
         while let Some(msg) = next {
             for effect in app.update(msg) {
-                if let ControlFlow::Break(result) = handle(effect, &tx, &source, &writer) {
+                if let ControlFlow::Break(result) = handle(effect, &tx, &source, thumbnails.as_ref(), &writer) {
                     return result;
                 }
             }
@@ -113,6 +116,7 @@ fn handle(
     effect: Effect,
     tx: &UnboundedSender<Message>,
     source: &Arc<dyn Source>,
+    thumbnails: Option<&Fetcher>,
     writer: &Writer,
 ) -> ControlFlow<Result<()>> {
     match effect {
@@ -170,6 +174,17 @@ fn handle(
             writer.write(move |store| store.save_playlist(&p));
         }
         Effect::UnsavePlaylist { playlist_id } => writer.write(move |store| store.unsave_playlist(&playlist_id)),
+        Effect::LoadThumbnail { url, slot } => {
+            let tx = tx.clone();
+            let Some(fetcher) = thumbnails.cloned() else {
+                let _ = tx.send(Message::ThumbnailLoaded { url, slot, result: Err("thumbnails are off".into()) });
+                return ControlFlow::Continue(());
+            };
+            tokio::spawn(async move {
+                let result = fetcher.load(&url, slot).await.map(Arc::new).map_err(|e| format!("{e:#}"));
+                let _ = tx.send(Message::ThumbnailLoaded { url, slot, result });
+            });
+        }
     }
     ControlFlow::Continue(())
 }

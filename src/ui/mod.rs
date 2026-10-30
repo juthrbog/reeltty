@@ -125,6 +125,8 @@ pub(crate) fn centered(area: Rect, width: u16, height: u16) -> Rect {
 mod tests {
     use super::*;
     use crate::app::screens::Target;
+    use crate::app::thumbnails::Thumbnails;
+    use crate::app::{Effect, Selection};
     use crate::app::{Input, Message};
     use crate::keymap::{KeyCode, KeyMap, KeyPress};
     use crate::source::model::{
@@ -133,17 +135,27 @@ mod tests {
     };
     use crate::store::Subscription;
     use crate::terminal::detect::Graphics;
+    use crate::terminal::kitty;
+    use crate::thumbnails::Picture;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+    use ratatui::style::Color;
+    use std::sync::Arc;
 
-    fn render(app: &App, w: u16, h: u16) -> String {
+    fn buffer(app: &App, w: u16, h: u16) -> ratatui::buffer::Buffer {
         let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
         t.draw(|f| view(app, f)).unwrap();
-        let buf = t.backend().buffer().clone();
+        t.backend().buffer().clone()
+    }
+
+    /// The screen as text. Image placeholder cells show as `▒`.
+    fn render(app: &App, w: u16, h: u16) -> String {
+        let buf = buffer(app, w, h);
         let mut out = String::new();
         for y in 0..h {
             for x in 0..w {
-                out.push_str(buf[(x, y)].symbol());
+                let symbol = buf[(x, y)].symbol();
+                out.push_str(if symbol.starts_with(kitty::PLACEHOLDER) { "▒" } else { symbol });
             }
             out.push('\n');
         }
@@ -176,6 +188,13 @@ mod tests {
 
     fn sample_results() -> Vec<Item> {
         let chan = |name: &str| ChannelRef { id: Some(format!("UC{name}")), name: name.into(), handle: None };
+        let thumb = |id: &str| {
+            vec![crate::source::model::Thumbnail {
+                url: format!("https://i.ytimg.com/vi/{id}/hq.jpg"),
+                width: 336,
+                height: 188,
+            }]
+        };
         let video = |id: &str, title: &str, kind, channels, members_only| {
             Item::Video(Video {
                 id: id.into(),
@@ -186,7 +205,7 @@ mod tests {
                 duration_secs: None,
                 views_text: Some(if kind == VideoKind::Live { "32 watching" } else { "1.2M views" }.into()),
                 published_text: (kind != VideoKind::Live).then(|| "3 years ago".to_string()),
-                thumbnails: Vec::new(),
+                thumbnails: thumb(id),
                 members_only,
                 badges: if members_only { Vec::new() } else { vec!["4K".into()] },
                 description_snippet: None,
@@ -203,7 +222,7 @@ mod tests {
                 subscribers_text: Some("111K subscribers".into()),
                 description_snippet: None,
                 verified: true,
-                thumbnails: Vec::new(),
+                thumbnails: thumb("jon"),
             }),
             Item::Playlist(Playlist {
                 id: "PLx".into(),
@@ -211,14 +230,20 @@ mod tests {
                 kind: PlaylistKind::Playlist,
                 channel: Some(chan("Jon Gjengset")),
                 count_text: Some("44 videos".into()),
-                thumbnails: Vec::new(),
+                thumbnails: thumb("crust"),
                 first_video_id: None,
             }),
         ]
     }
 
     fn app_with_results(height: u16) -> App {
+        search_app(height, false).0
+    }
+
+    /// An app with search results, and the effects of the reply.
+    fn search_app(height: u16, thumbnails: bool) -> (App, Vec<Effect>) {
         let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.thumbnails = Thumbnails::new(thumbnails);
         app.update(Message::Input(Input::Resize { width: 70, height }));
         press(&mut app, "/");
         for c in "rust".chars() {
@@ -232,8 +257,50 @@ mod tests {
             ..SearchPage::default()
         };
         let generation = app.search.generation;
-        app.update(Message::SearchResult { generation, append: false, result: Ok(page) });
-        app
+        let effects = app.update(Message::SearchResult { generation, append: false, result: Ok(page) });
+        (app, effects)
+    }
+
+    #[test]
+    fn search_results_with_thumbnails() {
+        let (mut app, effects) = search_app(20, true);
+        let urls: Vec<String> = effects
+            .into_iter()
+            .filter_map(|e| match e {
+                Effect::LoadThumbnail { url, .. } => Some(url),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(urls.len(), 5);
+        let slot = app.thumbnails.slot();
+        let rgba = vec![0; (slot.width * slot.height * 4) as usize];
+        let picture = Picture { width: slot.width, height: slot.height, cols: slot.cols, rows: slot.rows, rgba };
+        for url in [&urls[0], &urls[3]] {
+            let result = Ok(Arc::new(picture.clone()));
+            app.update(Message::ThumbnailLoaded { url: url.clone(), slot, result });
+        }
+        press(&mut app, "j");
+        insta::assert_snapshot!(render(&app, 70, 20));
+
+        // Each cell names its row and column, and the color names the image.
+        let buf = buffer(&app, 70, 20);
+        let first = (0..20).find(|y| buf[(1, *y)].symbol().starts_with(kitty::PLACEHOLDER)).unwrap();
+        assert_eq!(buf[(1, first)].symbol(), kitty::cell(0, 0).unwrap());
+        assert_eq!(buf[(2, first + 1)].symbol(), kitty::cell(1, 1).unwrap());
+        let (r, g, b) = kitty::id_color(app.thumbnails.image(&app.search.results[0]).unwrap());
+        assert_eq!(buf[(1, first)].fg, Color::Rgb(r, g, b));
+        assert!(!buf[(1, first)].modifier.contains(Modifier::REVERSED), "the highlight leaves images alone");
+    }
+
+    #[test]
+    fn narrow_lists_drop_thumbnails() {
+        let (app, _) = search_app(12, true);
+        let mut t = Terminal::new(TestBackend::new(25, 6)).unwrap();
+        t.draw(|f| items::draw_list(&app.search.results, Selection::default(), &app.thumbnails, f, f.area())).unwrap();
+        let buf = t.backend().buffer();
+        assert!(buf.content().iter().all(|c| !c.symbol().starts_with(kitty::PLACEHOLDER)));
+        // Still three lines for each item: the second one starts on row 3.
+        assert_eq!(buf[(0, 3)].symbol(), "L");
     }
 
     #[test]

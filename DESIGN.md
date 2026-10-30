@@ -43,7 +43,7 @@ This document records the design decisions from the design session on 2026-10-26
 | Q19 | Main frontend | Terminal mode. |
 | Q20 | Terminal emulator | Never (see "Non-goals"). |
 | Q22 | Frontend trait | Terminal input and graphics output sit behind a `Frontend` trait from the start. |
-| Q25 | Thumbnails | Shown beside each row in lists. Drawn with `ratatui-image`, loaded lazily, cached on disk. One configuration switch turns them off. |
+| Q25 | Thumbnails | Shown beside each row in lists, only where video works (Kitty graphics with shared memory). Drawn with reeltty's own Kitty code, the same as video uses: shared memory and Unicode placeholders. `ratatui-image` is not used, because it turns on shared memory only after its own terminal query, and it always builds its sixel code. Loaded lazily, cached on disk (100 MB at most). One configuration switch turns them off. |
 | Q26 | Milestone 0 | A throwaway spike with a pass bar. See "Milestones". |
 | Q27 | Captions | In v1. The `c` key toggles captions. A preferred language in the configuration file. |
 | Q28 | SponsorBlock | In v1.1. Skipped categories in the configuration file. |

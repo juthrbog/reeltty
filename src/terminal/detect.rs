@@ -16,6 +16,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context as _, Result, bail};
 use base64::Engine as _;
 
+use super::shm::ShmObject;
+
 /// What the terminal can do for video and thumbnails.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Graphics {
@@ -207,33 +209,6 @@ fn parse_reply(buf: &[u8]) -> ProbeReply {
         reply.da1 = s[i + 3..].bytes().any(|b| b == b'c');
     }
     reply
-}
-
-/// A POSIX shared memory object that is unlinked on drop, unless the terminal
-/// already unlinked it.
-struct ShmObject(std::ffi::CString);
-
-impl ShmObject {
-    fn create(name: &str, bytes: &[u8]) -> Result<Self> {
-        use std::os::fd::FromRawFd as _;
-
-        let c = std::ffi::CString::new(name)?;
-        let fd = unsafe { libc::shm_open(c.as_ptr(), libc::O_CREAT | libc::O_EXCL | libc::O_RDWR, 0o600) };
-        if fd < 0 {
-            return Err(std::io::Error::last_os_error()).context("shm_open");
-        }
-        let obj = Self(c);
-        // SAFETY: fd is a new descriptor that nothing else owns.
-        let mut f = unsafe { std::fs::File::from_raw_fd(fd) };
-        f.write_all(bytes).context("write shared memory")?;
-        Ok(obj)
-    }
-}
-
-impl Drop for ShmObject {
-    fn drop(&mut self) {
-        unsafe { libc::shm_unlink(self.0.as_ptr()) };
-    }
 }
 
 #[cfg(test)]

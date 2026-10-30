@@ -87,8 +87,8 @@ impl YtDlp {
     /// The stream URLs of a video, at most `max_height` pixels high.
     pub async fn streams(&self, id: &str, max_height: u32) -> Result<Streams> {
         let url = format!("https://www.youtube.com/watch?v={id}");
-        let format = streams::selector(max_height);
-        let args = ["-J", "--no-playlist", "--no-warnings", "-f", &format, &url];
+        let (format, sort) = (streams::selector(), streams::sort(max_height));
+        let args = ["-J", "--no-playlist", "--no-warnings", "-f", &format, "-S", &sort, &url];
         streams::parse_streams(&self.run(&args).await?)
     }
 
@@ -811,8 +811,8 @@ mod tests {
     async fn streams_pass_the_selector() {
         let dir = tempfile::tempdir().unwrap();
         let args = format!(
-            "-J --no-playlist --no-warnings -f {} https://www.youtube.com/watch?v=aqz-KE-bpKQ",
-            streams::selector(480)
+            "-J --no-playlist --no-warnings -f {} -S res:480 https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+            streams::selector()
         );
         // The fake script puts the arguments in single quotes.
         let y = expects(&dir, &args.replace('\'', r"'\''"), "streams.json");

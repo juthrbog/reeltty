@@ -9,12 +9,11 @@ use serde::Deserialize;
 use super::{Result, SourceError};
 
 /// The format selector for DESIGN.md Q13: H.264 first, then VP9, never AV1.
-/// Opus or stereo AAC audio, never IAMF. At most `max_height` pixels high.
-/// The last choice, one muxed format, is for live streams.
-pub fn selector(max_height: u32) -> String {
-    let h = max_height;
-    let avc = format!("bv*[vcodec^=avc1][height<={h}][protocol=https]");
-    let vp9 = format!("bv*[vcodec~='^vp0?9'][height<={h}][protocol=https]");
+/// Opus or stereo AAC audio, never IAMF. The last choice, one muxed format,
+/// is for live streams. The size comes from `sort`, not from the selector.
+pub fn selector() -> String {
+    let avc = "bv[vcodec^=avc1][protocol=https]";
+    let vp9 = "bv[vcodec~='^vp0?9'][protocol=https]";
     let opus = "ba[acodec=opus][protocol=https]";
     let aac = "ba[acodec^=mp4a][protocol=https]";
     let stereo_aac = "ba[acodec^=mp4a][audio_channels<=2][protocol=https]";
@@ -24,9 +23,16 @@ pub fn selector(max_height: u32) -> String {
         format!("{avc}+{aac}"),
         format!("{vp9}+{opus}"),
         format!("{vp9}+{aac}"),
-        format!("b[vcodec^=avc1][acodec~='^(opus|mp4a)'][height<={h}]"),
+        "b[vcodec^=avc1][acodec~='^(opus|mp4a)']".to_string(),
     ]
     .join("/")
+}
+
+/// The format sort: the largest size up to `max` pixels on the short side,
+/// or the smallest above it. The short side, so that vertical videos are not
+/// given a smaller size than wide ones.
+pub fn sort(max: u32) -> String {
+    format!("res:{max}")
 }
 
 /// The heights that YouTube offers. A pane is given the next one up, so a
@@ -66,7 +72,8 @@ struct Info {
     format_id: Option<String>,
     url: Option<String>,
     http_headers: Option<std::collections::BTreeMap<String, String>>,
-    available_at: Option<u64>,
+    /// yt-dlp can write it as a float.
+    available_at: Option<f64>,
     width: Option<u32>,
     height: Option<u32>,
     fps: Option<f64>,
@@ -94,7 +101,14 @@ pub fn parse_streams(json: &[u8]) -> Result<Streams> {
     let video_url = video.url.clone().ok_or_else(|| SourceError::Parse("yt-dlp gave no video URL".into()))?;
     let audio_url = audio.and_then(|a| a.url.clone());
     let all = [Some(&info), Some(video), audio];
-    let available_at = all.iter().flatten().filter_map(|f| f.available_at).max();
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "Unix times")]
+    let available_at = all
+        .iter()
+        .flatten()
+        .filter_map(|f| f.available_at)
+        .filter(|t| t.is_finite() && *t >= 0.0)
+        .map(|t| t.ceil() as u64)
+        .max();
     let expires_at = [Some(&video_url), audio_url.as_ref()].into_iter().flatten().filter_map(|u| expire(u)).min();
     let headers = video.http_headers.clone().or_else(|| info.http_headers.clone()).unwrap_or_default();
     let codec = |f: Option<&Info>, pick: fn(&Info) -> Option<&String>| {
@@ -129,13 +143,17 @@ mod tests {
 
     #[test]
     fn selector_prefers_h264_and_names_every_codec() {
-        let s = selector(720);
+        let s = selector();
         let choices: Vec<&str> = s.split('/').collect();
         assert_eq!(choices.len(), 6);
-        assert_eq!(choices[0], "bv*[vcodec^=avc1][height<=720][protocol=https]+ba[acodec=opus][protocol=https]");
-        assert!(choices[3].starts_with("bv*[vcodec~='^vp0?9']"));
-        assert_eq!(choices[5], "b[vcodec^=avc1][acodec~='^(opus|mp4a)'][height<=720]");
+        assert_eq!(choices[0], "bv[vcodec^=avc1][protocol=https]+ba[acodec=opus][protocol=https]");
+        assert!(choices[3].starts_with("bv[vcodec~='^vp0?9']"));
+        // Only the last choice is a muxed format, so a small muxed one never
+        // wins over separate video and audio.
+        assert!(choices[..5].iter().all(|c| c.starts_with("bv[")));
+        assert_eq!(choices[5], "b[vcodec^=avc1][acodec~='^(opus|mp4a)']");
         assert!(!s.contains("av01"));
+        assert_eq!(sort(480), "res:480");
     }
 
     #[test]
@@ -182,6 +200,12 @@ mod tests {
         assert!(matches!(parse_streams(json), Err(SourceError::Parse(_))));
         assert!(matches!(parse_streams(b"{}"), Err(SourceError::Parse(_))));
         assert!(matches!(parse_streams(b"nope"), Err(SourceError::Parse(_))));
+    }
+
+    #[test]
+    fn available_at_can_be_a_float() {
+        let json = br#"{"url": "https://x/v", "vcodec": "avc1", "available_at": 1793373866.25}"#;
+        assert_eq!(parse_streams(json).unwrap().available_at, Some(1_793_373_867));
     }
 
     #[test]

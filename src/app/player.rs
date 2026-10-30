@@ -68,9 +68,12 @@ impl Geometry {
             }
         }
         let small = |n: u32| u16::try_from(n).unwrap_or(u16::MAX);
+        // Center in the whole screen, which can be larger than the most cells a picture can have.
+        let screen_cols = u32::from(cols).max(1);
+        let screen_rows = u32::from(rows.saturating_sub(STATUS_ROWS)).max(1);
         Self {
-            x: small((area_cols - gc) / 2),
-            y: small((area_rows - gr) / 2),
+            x: small((screen_cols - gc) / 2),
+            y: small((screen_rows - gr) / 2),
             cols: small(gc),
             rows: small(gr),
             width: small((w / 16).max(1) * 16),
@@ -387,9 +390,12 @@ mod tests {
         // Unknown cell size and tiny screens still give a picture.
         let g = Geometry::fit(1, 1, (0, 0), (0, 0));
         assert_eq!((g.cols, g.rows, g.width, g.height), (1, 1, 16, 20));
-        // Kitty placeholders cannot address more cells than this.
+        // Kitty placeholders cannot address more cells than this, and the
+        // picture is centered in the whole screen.
         let g = Geometry::fit(1000, 400, (2, 4), (16, 9));
         assert!(g.cols <= MAX_CELLS && g.rows <= MAX_CELLS, "{g:?}");
+        assert_eq!(g.x, (1000 - g.cols) / 2);
+        assert_eq!(g.y, (398 - g.rows) / 2);
     }
 
     #[test]

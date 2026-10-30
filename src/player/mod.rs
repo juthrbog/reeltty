@@ -145,8 +145,12 @@ impl Player {
             if let Some(audio) = &streams.audio_url {
                 mpv.command(&["change-list", "audio-files", "append", audio])?;
             }
-            // The renderer must exist before the file loads.
-            Renderer::new(&mpv)
+            // The renderer must exist before the file loads. The load runs in
+            // mpv, so it is safe to start it before the threads: its events wait
+            // in the queue. If it fails, nothing has started yet.
+            let renderer = Renderer::new(&mpv)?;
+            mpv.command_async(0, &["loadfile", &streams.video_url])?;
+            Ok(renderer)
         };
         let renderer = setup().map_err(|e| e.to_string())?;
         let shared = Arc::new(Shared {
@@ -166,10 +170,8 @@ impl Player {
             let quit = Arc::clone(&events_quit);
             spawn("mpv-events", Arc::clone(&send), move || event_loop(events, &quit, &send))
         };
-        let player = Self { session, mpv, sink, shared, events_quit, threads: vec![render, events] };
-        player.mpv.command_async(0, &["loadfile", &streams.video_url]).map_err(|e| e.to_string())?;
         tracing::debug!("mpv started in {:?}", started.elapsed());
-        Ok(player)
+        Ok(Self { session, mpv, sink, shared, events_quit, threads: vec![render, events] })
     }
 
     /// Runs a control command. Commands never wait for mpv.
@@ -244,6 +246,9 @@ fn render_loop(session: u64, mut mpv_renderer: Renderer, shared: &Shared, sink: 
     let mut generation = shared.generation.load(Ordering::Relaxed);
     let mut frame = Frame::new(geometry.width, geometry.height);
     let (mut rendered, mut shown, mut skipped, mut write_failed) = (false, 0u32, 0u32, false);
+    // The last frame was dropped by backpressure. Without new frames (when
+    // paused), it must be sent again, or a resize or a seek never shows.
+    let mut redraw = false;
     let mut stats = Instant::now();
     while !shared.quit.load(Ordering::Relaxed) {
         let woke = shared.signal.wait(RENDER_POLL);
@@ -256,7 +261,7 @@ fn render_loop(session: u64, mut mpv_renderer: Renderer, shared: &Shared, sink: 
         let new_frame = woke && mpv_renderer.has_frame();
         // After a resize, render the last frame again, so a paused video is
         // shown at the new size.
-        if !(new_frame || resized && rendered) {
+        if !(new_frame || (resized || redraw) && rendered) {
             continue;
         }
         if let Err(e) = mpv_renderer.render(&mut frame) {
@@ -267,9 +272,15 @@ fn render_loop(session: u64, mut mpv_renderer: Renderer, shared: &Shared, sink: 
         frame.set_opaque();
         let size = (frame.width(), frame.height());
         match sink.present(session, frame.bytes(), size, (geometry.cols, geometry.rows)) {
-            Ok(Presented::Shown) => shown += 1,
-            Ok(Presented::Skipped) => skipped += 1,
-            Ok(Presented::Closed) => {}
+            Ok(Presented::Shown) => {
+                shown += 1;
+                redraw = false;
+            }
+            Ok(Presented::Skipped) => {
+                skipped += 1;
+                redraw = true;
+            }
+            Ok(Presented::Closed) => redraw = false,
             Err(e) => {
                 if !write_failed {
                     tracing::warn!("cannot send a video frame: {e:#}");

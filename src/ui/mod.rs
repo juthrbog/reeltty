@@ -561,5 +561,12 @@ mod tests {
             event: crate::app::player::PlayerEvent::Failed("HTTP error 404".into()),
         });
         insta::assert_snapshot!("player_failed", render(&app, 50, 8));
+
+        // A long error wraps and is shown in full.
+        app.play("v2".into(), "Big Buck Bunny".into());
+        let long = "yt-dlp failed: ERROR: [youtube] v2: Sign in to confirm your age. This video may be inappropriate";
+        app.update(Message::StreamsResolved { session: 2, now: 0, result: Err(long.into()) });
+        let text = render(&app, 30, 12);
+        assert!(text.contains("inappropriate"), "{text}");
     }
 }

@@ -171,9 +171,10 @@ mod player {
     const DELETE: &str = "\x1b_Ga=d,d=I,i=1,q=2\x1b\\";
 
     /// The terminal: it keeps what the player writes, and reads and removes
-    /// each frame's shared memory object, as Ghostty and kitty do.
+    /// each frame's shared memory object, as Ghostty and kitty do. A slow
+    /// screen reads the objects only when the test says so.
     #[derive(Clone, Default)]
-    struct Screen(Arc<Mutex<Vec<u8>>>);
+    struct Screen(Arc<Mutex<Vec<u8>>>, Option<Arc<Mutex<Vec<String>>>>);
 
     impl Write for Screen {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -183,7 +184,11 @@ mod player {
                 && let Some(b64) = rest.split_once(';').and_then(|(_, r)| r.split_once('\x1b')).map(|(n, _)| n)
             {
                 let name = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
-                std::fs::remove_file(format!("/dev/shm{}", String::from_utf8(name).unwrap())).unwrap();
+                let path = format!("/dev/shm{}", String::from_utf8(name).unwrap());
+                match &self.1 {
+                    Some(unread) => unread.lock().unwrap().push(path),
+                    None => std::fs::remove_file(path).unwrap(),
+                }
             }
             self.0.lock().unwrap().extend_from_slice(buf);
             Ok(buf.len())
@@ -194,6 +199,18 @@ mod player {
     }
 
     impl Screen {
+        fn slow() -> Self {
+            Self(Arc::default(), Some(Arc::default()))
+        }
+
+        /// A slow screen reads the frames it has.
+        fn read(&self) {
+            for path in self.1.as_ref().unwrap().lock().unwrap().drain(..) {
+                // After a stop, the sink removes the frames that were not read.
+                let _ = std::fs::remove_file(path);
+            }
+        }
+
         fn text(&self) -> String {
             String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
         }
@@ -271,6 +288,28 @@ mod player {
         assert!(stopped.elapsed() < Duration::from_secs(2));
         assert!(screen.text().ends_with(DELETE), "no frame after the delete");
         assert_eq!(objects(7), Vec::<String>::new());
+    }
+
+    #[test]
+    fn sends_a_dropped_frame_again_while_paused() {
+        let screen = Screen::slow();
+        let sink = Arc::new(VideoSink::new(Box::new(screen.clone())));
+        let (send, rx) = channel();
+        let player = Player::start(10, &streams(super::testsrc(10)), geometry(64, 36), sink, send, OPTIONS).unwrap();
+        player.command(&PlayerCommand::TogglePause);
+        wait_for(&rx, |e| *e == PlayerEvent::Paused(true));
+        screen.wait_for("s=64,v=36");
+        // The terminal is slow: two frames wait, so the last size is dropped.
+        player.command(&PlayerCommand::Resize(geometry(48, 26)));
+        screen.wait_for("s=48,v=26");
+        player.command(&PlayerCommand::Resize(geometry(32, 18)));
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!screen.text().contains("s=32,v=18"));
+        // When the terminal catches up, the dropped frame comes.
+        screen.read();
+        screen.wait_for("s=32,v=18");
+        player.stop().join().unwrap();
+        screen.read();
     }
 
     #[test]

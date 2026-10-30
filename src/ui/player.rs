@@ -42,10 +42,11 @@ fn draw_message(p: &PlayerState, f: &mut Frame, area: Rect) {
         Phase::Loading | Phase::Playing | Phase::Ended => Line::default(),
     };
     let lines = vec![Line::from(p.title.clone()).bold(), Line::default(), message];
-    let height = u16::try_from(lines.len()).unwrap_or(0);
-    let [_, middle, _] =
-        Layout::vertical([Constraint::Fill(1), Constraint::Length(height + 1), Constraint::Fill(1)]).areas(area);
     let text = Paragraph::new(lines).alignment(Alignment::Center).wrap(Wrap { trim: true });
+    // The height after wrapping, so a long error is not cut off.
+    let height = u16::try_from(text.line_count(area.width)).unwrap_or(u16::MAX).min(area.height);
+    let [_, middle, _] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(height), Constraint::Fill(1)]).areas(area);
     f.render_widget(text, middle);
 }
 

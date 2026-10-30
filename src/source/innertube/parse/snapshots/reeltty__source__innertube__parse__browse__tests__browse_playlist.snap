@@ -1,0 +1,25 @@
+---
+source: src/source/innertube/parse/browse.rs
+assertion_line: 344
+expression: playlist_summary(&playlist_page(&load(name)).unwrap())
+---
+id: PLBCF2DAC6FFB574DE
+title: Google Search Stories
+channel: Google Search Stories UCvceBgMIpKb4zK1ss-Sh90w @SearchStories
+videos: 13 videos
+views: 102,310 views
+updated: Last updated on Jun 17, 2014
+description: Searches can become stories. Some are inspiring, some change the way we see the world, and some just make us laugh. Here are a few of our favorites.
+thumbnails: 4
+continuation: no
+items: 10
+Normal GvgqDSnpRQM | Andrew Willis, Skatepark Engineer | Google Search Stories UCvceBgMIpKb4zK1ss-Sh90w @SearchStories | 1:30 (90s) | 2.6M views | 13 years ago | 4 thumbs
+Normal V4DDt30Aat4 | Mark Lesek: A New/Old Prosthetic | Google Search Stories UCvceBgMIpKb4zK1ss-Sh90w @SearchStories | 2:39 (159s) | 3.6M views | 14 years ago | 4 thumbs
+Normal XDgC4FMftpg | Mark Kempton: Neighbors In Need | Google Search Stories UCvceBgMIpKb4zK1ss-Sh90w @SearchStories | 2:01 (121s) | 5.5M views | 14 years ago | 4 thumbs
+Normal OE63BYWdqC4 | Zack Matere: Growing Knowledge | Google Search Stories UCvceBgMIpKb4zK1ss-Sh90w @SearchStories | 2:01 (121s) | 3M views | 15 years ago | 4 thumbs
+Normal RQbmXxU2dkg | Mitch Dobrowner: Epic Storms | Google Search Stories UCvceBgMIpKb4zK1ss-Sh90w @SearchStories | 2:01 (121s) | 1M views | 14 years ago | 4 thumbs
+Normal 7nJdEXpvi1g | The Tofino Riders: A 1,000 Year-Old-Wave | Google Search Stories UCvceBgMIpKb4zK1ss-Sh90w @SearchStories | 1:31 (91s) | 710K views | 15 years ago | 4 thumbs
+Normal 7hakGJU9xco | David Kennedy: Ancient Ruins | Google Search Stories UCvceBgMIpKb4zK1ss-Sh90w @SearchStories | 2:34 (154s) | 1.8M views | 14 years ago | 4 thumbs
+Normal x9-F6dbCIHw | Caroline: Supernova 2008ha | Google Search Stories UCvceBgMIpKb4zK1ss-Sh90w @SearchStories | 1:31 (91s) | 454K views | 15 years ago | 4 thumbs
+Normal 18TknKGC7tY | Erik-Jan Bos: A Letter from an Old Friend | Google Search Stories UCvceBgMIpKb4zK1ss-Sh90w @SearchStories | 2:01 (121s) | 421K views | 15 years ago | 4 thumbs
+Normal CyRQJBBVI7g | Cheryl and Morgan: Learning Independence | Google Search Stories UCvceBgMIpKb4zK1ss-Sh90w @SearchStories | 2:13 (133s) | 3.6M views | 14 years ago | 4 thumbs

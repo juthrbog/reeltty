@@ -83,6 +83,7 @@ fn run_tui(paths: &Paths) -> Result<()> {
     let subscriptions = store.subscriptions()?;
     let saved_playlists = store.saved_playlists()?;
     let history = store.history()?;
+    let (feed, fetched) = store.feed()?;
 
     let ytdlp = YtDlp { program: config.yt_dlp_program() };
     let source: Arc<dyn Source> = match InnerTube::new() {
@@ -103,6 +104,8 @@ fn run_tui(paths: &Paths) -> Result<()> {
         app.autoplay = config.autoplay.0;
         app.saved_playlists = saved_playlists;
         app.history = history;
+        let filter = reeltty::app::feed::FeedFilter { shorts: config.feed.shorts, live: config.feed.live };
+        app.feed = reeltty::app::feed::FeedState::new(feed, fetched, filter);
         let thumbnails = (config.thumbnails.0 && app.graphics.is_available())
             .then(|| start_thumbnails(&paths.thumbnail_cache))
             .flatten();

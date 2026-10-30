@@ -45,6 +45,7 @@ fn draw_body(app: &App, f: &mut Frame, area: Rect) {
     }
     match app.tab {
         Tab::Search => search::draw(app, f, area),
+        Tab::Feed => screens::draw_feed(app, f, area),
         Tab::Subscriptions => screens::draw_subscriptions(app, f, area),
         Tab::Playlists => screens::draw_saved(app, f, area),
         Tab::Queue => screens::draw_queue(app, f, area),
@@ -674,5 +675,28 @@ mod tests {
         app.history =
             vec![entry("a", 252, false, Some(635)), entry("b", 0, true, Some(100)), entry("c", 70, false, None)];
         insta::assert_snapshot!("history_tab", render(&app, 60, 10));
+    }
+
+    #[test]
+    fn feed_tab() {
+        use crate::store::Subscription;
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        press(&mut app, "tab");
+        insta::assert_snapshot!("feed_tab_empty", render(&app, 60, 8));
+        app.subscriptions =
+            vec![Subscription { channel_id: "UCF".into(), name: "Fireship".into(), handle: None, subscribed_at: 1 }];
+        let videos: Vec<Video> = sample_results()
+            .into_iter()
+            .filter_map(|i| match i {
+                Item::Video(mut v) => {
+                    v.published_text = Some("1 day ago".into());
+                    Some(v)
+                }
+                _ => None,
+            })
+            .collect();
+        app.update(Message::FeedLoading { count: 2 });
+        app.update(Message::FeedChannelLoaded { channel_id: "UCF".into(), fetched_at: 1_000_000, result: Ok(videos) });
+        insta::assert_snapshot!("feed_tab", render(&app, 60, 12));
     }
 }

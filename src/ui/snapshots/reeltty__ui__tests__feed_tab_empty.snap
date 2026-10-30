@@ -1,0 +1,12 @@
+---
+source: src/ui/mod.rs
+expression: "render(&app, 60, 8)"
+---
+ Search   Feed   Subscriptions   Playlists   Queue   History
+┌Feed (0 channels)─────────────────────────────────────────┐
+│No subscriptions yet. Press s on a channel to subscribe,  │
+│or import your YouTube subscriptions with reeltty import  │
+│(see the README).                                         │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+                                  ? help  / search  q quit

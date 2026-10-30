@@ -15,6 +15,7 @@ use crate::app::{App, Effect, Message};
 use crate::frontend::Frontend;
 use crate::player::{self, Player};
 use crate::source::Source;
+use crate::source::model::Item;
 use crate::source::ytdlp::YtDlp;
 use crate::store::Store;
 use crate::terminal::kitty::VideoSink;
@@ -157,6 +158,12 @@ pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services
     };
     frontend.start_input(tx.clone());
     watch_signals(tx.clone());
+    for effect in app.start() {
+        let services = (&source, thumbnails.as_ref(), &writer, &mut playback);
+        if let ControlFlow::Break(result) = handle(effect, &tx, services) {
+            return result;
+        }
+    }
     frontend.draw(app)?;
 
     while let Some(msg) = rx.recv().await {
@@ -256,6 +263,11 @@ fn handle(
         }
         Effect::UnsavePlaylist { playlist_id } => writer.write(move |store| store.unsave_playlist(&playlist_id)),
         Effect::SaveWatch(e) => writer.write(move |store| store.record_watch(&e)),
+        Effect::LoadFeed { channels, force } => load_feed(tx.clone(), Arc::clone(source), &channels, force),
+        Effect::SaveFeed { channel_id, fetched_at, videos } => {
+            writer.write(move |store| store.save_channel_feed(&channel_id, fetched_at, &videos));
+        }
+        Effect::ForgetFeed { channel_id } => writer.write(move |store| store.forget_channel_feed(&channel_id)),
         Effect::ForgetWatch { video_id } => writer.write(move |store| store.forget_watch(&video_id)),
         Effect::LoadThumbnail { url, slot } => {
             let tx = tx.clone();
@@ -287,6 +299,42 @@ fn handle(
         Effect::Player(command) => playback.handle(command, tx),
     }
     ControlFlow::Continue(())
+}
+
+/// How many channels the feed loads at the same time (DESIGN.md Q15).
+const FEED_REQUESTS: usize = 4;
+
+/// Loads the videos tab of each stale channel, a few at a time, and sends
+/// each one as `Message::FeedChannelLoaded`.
+fn load_feed(tx: UnboundedSender<Message>, source: Arc<dyn Source>, channels: &[(String, Option<i64>)], force: bool) {
+    use futures::StreamExt as _;
+
+    let stale = crate::app::feed::stale(channels, now(), force);
+    let _ = tx.send(Message::FeedLoading { count: stale.len() });
+    tokio::spawn(async move {
+        let loads = futures::stream::iter(stale).map(|channel_id| {
+            let source = Arc::clone(&source);
+            async move {
+                let result = source.channel(&channel_id).await.map_err(|e| e.to_string()).map(|page| {
+                    page.videos
+                        .items
+                        .into_iter()
+                        .filter_map(|item| match item {
+                            Item::Video(v) => Some(v),
+                            _ => None,
+                        })
+                        .collect()
+                });
+                Message::FeedChannelLoaded { channel_id, fetched_at: now(), result }
+            }
+        });
+        let mut loads = loads.buffer_unordered(FEED_REQUESTS);
+        while let Some(msg) = loads.next().await {
+            if tx.send(msg).is_err() {
+                return;
+            }
+        }
+    });
 }
 
 /// Sends `Message::Tick` once a second, from now until the Unix time `until`.

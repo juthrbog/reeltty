@@ -2,7 +2,7 @@
 source: src/ui/mod.rs
 expression: "render(&app, 60, 10)"
 ---
- Search   Subscriptions   Playlists   Queue   History       
+ Search   Feed   Subscriptions   Playlists   Queue   History
 ┌History (3)───────────────────────────────────────────────┐
 │Video a                                                   │
 │  Fireship · 4:12 of 10:35 · 2026-10-30                   │

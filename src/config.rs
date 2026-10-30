@@ -41,7 +41,16 @@ pub struct Config {
     /// When a video ends, play the next one.
     pub autoplay: Autoplay,
     pub captions: Captions,
+    pub feed: Feed,
     pub keys: Keys,
+}
+
+/// The `[feed]` table: which videos the subscriptions feed shows.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Feed {
+    pub shorts: bool,
+    pub live: bool,
 }
 
 /// A wrapper so that the default is `true`.

@@ -1,0 +1,16 @@
+---
+source: src/ui/mod.rs
+expression: "render(&app, 60, 12)"
+---
+ Search   Feed   Subscriptions   Playlists   Queue   History
+┌Feed (1 channel)──────────────────────────────────────────┐
+│Loading 1 channel…                                        │
+│Rust in 100 seconds                                       │
+│  Fireship · 12:34 · 1.2M views · 1 day ago · 4K          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+                                  ? help  / search  q quit

@@ -2,12 +2,12 @@
 source: src/ui/mod.rs
 expression: "render(&app, 60, 10)"
 ---
- Search   Subscriptions   Playlists   Queue   History       
-┌Queue (2)─────────────────────────────────────────────────┐
-│Rust in 100 seconds                                       │
-│  Fireship · 12:34 · 1.2M views · 3 years ago · 4K        │
-│LIVE Lofi beats to code to                                │
-│  Lofi Girl · 32 watching · 4K                            │
+ Search   Feed   Subscriptions   Playlists   Queue   History
+┌Saved playlists (0)───────────────────────────────────────┐
+│No saved playlists yet. Press s on a playlist to save it. │
+│                                                          │
+│                                                          │
+│                                                          │
 │                                                          │
 │                                                          │
 └──────────────────────────────────────────────────────────┘

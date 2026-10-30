@@ -2,12 +2,12 @@
 source: src/ui/mod.rs
 expression: "render(&app, 70, 10)"
 ---
- Search   Subscriptions   Playlists   Queue   History                 
-┌Subscriptions (2)───────────────────────────────────────────────────┐
-│3Blue1Brown                                                         │
-│  @3blue1brown                                                      │
-│Jon Gjengset                                                        │
-│  @jonhoo                                                           │
+ Search   Feed   Subscriptions   Playlists   Queue   History          
+┌Feed (2 channels)───────────────────────────────────────────────────┐
+│0 videos. Press r to load all channels again.                       │
+│No videos yet.                                                      │
+│                                                                    │
+│                                                                    │
 │                                                                    │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘

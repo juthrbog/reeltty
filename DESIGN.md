@@ -191,7 +191,7 @@ Sources: https://github.com/yt-dlp/yt-dlp/releases, https://github.com/yt-dlp/yt
 ### Subscriptions
 
 - Channel RSS feeds (`/feeds/videos.xml?channel_id=`) return random HTTP 404 and 500 errors, and they hold only 15 entries. FreeTube and NewPipe browse each channel tab through InnerTube by default.
-- Google Takeout exports subscriptions as a CSV file with three columns: channel ID, channel URL, and channel title. The header names change with the language, so parse by column position. The file is at `Takeout/YouTube and YouTube Music/subscriptions/subscriptions.csv`.
+- Google Takeout exports subscriptions as a CSV file with three columns: channel ID, channel URL, and channel title. The header names change with the language, so parse by column position. In English, the file is at `Takeout/YouTube and YouTube Music/subscriptions/subscriptions.csv`. The folder names and the file name change with the account language too (`Abos.csv` in German), so a folder search looks for the CSV file whose rows are channels.
 - The YouTube Data API v3 allows only 100 `search.list` calls each day, and reading your own subscriptions needs OAuth.
 - Almost no public Invidious or Piped instances work.
 

@@ -10,6 +10,7 @@ pub mod player;
 pub mod runtime;
 pub mod source;
 pub mod store;
+pub mod takeout;
 pub mod terminal;
 pub mod thumbnails;
 pub mod ui;

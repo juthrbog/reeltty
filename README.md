@@ -27,6 +27,14 @@ cargo build --release
 
 Press `?` in reeltty to see the keys.
 
+To import your YouTube subscriptions, export them with [Google Takeout](https://takeout.google.com/) (choose "YouTube and YouTube Music", then "subscriptions"). Unpack the archive, then run:
+
+```sh
+./target/release/reeltty import ~/Downloads/Takeout
+```
+
+You can also give the path of `subscriptions.csv`. Channels you follow already stay as they are, and the list stays on your computer.
+
 To play a video, select it and press `enter`. `i` shows its details. `a` adds a video to the queue, or takes it out. The Queue tab shows the queue, and `enter` there plays a video from it.
 
 The History tab shows the videos you played, newest first, and how far you got. A video you stopped in the middle plays again from where you stopped. `d` deletes an entry from the history (or from the queue in the Queue tab). In the player, the keys are the same as mpv's:

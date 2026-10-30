@@ -15,6 +15,7 @@ use reeltty::source::innertube::InnerTube;
 use reeltty::source::ytdlp::YtDlp;
 use reeltty::source::{Fallback, Source};
 use reeltty::store::Store;
+use reeltty::takeout;
 use reeltty::thumbnails::{self, Fetcher};
 
 #[derive(Parser)]
@@ -31,6 +32,12 @@ struct Cli {
 enum Command {
     /// Check the programs and libraries that reeltty needs.
     Doctor,
+    /// Import subscriptions from Google Takeout: the subscriptions.csv file, or
+    /// an unpacked Takeout folder.
+    Import {
+        /// subscriptions.csv, or a folder that holds it.
+        path: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -45,8 +52,26 @@ fn main() -> Result<()> {
             let ok = reeltty::doctor::run(&paths);
             std::process::exit(i32::from(!ok));
         }
+        Some(Command::Import { path }) => import(&paths, &path),
         None => run_tui(&paths),
     }
+}
+
+fn import(paths: &Paths, path: &std::path::Path) -> Result<()> {
+    let store = Store::open(&paths.database)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
+    let s = takeout::import(&store, path, now)?;
+    let (added, already) = (takeout::channels(s.added), takeout::channels(s.already));
+    println!("Added {added}. {already} were there already.");
+    if s.skipped > 0 {
+        println!(
+            "Skipped {} that are not channels.",
+            if s.skipped == 1 { "1 row".into() } else { format!("{} rows", s.skipped) }
+        );
+    }
+    Ok(())
 }
 
 fn run_tui(paths: &Paths) -> Result<()> {

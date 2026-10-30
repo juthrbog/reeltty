@@ -20,7 +20,8 @@ crossterm = { version = "0.29.0", features = ["event-stream"] }
 directories = "6.0.0"
 futures = "0.3.34"
 libc = "0.2.191"
-ratatui = "0.30.2"
+# unstable-rendered-line-info: Paragraph::line_count, to stop scrolling at the end.
+ratatui = { version = "0.30.2", features = ["unstable-rendered-line-info"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["charset", "gzip", "http2", "json", "rustls-no-provider"] }
 # ring as the crypto provider: aws-lc-rs has an OpenSSL-style license.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }

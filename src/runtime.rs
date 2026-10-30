@@ -23,12 +23,17 @@ type Write = Box<dyn FnOnce(&Store) -> Result<()> + Send>;
 
 /// Database writes run on one thread, in the order the effects came, so a
 /// quick subscribe and unsubscribe can never swap.
-struct Writer(std_mpsc::Sender<Write>);
+/// Dropping it waits for the queued writes, so quitting right after a
+/// subscribe does not lose it.
+struct Writer {
+    jobs: Option<std_mpsc::Sender<Write>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
 
 impl Writer {
     fn start(store: Store, tx: UnboundedSender<Message>) -> Self {
         let (jobs, rx) = std_mpsc::channel::<Write>();
-        std::thread::Builder::new()
+        let thread = std::thread::Builder::new()
             .name("store".into())
             .spawn(move || {
                 for job in rx {
@@ -39,12 +44,22 @@ impl Writer {
                 }
             })
             .expect("start the store thread");
-        Self(jobs)
+        Self { jobs: Some(jobs), thread: Some(thread) }
     }
 
     fn write(&self, job: impl FnOnce(&Store) -> Result<()> + Send + 'static) {
-        if self.0.send(Box::new(job)).is_err() {
+        if self.jobs.as_ref().is_none_or(|j| j.send(Box::new(job)).is_err()) {
             tracing::error!("the store thread stopped");
+        }
+    }
+}
+
+impl Drop for Writer {
+    fn drop(&mut self) {
+        // Closing the channel ends the thread's loop after the last queued job.
+        drop(self.jobs.take());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
         }
     }
 }

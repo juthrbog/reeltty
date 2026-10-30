@@ -118,8 +118,13 @@ fn draw_video(app: &App, s: &VideoScreen, f: &mut Frame, area: Rect) {
         (None, Some(e)) => vec![Line::from(format!("Could not load the video: {e}")).red()],
         (None, None) => vec![Line::from("Loading...").dim()],
     };
-    let paragraph = Paragraph::new(text).block(block).wrap(Wrap { trim: false }).scroll((s.scroll, 0));
-    f.render_widget(paragraph, area);
+    let inner = block.inner(area);
+    let paragraph = Paragraph::new(text).wrap(Wrap { trim: false });
+    let lines = u16::try_from(paragraph.line_count(inner.width)).unwrap_or(u16::MAX);
+    let max = lines.saturating_sub(inner.height);
+    s.max_scroll.set(max);
+    f.render_widget(block, area);
+    f.render_widget(paragraph.scroll((s.scroll.min(max), 0)), inner);
 }
 
 fn video_lines(app: &App, d: &VideoDetails) -> Vec<Line<'static>> {

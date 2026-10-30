@@ -454,14 +454,15 @@ impl App {
                 _ => self.on_screen_list(action, rows, request),
             },
             Screen::Video(s) => {
-                let max = 10_000;
+                let max = s.max_scroll.get();
                 let half = u16::try_from(rows).unwrap_or(u16::MAX).max(1);
                 match action {
-                    Action::Up => s.scroll = s.scroll.saturating_sub(1),
+                    Action::Up => s.scroll = s.scroll.min(max).saturating_sub(1),
                     Action::Down => s.scroll = s.scroll.saturating_add(1).min(max),
-                    Action::HalfPageUp => s.scroll = s.scroll.saturating_sub(half),
+                    Action::HalfPageUp => s.scroll = s.scroll.min(max).saturating_sub(half),
                     Action::HalfPageDown => s.scroll = s.scroll.saturating_add(half).min(max),
                     Action::Top => s.scroll = 0,
+                    Action::Bottom if max != u16::MAX => s.scroll = max,
                     Action::Channel | Action::Toggle => {
                         let channel = s.details.as_ref().and_then(|d| d.channel.clone());
                         let Some(c) = channel else { return Vec::new() };
@@ -553,6 +554,7 @@ impl App {
                     loading: true,
                     error: None,
                     scroll: 0,
+                    max_scroll: std::cell::Cell::new(u16::MAX),
                 }),
                 Effect::LoadVideo { request, id },
             ),

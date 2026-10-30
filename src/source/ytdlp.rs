@@ -267,7 +267,7 @@ pub fn parse_video(json: &[u8]) -> Result<VideoDetails> {
     let day = info.upload_date.as_deref();
     let date_text = day.and_then(date_text).map(|d| match info.live_status.as_deref() {
         _ if live => format!("Started streaming on {d}"),
-        Some("was_live") => format!("Streamed live on {d}"),
+        Some("was_live" | "post_live") => format!("Streamed live on {d}"),
         _ => d,
     });
     let views_text = if live {
@@ -318,7 +318,7 @@ fn video(e: Entry) -> Option<Video> {
     let id = e.id?;
     let kind = match e.live_status.as_deref() {
         Some("is_live") => VideoKind::Live,
-        Some("was_live") => VideoKind::PastStream,
+        Some("was_live" | "post_live") => VideoKind::PastStream,
         _ => VideoKind::Normal,
     };
     let duration_secs = e.duration.filter(|d| d.is_finite() && *d >= 0.0).map(round_secs);

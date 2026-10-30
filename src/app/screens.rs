@@ -1,5 +1,7 @@
 //! Screens that open on top of the tabs: a channel, a playlist, or a video's details.
 
+use std::cell::Cell;
+
 use super::list::ItemList;
 use crate::source::model::{ChannelInfo, ChannelRef, Item, PlaylistInfo, VideoDetails};
 
@@ -58,6 +60,9 @@ pub struct VideoScreen {
     pub error: Option<String>,
     /// The first visible line of the details text.
     pub scroll: u16,
+    /// The largest useful `scroll`. Drawing sets it, because only drawing
+    /// knows how the text wraps. `u16::MAX` until the first draw.
+    pub max_scroll: Cell<u16>,
 }
 
 /// Something that can be opened.

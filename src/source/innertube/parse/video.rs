@@ -32,7 +32,9 @@ pub fn details(next: &Value, player: Option<&Value>) -> Result<VideoDetails> {
     let live = views["isLive"].as_bool() == Some(true) || pd["isLive"].as_bool() == Some(true);
     let likes = array(primary, "/videoActions/menuRenderer/topLevelButtons")
         .iter()
-        .find_map(|b| text_at(b.get("segmentedLikeDislikeButtonViewModel")?, LIKE_BUTTON));
+        .find_map(|b| text_at(b.get("segmentedLikeDislikeButtonViewModel")?, LIKE_BUTTON))
+        // A video with hidden likes shows the label "Like" here.
+        .filter(|t| t.starts_with(|c: char| c.is_ascii_digit()));
     let duration_secs = str_at(pd, "/lengthSeconds").and_then(|s| s.parse().ok()).filter(|&s| s > 0 && !live);
 
     Ok(VideoDetails {
@@ -192,11 +194,31 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8(out).unwrap_or_else(|_| s.to_string())
 }
 
-/// Chapters from the player bar, or from the chapters panel if the bar has none.
+/// The chapters a video's uploader wrote, or else YouTube's automatic ones.
+/// Each kind is in the player bar, and also in a panel.
+const CHAPTER_SOURCES: [(&str, &str); 2] = [
+    ("DESCRIPTION_CHAPTERS", "engagement-panel-macro-markers-description-chapters"),
+    ("AUTO_CHAPTERS", "engagement-panel-macro-markers-auto-chapters"),
+];
+
 fn chapters(next: &Value) -> Vec<Chapter> {
-    let bar = array(next, PLAYER_BAR)
+    for (key, panel) in CHAPTER_SOURCES {
+        let mut list = bar_chapters(next, key);
+        if list.is_empty() {
+            list = panel_chapters(next, panel);
+        }
+        if !list.is_empty() {
+            list.sort_by_key(|c| c.start_secs);
+            return list;
+        }
+    }
+    Vec::new()
+}
+
+fn bar_chapters(next: &Value, key: &str) -> Vec<Chapter> {
+    array(next, PLAYER_BAR)
         .iter()
-        .find(|m| m["key"] == "DESCRIPTION_CHAPTERS")
+        .find(|m| m["key"] == key)
         .map(|m| array(m, "/value/chapters"))
         .unwrap_or_default()
         .iter()
@@ -204,29 +226,46 @@ fn chapters(next: &Value) -> Vec<Chapter> {
             let c = c.get("chapterRenderer")?;
             let start = u32::try_from(c["timeRangeStartMillis"].as_u64()? / 1000).ok()?;
             Some(Chapter { title: text_at(c, "/title")?, start_secs: start })
-        });
-    let mut list: Vec<Chapter> = bar.collect();
-    if list.is_empty() {
-        list = array(next, "/engagementPanels")
-            .iter()
-            .filter_map(|p| p.get("engagementPanelSectionListRenderer"))
-            .find(|p| p["panelIdentifier"] == "engagement-panel-macro-markers-description-chapters")
-            .map(|p| array(p, "/content/macroMarkersListRenderer/contents"))
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|c| {
-                let c = c.get("macroMarkersListItemRenderer")?;
-                let start = u32::try_from(c.pointer("/onTap/watchEndpoint/startTimeSeconds")?.as_u64()?).ok()?;
-                Some(Chapter { title: text(&c["title"])?, start_secs: start })
-            })
-            .collect();
-    }
-    list.sort_by_key(|c| c.start_secs);
-    list
+        })
+        .collect()
+}
+
+fn panel_chapters(next: &Value, panel: &str) -> Vec<Chapter> {
+    array(next, "/engagementPanels")
+        .iter()
+        .filter_map(|p| p.get("engagementPanelSectionListRenderer"))
+        .find(|p| p["panelIdentifier"] == panel)
+        .map(|p| array(p, "/content/macroMarkersListRenderer/contents"))
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|c| {
+            let c = c.get("macroMarkersListItemRenderer")?;
+            let start = u32::try_from(c.pointer("/onTap/watchEndpoint/startTimeSeconds")?.as_u64()?).ok()?;
+            Some(Chapter { title: text(&c["title"])?, start_secs: start })
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn auto_chapters_when_the_uploader_wrote_none() {
+        let chapter = |title: &str, ms: u64| json!({"chapterRenderer": {"title": {"simpleText": title}, "timeRangeStartMillis": ms}});
+        let next = |markers: Value| {
+            json!({"playerOverlays": {"playerOverlayRenderer": {"decoratedPlayerBarRenderer": {"decoratedPlayerBarRenderer":
+                {"playerBar": {"multiMarkersPlayerBarRenderer": {"markersMap": markers}}}}}}})
+        };
+        let auto =
+            next(json!([{"key": "AUTO_CHAPTERS", "value": {"chapters": [chapter("B", 60_000), chapter("A", 0)]}}]));
+        let titles: Vec<String> = chapters(&auto).into_iter().map(|c| c.title).collect();
+        assert_eq!(titles, ["A", "B"]);
+        let both = next(json!([
+            {"key": "AUTO_CHAPTERS", "value": {"chapters": [chapter("auto", 0)]}},
+            {"key": "DESCRIPTION_CHAPTERS", "value": {"chapters": [chapter("written", 0)]}}
+        ]));
+        assert_eq!(chapters(&both)[0].title, "written", "the uploader's chapters come first");
+    }
+
     use std::fmt::Write;
     use std::path::Path;
 

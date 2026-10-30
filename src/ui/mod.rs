@@ -351,6 +351,19 @@ mod tests {
         };
         app.update(Message::VideoLoaded { request: 1, result: Ok(details) });
         insta::assert_snapshot!(render(&app, 70, 18));
+
+        // At 10 rows the text is taller than the screen. G goes to the end,
+        // and j cannot go past it.
+        render(&app, 70, 10);
+        press(&mut app, "G");
+        press(&mut app, "j");
+        let Some(crate::app::screens::Screen::Video(s)) = app.screens.last() else { panic!("no video screen") };
+        let max = s.max_scroll.get();
+        assert!(max > 0 && max < 20, "max {max}");
+        assert_eq!(s.scroll, max);
+        press(&mut app, "k");
+        let Some(crate::app::screens::Screen::Video(s)) = app.screens.last() else { panic!("no video screen") };
+        assert_eq!(s.scroll, max - 1);
     }
 
     #[test]

@@ -513,6 +513,9 @@ mod tests {
             available_at: None,
             expires_at: None,
             format: FormatInfo { width: Some(1280), height: Some(720), ..FormatInfo::default() },
+            chapters: Vec::new(),
+            qualities: Vec::new(),
+            captions: Vec::new(),
         };
         app.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(Box::new(streams)) });
         for event in [PlayerEvent::FileLoaded, PlayerEvent::Duration(635_000), PlayerEvent::Position(65_000)] {
@@ -536,7 +539,7 @@ mod tests {
         app.update(Message::Player { session: 1, event: crate::app::player::PlayerEvent::Paused(true) });
         app.update(Message::Player { session: 1, event: crate::app::player::PlayerEvent::Muted(true) });
         let text = render(&app, 40, 12);
-        assert!(text.contains("Paused  muted"), "{text}");
+        assert!(text.contains("Paused  720p  muted"), "{text}");
     }
 
     #[test]
@@ -552,6 +555,9 @@ mod tests {
             available_at: Some(115),
             expires_at: None,
             format: crate::source::streams::FormatInfo::default(),
+            chapters: Vec::new(),
+            qualities: Vec::new(),
+            captions: Vec::new(),
         };
         app.update(Message::StreamsResolved { session: 1, now: 100, result: Ok(Box::new(streams)) });
         insta::assert_snapshot!("player_waiting", render(&app, 50, 8));
@@ -568,5 +574,33 @@ mod tests {
         app.update(Message::StreamsResolved { session: 2, now: 0, result: Err(long.into()) });
         let text = render(&app, 30, 12);
         assert!(text.contains("inappropriate"), "{text}");
+    }
+
+    #[test]
+    fn player_with_chapters_captions_and_the_quality_menu() {
+        use crate::app::player::PlayerEvent;
+        use crate::source::model::Chapter;
+        use crate::source::streams::{Caption, FormatInfo, Quality, Streams};
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.update(Message::Input(Input::Resize { width: 60, height: 14 }));
+        app.captions_on = true;
+        app.play("v1".into(), "Big Buck Bunny".into());
+        let streams = Streams {
+            video_url: "https://v".into(),
+            audio_url: Some("https://a".into()),
+            headers: Vec::new(),
+            available_at: None,
+            expires_at: None,
+            format: FormatInfo { width: Some(1280), height: Some(720), ..FormatInfo::default() },
+            chapters: vec![Chapter { title: "Intro".into(), start_secs: 0 }],
+            qualities: [360, 720].into_iter().map(|res| Quality { res, url: String::new() }).collect(),
+            captions: vec![Caption { lang: "en".into(), name: "English".into(), url: String::new(), auto: false }],
+        };
+        app.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(Box::new(streams)) });
+        for event in [PlayerEvent::FileLoaded, PlayerEvent::Speed(150), PlayerEvent::Duration(60_000)] {
+            app.update(Message::Player { session: 1, event });
+        }
+        press(&mut app, "v");
+        insta::assert_snapshot!(render(&app, 60, 14));
     }
 }

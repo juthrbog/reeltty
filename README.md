@@ -36,7 +36,14 @@ To play a video, select it and press `enter`. `i` shows its details. In the play
 | `down`, `up` | Back or forward 1 minute |
 | `9`, `0` | Volume down or up |
 | `m` | Mute or unmute |
+| `[`, `]` | Slower or faster |
+| `backspace` | Normal speed |
+| `pgup`, `pgdn` | Previous or next chapter |
+| `c` | Captions on or off |
+| `v` | Video quality menu (mpv has no key for this) |
 | `q`, `esc` | Stop and go back to the list |
+
+In the quality menu, move with the browse keys (`j`, `k`), choose with `enter`, and close it with `esc`. The video goes on from the same place.
 
 As a guest, you sometimes wait before a video starts. YouTube makes guests wait as long as the ads would play, and reeltty shows a countdown.
 
@@ -52,6 +59,12 @@ yt_dlp = "/home/me/.local/bin/yt-dlp"
 # Show thumbnails in lists. They need the same terminal as video.
 thumbnails = true
 
+# Captions: the language, and if they are on when a video starts.
+# Captions made by a person come first, then automatic ones.
+[captions]
+language = "en"
+on = false
+
 # Each list replaces the default keys for that action.
 [keys.browse]
 down = ["j", "down"]
@@ -61,7 +74,7 @@ up = ["k", "up"]
 seek_forward_long = ["up", "l"]
 ```
 
-The actions in `[keys.browse]` are `quit`, `up`, `down`, `top`, `bottom`, `half_page_up`, `half_page_down`, `open`, `back`, `search`, `filters`, `next_tab`, `prev_tab`, `refresh`, `details`, `channel`, `toggle`, and `help`. The actions in `[keys.player]` are `back`, `toggle_pause`, `seek_forward`, `seek_back`, `seek_forward_long`, `seek_back_long`, `volume_up`, `volume_down`, and `mute`. Keys are written as `j`, `G`, `ctrl-d`, `alt-x`, `space`, `enter`, `esc`, `tab`, `shift-tab`, `backspace`, `up`, `down`, `left`, `right`, `pgup`, `pgdn`, `home`, `end`, or `f1` to `f12`.
+The actions in `[keys.browse]` are `quit`, `up`, `down`, `top`, `bottom`, `half_page_up`, `half_page_down`, `open`, `back`, `search`, `filters`, `next_tab`, `prev_tab`, `refresh`, `details`, `channel`, `toggle`, and `help`. The actions in `[keys.player]` are `back`, `toggle_pause`, `seek_forward`, `seek_back`, `seek_forward_long`, `seek_back_long`, `volume_up`, `volume_down`, `mute`, `speed_up`, `speed_down`, `speed_reset`, `next_chapter`, `prev_chapter`, `captions`, and `quality`. Keys are written as `j`, `G`, `ctrl-d`, `alt-x`, `space`, `enter`, `esc`, `tab`, `shift-tab`, `backspace`, `up`, `down`, `left`, `right`, `pgup`, `pgdn`, `home`, `end`, or `f1` to `f12`.
 
 Local state (subscriptions, history, saved playlists) is in `~/.local/share/reeltty/reeltty.db`. Thumbnails are cached in `~/.cache/reeltty/thumbnails`, up to 100 MB. The log is in `~/.local/state/reeltty/reeltty.log`. Set `REELTTY_LOG=debug` for more detail.
 

@@ -38,7 +38,24 @@ pub struct Config {
     pub yt_dlp: Option<PathBuf>,
     /// Show thumbnails in lists.
     pub thumbnails: Thumbnails,
+    pub captions: Captions,
     pub keys: Keys,
+}
+
+/// The `[captions]` table.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Captions {
+    /// A language code such as `en` or `de`.
+    pub language: String,
+    /// Show captions when a video starts.
+    pub on: bool,
+}
+
+impl Default for Captions {
+    fn default() -> Self {
+        Self { language: "en".into(), on: false }
+    }
 }
 
 /// A wrapper so that the default is `true`.

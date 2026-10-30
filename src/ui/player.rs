@@ -1,13 +1,14 @@
 //! The full-screen player: the video, a progress bar, and a status line.
 //!
-//! Ghostty draws placeholder images below text, so nothing else is drawn
-//! where the video is.
+//! Ghostty draws placeholder images below text, so no text is drawn on video
+//! cells. The quality menu replaces the cells it covers, so the video does
+//! not show there.
 
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
-use ratatui::style::Stylize as _;
+use ratatui::style::{Modifier, Style, Stylize as _};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use unicode_width::UnicodeWidthStr as _;
 
 use super::items::{draw_image, truncate};
@@ -16,6 +17,10 @@ use crate::app::player::{Phase, PlayerState};
 use crate::keymap::PlayerAction;
 use crate::terminal::kitty::VIDEO_ID;
 
+/// The status line keeps this many columns for the title and the chapter,
+/// and drops key hints for them.
+const MIN_TITLE_WIDTH: usize = 20;
+
 pub fn draw(app: &App, p: &PlayerState, f: &mut Frame) {
     let [video, progress, status] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(1), Constraint::Length(1)]).areas(f.area());
@@ -23,11 +28,35 @@ pub fn draw(app: &App, p: &PlayerState, f: &mut Frame) {
         let g = p.geometry;
         let area = Rect::new(video.x + g.x, video.y + g.y, g.cols, g.rows).intersection(video);
         draw_image(f.buffer_mut(), area, VIDEO_ID);
+        draw_quality_menu(p, f, video);
     } else {
         draw_message(p, f, video);
     }
     draw_progress(p, f, progress);
     draw_status(app, p, f, status);
+}
+
+fn draw_quality_menu(p: &PlayerState, f: &mut Frame, area: Rect) {
+    let Some(menu) = &p.quality_menu else { return };
+    let items: Vec<ListItem> = p
+        .qualities
+        .iter()
+        .map(|q| {
+            let mark = if Some(q.res) == p.quality { "●" } else { " " };
+            ListItem::new(format!(" {mark} {}p", q.res))
+        })
+        .collect();
+    let height = u16::try_from(items.len()).unwrap_or(u16::MAX).saturating_add(2).min(area.height);
+    let width = 16.min(area.width);
+    let [_, column, _] =
+        Layout::horizontal([Constraint::Fill(1), Constraint::Length(width), Constraint::Fill(1)]).areas(area);
+    let [_, popup, _] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(height), Constraint::Fill(1)]).areas(column);
+    let list = List::new(items)
+        .block(Block::bordered().title(" Quality "))
+        .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+    f.render_widget(Clear, popup);
+    f.render_stateful_widget(list, popup, &mut ListState::default().with_selected(Some(menu.selection)));
 }
 
 /// The text in place of the video before it plays, or after it failed.
@@ -89,17 +118,43 @@ fn draw_status(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
         Phase::Playing => "Playing",
         Phase::Resolving | Phase::Waiting { .. } | Phase::Failed(_) => "",
     };
-    let volume = if p.muted { "muted".to_string() } else { format!("vol {}%", p.volume) };
-    let key = |a| app.keymap.player.first_key(a).map(|k| k.to_string()).unwrap_or_default();
-    let mut right = vec![Span::from(key(PlayerAction::Back)).bold(), Span::from(" back")];
-    if p.is_running() {
-        right.splice(0..0, [Span::from(format!("{state}  {volume}  ")).dim()]);
-        right.extend([Span::from("  "), Span::from(key(PlayerAction::TogglePause)).bold(), Span::from(" pause")]);
+    let mut parts = vec![state.to_string()];
+    if p.speed != 100 {
+        parts.push(format!("{}.{:02}x", p.speed / 100, p.speed % 100));
     }
-    let right = Line::from(right);
+    if p.caption.is_some() {
+        parts.push("CC".into());
+    }
+    if let Some(q) = p.quality {
+        parts.push(format!("{q}p"));
+    }
+    parts.push(if p.muted { "muted".to_string() } else { format!("vol {}%", p.volume) });
+    let key = |a| app.keymap.player.first_key(a).map(|k| k.to_string()).unwrap_or_default();
+    let hint = |a, label: &'static str| [Span::from("  "), Span::from(key(a)).bold(), Span::from(label)];
+    let state = if p.is_running() { vec![Span::from(parts.join("  ")).dim()] } else { Vec::new() };
+    // Drop the hints that do not fit, the last one first.
+    let mut hints = vec![hint(PlayerAction::Back, " back")];
+    if p.is_running() {
+        hints.push(hint(PlayerAction::TogglePause, " pause"));
+    }
+    let right = loop {
+        let line = Line::from(state.iter().cloned().chain(hints.iter().flatten().cloned()).collect::<Vec<_>>());
+        if line.width() + MIN_TITLE_WIDTH <= usize::from(area.width) || hints.is_empty() {
+            break line;
+        }
+        hints.pop();
+    };
     let right_width = u16::try_from(right.width()).unwrap_or(u16::MAX).saturating_add(1).min(area.width);
-    let [title, hints] = Layout::horizontal([Constraint::Min(0), Constraint::Length(right_width)]).areas(area);
-    let width = usize::from(title.width).saturating_sub(1);
-    f.render_widget(Line::from(format!(" {}", truncate(&p.title, width))).bold(), title);
+    let [left, hints] = Layout::horizontal([Constraint::Min(0), Constraint::Length(right_width)]).areas(area);
+    // A space before the title and one after it.
+    let width = usize::from(left.width).saturating_sub(2);
+    // A message from the last key, else the chapter and the title. The
+    // chapter goes first, because it changes and a long title would hide it.
+    let line = match (&app.status, p.chapter()) {
+        (Some(status), _) => Line::from(format!(" {}", truncate(status, width))).yellow(),
+        (None, Some(c)) => Line::from(format!(" {}", truncate(&format!("{} · {}", c.title, p.title), width))).bold(),
+        (None, None) => Line::from(format!(" {}", truncate(&p.title, width))).bold(),
+    };
+    f.render_widget(line, left);
     f.render_widget(right, hints);
 }

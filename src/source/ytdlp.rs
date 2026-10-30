@@ -817,7 +817,7 @@ mod tests {
         // The fake script puts the arguments in single quotes.
         let y = expects(&dir, &args.replace('\'', r"'\''"), "streams.json");
         let s = y.streams("aqz-KE-bpKQ", 480).await.unwrap();
-        assert_eq!(s.format.id, "298+251");
+        assert_eq!(s.format.id, "298+251-8");
     }
 
     #[tokio::test]

@@ -71,6 +71,8 @@ fn run_tui(paths: &Paths) -> Result<()> {
         let mut frontend = TerminalFrontend::start();
         let mut app = App::new(keymap, frontend.graphics().clone());
         app.subscriptions = subscriptions;
+        app.captions_language.clone_from(&config.captions.language);
+        app.captions_on = config.captions.on;
         app.saved_playlists = saved_playlists;
         let thumbnails = (config.thumbnails.0 && app.graphics.is_available())
             .then(|| start_thumbnails(&paths.thumbnail_cache))

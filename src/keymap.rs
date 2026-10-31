@@ -169,11 +169,13 @@ pub enum Action {
     Delete,
     ShowPlayer,
     ClosePlayer,
+    Comments,
+    Sort,
     Help,
 }
 
 impl Action {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 24] = [
         Self::Quit,
         Self::Up,
         Self::Down,
@@ -195,6 +197,8 @@ impl Action {
         Self::Delete,
         Self::ShowPlayer,
         Self::ClosePlayer,
+        Self::Comments,
+        Self::Sort,
         Self::Help,
     ];
 
@@ -221,6 +225,8 @@ impl Action {
             Self::Delete => "delete an entry",
             Self::ShowPlayer => "full-size player",
             Self::ClosePlayer => "stop mini-player",
+            Self::Comments => "comments",
+            Self::Sort => "sort comments",
             Self::Help => "show or hide help",
         }
     }
@@ -248,6 +254,8 @@ impl Action {
             Self::Delete => &["d"],
             Self::ShowPlayer => &["v"],
             Self::ClosePlayer => &["x"],
+            Self::Comments => &["C"],
+            Self::Sort => &["o"],
             Self::Help => &["?"],
         }
     }

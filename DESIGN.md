@@ -88,6 +88,15 @@ The `Source` trait hides where data comes from. Two implementations exist:
 
 The parser must accept both the old renderers (`videoRenderer`, `playlistVideoRenderer`) and the new view models (`lockupViewModel`) on every endpoint. Comments need a join from `commentViewModel` keys to the entity payloads in `frameworkUpdates`. JSON fixtures of real responses are snapshot tests. Expect a parser break every few months.
 
+Comments show in a pane of the video details screen (`C`). They load only when the pane first opens, then page by page:
+
+- The first token is in the `next` response of the video, so the details already have it. Without details from InnerTube, the comments call `next` once more.
+- Every later page is a `next` call with only a continuation token: the next page, the other order (`o`, Top or Newest), the replies to a comment (`enter`), or more replies. One parser reads all of them.
+- YouTube can send a comment again (the pinned one in Newest) or repeat whole pages. The app drops comments it showed already, and a page of repeats only ends the list.
+- A page for an older list (before a new order or a refresh) is dropped by its generation number.
+- Unicode direction controls (U+202A to U+202E, U+2066 to U+2069) are removed from comments, descriptions, and names, because they can show text in a misleading order. Control characters are already dropped by ratatui.
+- Timestamps in comments are shown as links, but cannot be followed yet. Following links in descriptions and comments can come later.
+
 Streams always come from yt-dlp:
 
 1. Run `yt-dlp -J -f <selector> <url>` once for each video.
@@ -152,7 +161,7 @@ At build time, `clang` is necessary if the fallback engine (ffmpeg-next) is used
 
 ## Milestones
 
-M0 to M3 are done, so all v1 features are in. The next work is v1.1.
+M0 to M3 and v1.1 are done.
 
 ### M0: playback spike
 
@@ -189,6 +198,8 @@ Done in PRs #15, #16, and #17.
 The Takeout import, the subscriptions feed, watch history, and resume.
 
 ### v1.1
+
+Done in PRs #19, #20, #21, and #22.
 
 Comments, SponsorBlock, and the mini-player.
 

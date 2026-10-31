@@ -430,6 +430,85 @@ mod tests {
         insta::assert_snapshot!(format!("{loading}{}", render(&app, 70, 8)));
     }
 
+    fn a_comment(id: &str, name: &str, text: &str) -> crate::source::model::Comment {
+        crate::source::model::Comment {
+            id: id.into(),
+            author: ChannelRef { id: Some("UC1".into()), name: name.into(), handle: None },
+            text: Description { text: text.into(), links: Vec::new() },
+            published_text: Some("6 years ago".into()),
+            edited: false,
+            likes_text: Some("4.8M".into()),
+            reply_count_text: Some("986".into()),
+            replies: Some("r".into()),
+            pinned: false,
+            hearted: false,
+            by_uploader: false,
+            verified: false,
+            reply_level: u8::from(id.contains('.')),
+        }
+    }
+
+    #[test]
+    fn comments_pane() {
+        use crate::app::comments::CommentsSlot;
+        use crate::source::model::{CommentPage, CommentSort};
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.update(Message::Input(Input::Resize { width: 60, height: 24 }));
+        app.open(Target::Video { id: "v".into(), title: "Me at the zoo".into() });
+        let generation = match app.update(Message::Input(Input::Key("C".parse().unwrap()))).as_slice() {
+            [Effect::LoadComments { generation, .. }] => *generation,
+            other => panic!("{other:?}"),
+        };
+        insta::assert_snapshot!("comments_loading", render(&app, 60, 8));
+        let pinned = crate::source::model::Comment {
+            pinned: true,
+            hearted: true,
+            verified: true,
+            ..a_comment("a", "@SanDiegoZoo", "We're so honored that the first ever YouTube video was filmed here!")
+        };
+        let long = (1..=9).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let uploader = crate::source::model::Comment {
+            by_uploader: true,
+            edited: true,
+            likes_text: None,
+            reply_count_text: None,
+            replies: None,
+            ..a_comment("b", "@jawed", &long)
+        };
+        let sort = |label: &str, selected| CommentSort { label: label.into(), selected, continuation: "t".into() };
+        let page = CommentPage {
+            comments: vec![pinned, uploader, a_comment("c", "@third", "Third")],
+            continuation: None,
+            count_text: Some("10,645,363 Comments".into()),
+            sorts: vec![sort("Top", true), sort("Newest", false)],
+            note: None,
+        };
+        app.update(Message::CommentsLoaded { request: 1, generation, slot: CommentsSlot::First, result: Ok(page) });
+        app.update(Message::Input(Input::Key("enter".parse().unwrap())));
+        let replies = CommentPage {
+            comments: vec![a_comment("a.1", "@reply", "Very cool!")],
+            continuation: Some("more".into()),
+            ..CommentPage::default()
+        };
+        let slot = CommentsSlot::Replies { parent: "a".into() };
+        app.update(Message::CommentsLoaded { request: 1, generation, slot, result: Ok(replies) });
+        insta::assert_snapshot!("comments_pane", render(&app, 60, 24));
+        // The selected comment shows in full, and the list follows it.
+        for _ in 0..3 {
+            app.update(Message::Input(Input::Key("j".parse().unwrap())));
+        }
+        let text = render(&app, 60, 24);
+        assert!(text.contains("line 9"), "{text}");
+        assert!(!text.contains("SanDiegoZoo"), "scrolled past the first comment: {text}");
+        // A note when there are no comments.
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.open(Target::Video { id: "v".into(), title: "t".into() });
+        app.update(Message::Input(Input::Key("C".parse().unwrap())));
+        let page = CommentPage { note: Some("Comments are turned off.".into()), ..CommentPage::default() };
+        app.update(Message::CommentsLoaded { request: 1, generation: 2, slot: CommentsSlot::First, result: Ok(page) });
+        assert!(render(&app, 60, 8).contains("Comments are turned off."));
+    }
+
     #[test]
     fn video_details_screen() {
         let mut app = App::new(KeyMap::default(), Graphics::KittyShm);

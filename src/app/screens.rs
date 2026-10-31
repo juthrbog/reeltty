@@ -2,6 +2,7 @@
 
 use std::cell::Cell;
 
+use super::comments::CommentsState;
 use super::list::ItemList;
 use crate::source::model::{ChannelInfo, ChannelRef, Item, PlaylistInfo, VideoDetails};
 
@@ -63,6 +64,17 @@ pub struct VideoScreen {
     /// The largest useful `scroll`. Drawing sets it, because only drawing
     /// knows how the text wraps. `u16::MAX` until the first draw.
     pub max_scroll: Cell<u16>,
+    pub pane: VideoPane,
+    /// Loaded when the comments first show, and kept when the details show again.
+    pub comments: Option<Box<CommentsState>>,
+}
+
+/// What the video screen shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VideoPane {
+    #[default]
+    Details,
+    Comments,
 }
 
 /// Something that can be opened.

@@ -7,11 +7,18 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Wrap};
 
 use super::items::{self, truncate};
+use crate::app::comments::{CommentRow, CommentsState};
 use crate::app::list::{ItemList, Loading};
 use crate::app::player::clock;
-use crate::app::screens::{ChannelScreen, PlaylistScreen, Screen, VideoScreen};
+use crate::app::screens::{ChannelScreen, PlaylistScreen, Screen, VideoPane, VideoScreen};
 use crate::app::{App, SCREEN_HEADER_ROWS};
-use crate::source::model::{Description, Item, VideoDetails};
+use crate::keymap::Action;
+use crate::source::model::{Comment, Description, Item, VideoDetails};
+
+/// A comment that is not selected shows at most this many lines of text.
+const COMMENT_LINES: u16 = 6;
+/// Replies start this many columns to the right of comments.
+const REPLY_INDENT: u16 = 4;
 
 pub fn draw(app: &App, screen: &Screen, f: &mut Frame, area: Rect) {
     match screen {
@@ -26,6 +33,7 @@ pub fn status(screen: &Screen) -> Option<(String, bool)> {
     let list = match screen {
         Screen::Channel(s) => &s.list,
         Screen::Playlist(s) => &s.list,
+        Screen::Video(s) if s.pane == VideoPane::Comments => return s.comments.as_deref().and_then(comments_status),
         Screen::Video(s) => {
             return match (&s.error, s.loading) {
                 (Some(e), _) => Some((format!("Could not load the video: {e}"), true)),
@@ -40,6 +48,19 @@ pub fn status(screen: &Screen) -> Option<(String, bool)> {
         (None, Loading::MorePages) => Some(("Loading more...".into(), false)),
         (None, Loading::Idle) => None,
     }
+}
+
+fn comments_status(c: &CommentsState) -> Option<(String, bool)> {
+    if let Some(e) = &c.error {
+        return Some((format!("Could not load the comments: {e}"), true));
+    }
+    let text = match c.loading {
+        Loading::FirstPage => "Loading comments...",
+        Loading::MorePages => "Loading more comments...",
+        Loading::Idle if c.loading_replies.is_some() => "Loading replies...",
+        Loading::Idle => return None,
+    };
+    Some((text.into(), false))
 }
 
 /// A bordered block with a header of `SCREEN_HEADER_ROWS` rows above a list.
@@ -113,6 +134,9 @@ fn draw_items(app: &App, list: &ItemList, empty: &str, f: &mut Frame, area: Rect
 }
 
 fn draw_video(app: &App, s: &VideoScreen, f: &mut Frame, area: Rect) {
+    if let (VideoPane::Comments, Some(c)) = (s.pane, &s.comments) {
+        return draw_comments(app, s, c, f, area);
+    }
     let block = Block::bordered().title(format!("Video: {}", s.title));
     let text = match (&s.details, &s.error) {
         (Some(d), _) => video_lines(app, d),
@@ -152,6 +176,13 @@ fn video_lines(app: &App, d: &VideoDetails) -> Vec<Line<'static>> {
     facts.extend(d.likes_text.as_ref().map(|l| format!("{l} likes")));
     facts.extend(d.duration_secs.map(duration));
     lines.push(Line::from(facts.join(" · ")).dim());
+    if let Some(key) = app.keymap.first_key(Action::Comments).filter(|_| !d.live) {
+        let count = d.comments_count_text.as_ref().map(|c| format!(" ({c})")).unwrap_or_default();
+        lines.push(Line::from(vec![
+            Span::from(format!("Comments{count}: press ")).dim(),
+            Span::from(key.to_string()).bold(),
+        ]));
+    }
 
     if !d.chapters.is_empty() {
         lines.push(Line::default());
@@ -167,6 +198,156 @@ fn video_lines(app: &App, d: &VideoDetails) -> Vec<Line<'static>> {
     lines.push(Line::default());
     lines.extend(description_lines(&d.description));
     lines
+}
+
+/// The comments of a video, with the selected one in full and marked with a
+/// bar on the left.
+fn draw_comments(app: &App, screen: &VideoScreen, list: &CommentsState, f: &mut Frame, area: Rect) {
+    let count = list.count_text.clone().or_else(|| screen.details.as_ref().and_then(|d| d.comments_count_text.clone()));
+    let mut title: Vec<String> = vec!["Comments".into()];
+    title.extend(count);
+    title.extend(list.sort().map(|o| o.label.clone()));
+    let mut block = Block::bordered().title(title.join(" · "));
+    let hints: Vec<String> = [(Action::Open, "replies"), (Action::Sort, "order"), (Action::Comments, "details")]
+        .into_iter()
+        .filter_map(|(a, label)| app.keymap.first_key(a).map(|k| format!("{k} {label}")))
+        .collect();
+    if !hints.is_empty() {
+        block = block.title_bottom(Line::from(format!(" {} ", hints.join(" · "))).dim());
+    }
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    if list.rows.is_empty() {
+        let text = match (&list.error, list.loading, &list.note) {
+            (Some(e), _, _) => Paragraph::new(format!("Could not load the comments: {e}")).red(),
+            (None, Loading::FirstPage, _) => Paragraph::new("Loading comments...").dim(),
+            (None, _, Some(note)) => Paragraph::new(note.clone()).dim(),
+            (None, _, None) => Paragraph::new("No comments.").dim(),
+        };
+        f.render_widget(text.wrap(Wrap { trim: true }), inner);
+        return;
+    }
+    let rows: Vec<RowView> =
+        list.rows.iter().enumerate().map(|(i, r)| row_view(list, r, i == list.selected, inner.width)).collect();
+    let top = first_visible(&rows, list.selected, list.top.get(), inner.height);
+    list.top.set(top);
+    let mut row_y = inner.y;
+    for (i, row) in rows.iter().enumerate().skip(top) {
+        if row_y >= inner.bottom() {
+            break;
+        }
+        let height = row.height().min(inner.bottom() - row_y);
+        let left = inner.x + 2 + if row.reply { REPLY_INDENT } else { 0 };
+        let width = inner.right().saturating_sub(left);
+        if i == list.selected {
+            for dy in 0..height {
+                f.render_widget(Span::from("▌").cyan(), Rect::new(inner.x, row_y + dy, 1, 1));
+            }
+        }
+        let mut line_y = row_y;
+        let bottom = row_y + height;
+        let mut put = |widget: Paragraph<'static>, lines: u16, f: &mut Frame| {
+            let h = lines.min(bottom.saturating_sub(line_y));
+            if h > 0 {
+                f.render_widget(widget, Rect::new(left, line_y, width, h));
+            }
+            line_y += lines;
+        };
+        put(Paragraph::new(row.header.clone()), 1, f);
+        if let Some(text) = &row.text {
+            put(Paragraph::new(text.clone()).wrap(Wrap { trim: false }), row.text_lines, f);
+        }
+        if let Some(stats) = &row.stats {
+            put(Paragraph::new(stats.clone()), 1, f);
+        }
+        // A blank line between rows.
+        row_y += row.height() + 1;
+    }
+}
+
+/// One row of the comments, ready to draw.
+struct RowView {
+    header: Line<'static>,
+    text: Option<Vec<Line<'static>>>,
+    /// The text lines that show, after wrapping and the limit.
+    text_lines: u16,
+    stats: Option<Line<'static>>,
+    reply: bool,
+}
+
+impl RowView {
+    fn height(&self) -> u16 {
+        1 + self.text_lines + u16::from(self.stats.is_some())
+    }
+}
+
+fn row_view(c: &CommentsState, row: &CommentRow, selected: bool, width: u16) -> RowView {
+    let (comment, expanded) = match row {
+        CommentRow::MoreReplies { parent, .. } => {
+            let label =
+                if c.loading_replies.as_deref() == Some(parent) { "Loading replies..." } else { "Show more replies" };
+            return RowView { header: Line::from(label).cyan(), text: None, text_lines: 0, stats: None, reply: true };
+        }
+        CommentRow::Comment { comment, expanded } => (comment, *expanded),
+    };
+    let reply = comment.reply_level > 0;
+    let text = description_lines(&comment.text);
+    let text_width = width.saturating_sub(2 + if reply { REPLY_INDENT } else { 0 }).max(1);
+    let wrapped = u16::try_from(Paragraph::new(text.clone()).wrap(Wrap { trim: false }).line_count(text_width))
+        .unwrap_or(u16::MAX);
+    let text_lines = if selected { wrapped } else { wrapped.min(COMMENT_LINES) };
+    let stats = comment_stats(comment, expanded, text_lines < wrapped);
+    RowView { header: comment_header(comment), text: Some(text), text_lines, stats, reply }
+}
+
+fn comment_header(c: &Comment) -> Line<'static> {
+    let mut author = Span::from(c.author.name.clone()).cyan();
+    if c.by_uploader {
+        author = author.reversed();
+    }
+    let mut spans = vec![author];
+    if c.verified {
+        spans.push(" ✓".into());
+    }
+    if let Some(p) = &c.published_text {
+        spans.push(Span::from(format!(" · {p}")).dim());
+    }
+    if c.edited {
+        spans.push(Span::from(" (edited)").dim());
+    }
+    if c.pinned {
+        spans.push(Span::from(" [Pinned]").yellow());
+    }
+    if c.hearted {
+        spans.push(Span::from(" ♥").red());
+    }
+    Line::from(spans)
+}
+
+/// "4.8M likes · 986 replies". `None` when there is nothing to say. With
+/// `cut`, the text does not all show.
+fn comment_stats(c: &Comment, expanded: bool, cut: bool) -> Option<Line<'static>> {
+    let mut parts: Vec<String> = cut.then(|| "more…".to_string()).into_iter().collect();
+    parts.extend(c.likes_text.iter().map(|l| if l == "1" { "1 like".to_string() } else { format!("{l} likes") }));
+    if let Some(n) = &c.reply_count_text {
+        parts.push(if n == "1" { "1 reply".to_string() } else { format!("{n} replies") });
+    }
+    if expanded {
+        parts.push("open".into());
+    }
+    (!parts.is_empty()).then(|| Line::from(parts.join(" · ")).dim())
+}
+
+/// The first row to draw, so that the selected row shows. It keeps `top`
+/// when it can, so the list does not jump.
+fn first_visible(rows: &[RowView], selected: usize, top: usize, height: u16) -> usize {
+    let mut top = top.min(selected);
+    // The rows from `top` to the selected one, with a blank line after each but the last.
+    let span = |top: usize| rows[top..=selected].iter().map(|r| u32::from(r.height()) + 1).sum::<u32>() - 1;
+    while top < selected && span(top) > u32::from(height) {
+        top += 1;
+    }
+    top
 }
 
 /// The description, one `Line` for each text line, with links in color.

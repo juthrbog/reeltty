@@ -6,11 +6,18 @@ use serde_json::Value;
 use crate::source::model::{ChannelRef, Thumbnail};
 
 /// Unicode direction marks. YouTube puts them around handles and counts.
-const BIDI_MARKS: [char; 6] = ['\u{200E}', '\u{200F}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}'];
+const BIDI_MARKS: [char; 2] = ['\u{200E}', '\u{200F}'];
 
-/// Removes direction marks and spaces at the ends.
+/// Unicode direction embeddings, overrides and isolates (U+202A to U+202E,
+/// U+2066 to U+2069). In text from strangers, they can show text in a
+/// misleading order. Right-to-left text shows without them.
+pub fn is_bidi_control(c: char) -> bool {
+    matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
+/// Removes direction marks and controls, and spaces at the ends.
 pub fn clean(s: &str) -> String {
-    s.chars().filter(|c| !BIDI_MARKS.contains(c)).collect::<String>().trim().to_string()
+    s.chars().filter(|&c| !BIDI_MARKS.contains(&c) && !is_bidi_control(c)).collect::<String>().trim().to_string()
 }
 
 pub fn str_at<'a>(v: &'a Value, path: &str) -> Option<&'a str> {
@@ -197,6 +204,9 @@ mod tests {
     #[test]
     fn cleans_direction_marks() {
         assert_eq!(clean("\u{200E}\u{2068}@GrinenkoPro\u{2069} • \u{2068}1.29K\u{2069}"), "@GrinenkoPro • 1.29K");
+        assert_eq!(clean("a\u{202E}gpj.exe\u{202C}"), "agpj.exe");
+        // Right-to-left text itself stays.
+        assert_eq!(clean("שלום"), "שלום");
     }
 
     #[test]

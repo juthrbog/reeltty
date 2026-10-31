@@ -5,6 +5,7 @@
 //! by starting a task that later sends another `Message`. `update` never
 //! blocks and never does I/O.
 
+pub mod comments;
 pub mod feed;
 pub mod list;
 pub mod player;
@@ -16,16 +17,19 @@ use std::sync::Arc;
 
 use crate::keymap::{Action, KeyMap, KeyPress};
 use crate::source::filters::SearchQuery;
-use crate::source::model::{ChannelPage, ChannelRef, Item, ItemPage, PlaylistPage, SearchPage, Video, VideoDetails};
+use crate::source::model::{
+    ChannelPage, ChannelRef, CommentPage, Item, ItemPage, PlaylistPage, SearchPage, Video, VideoDetails,
+};
 use crate::source::streams::Streams;
 use crate::sponsorblock::Segment;
 use crate::store::{FeedVideo, HISTORY_LIMIT, HistoryEntry, SavedPlaylist, Subscription};
 use crate::terminal::detect::Graphics;
 use crate::thumbnails::{Picture, Slot};
+use comments::{CommentRow, CommentsFrom, CommentsLoad, CommentsSlot, CommentsState};
 use feed::FeedState;
 use list::ItemList;
 use player::{PlayerCommand, PlayerEvent, PlayerState};
-use screens::{ChannelScreen, PlaylistScreen, Screen, Target, VideoScreen};
+use screens::{ChannelScreen, PlaylistScreen, Screen, Target, VideoPane, VideoScreen};
 use search::{KeyResult, SearchState};
 use thumbnails::{THUMBNAIL_ROWS, Thumbnails};
 
@@ -57,6 +61,13 @@ pub enum Message {
     VideoLoaded {
         request: u64,
         result: Result<VideoDetails, String>,
+    },
+    /// The reply to `Effect::LoadComments`.
+    CommentsLoaded {
+        request: u64,
+        generation: u64,
+        slot: CommentsSlot,
+        result: Result<CommentPage, String>,
     },
     /// A change to the local database failed.
     StoreFailed(String),
@@ -147,6 +158,14 @@ pub enum Effect {
     LoadVideo {
         request: u64,
         id: String,
+    },
+    /// A page of comments for the video screen with this request.
+    LoadComments {
+        request: u64,
+        generation: u64,
+        video_id: String,
+        slot: CommentsSlot,
+        from: CommentsFrom,
     },
     Subscribe(Subscription),
     Unsubscribe {
@@ -500,17 +519,11 @@ impl App {
                 }
             }
             Message::VideoLoaded { request, result } => {
-                let Some(Screen::Video(s)) = self.screen_mut(request) else { return Vec::new() };
-                s.loading = false;
-                match result {
-                    Ok(d) => {
-                        s.title.clone_from(&d.title);
-                        s.details = Some(d);
-                        s.error = None;
-                    }
-                    Err(e) => s.error = Some(e),
-                }
+                self.on_video_loaded(request, result);
                 Vec::new()
+            }
+            Message::CommentsLoaded { request, generation, slot, result } => {
+                self.on_comments_loaded(request, generation, slot, result)
             }
             Message::StoreFailed(e) => {
                 self.status = Some(format!("Could not save: {e}"));
@@ -675,12 +688,23 @@ impl App {
             Action::Quit => return vec![Effect::Quit],
             Action::Help => self.show_help = true,
             Action::Back => {
-                self.screens.pop();
+                // The comments go back to the details first.
+                if let Some(Screen::Video(s)) = self.screens.last_mut()
+                    && s.pane == VideoPane::Comments
+                {
+                    s.pane = VideoPane::Details;
+                } else {
+                    self.screens.pop();
+                }
             }
             Action::Search => return self.start_search_input(),
             Action::NextTab | Action::PrevTab => {
                 self.screens.clear();
                 self.tab = self.tab.offset(if action == Action::NextTab { 1 } else { -1 });
+            }
+            Action::Refresh if matches!(self.screens.last(), Some(Screen::Video(s)) if s.pane == VideoPane::Comments) =>
+            {
+                return self.reload_comments(None);
             }
             Action::Refresh => return self.reload_top(),
             _ => return self.on_screen_action(action),
@@ -708,6 +732,7 @@ impl App {
                 }
                 _ => self.on_screen_list(action, rows, request),
             },
+            Screen::Video(s) if s.pane == VideoPane::Comments => self.on_comments_action(action, rows),
             Screen::Video(s) => {
                 let max = s.max_scroll.get();
                 let half = u16::try_from(rows).unwrap_or(u16::MAX).max(1);
@@ -731,6 +756,7 @@ impl App {
                         let (id, title) = (s.id.clone(), s.title.clone());
                         return self.play(id, title);
                     }
+                    Action::Comments => return self.show_comments(),
                     Action::Enqueue => {
                         let video = match &s.details {
                             Some(d) => player::details_video(d),
@@ -743,6 +769,100 @@ impl App {
                 Vec::new()
             }
         }
+    }
+
+    /// Shows the comments of the video screen on top. They load the first time.
+    fn show_comments(&mut self) -> Vec<Effect> {
+        self.request += 1;
+        let generation = self.request;
+        let Some(Screen::Video(s)) = self.screens.last_mut() else { return Vec::new() };
+        s.pane = VideoPane::Comments;
+        if s.comments.is_some() {
+            return Vec::new();
+        }
+        s.comments = Some(Box::new(CommentsState::loading(generation)));
+        let from = first_comments(s);
+        vec![comments_effect(s.request, generation, &s.id, CommentsLoad { slot: CommentsSlot::First, from })]
+    }
+
+    /// Loads the comments again from the first page, in the order `sort`, or
+    /// in the order that shows now.
+    fn reload_comments(&mut self, sort: Option<(String, String)>) -> Vec<Effect> {
+        self.request += 1;
+        let generation = self.request;
+        let Some(Screen::Video(s)) = self.screens.last_mut() else { return Vec::new() };
+        let Some(c) = s.comments.as_mut() else { return Vec::new() };
+        let (label, token) = match sort {
+            Some((label, token)) => (Some(label), Some(token)),
+            None => (None, c.sort().map(|o| o.continuation.clone())),
+        };
+        c.restart(generation, label.as_deref());
+        let from = token.map_or_else(|| first_comments(s), CommentsFrom::Token);
+        vec![comments_effect(s.request, generation, &s.id, CommentsLoad { slot: CommentsSlot::First, from })]
+    }
+
+    fn on_video_loaded(&mut self, request: u64, result: Result<VideoDetails, String>) {
+        let Some(Screen::Video(s)) = self.screen_mut(request) else { return };
+        s.loading = false;
+        match result {
+            Ok(d) => {
+                s.title.clone_from(&d.title);
+                s.details = Some(d);
+                s.error = None;
+            }
+            Err(e) => s.error = Some(e),
+        }
+    }
+
+    fn on_comments_loaded(
+        &mut self,
+        request: u64,
+        generation: u64,
+        slot: CommentsSlot,
+        result: Result<CommentPage, String>,
+    ) -> Vec<Effect> {
+        let Some(Screen::Video(s)) = self.screen_mut(request) else { return Vec::new() };
+        // A page for an older list, before a new order or a refresh.
+        let Some(c) = s.comments.as_mut().filter(|c| c.generation == generation) else { return Vec::new() };
+        match result {
+            Ok(page) => {
+                let load = c.add_page(slot, page);
+                load.map(|l| comments_effect(request, generation, &s.id, l)).into_iter().collect()
+            }
+            Err(e) => {
+                c.fail(&slot, e);
+                Vec::new()
+            }
+        }
+    }
+
+    /// Keys while the video screen shows the comments.
+    fn on_comments_action(&mut self, action: Action, rows: usize) -> Vec<Effect> {
+        // Each comment takes about three rows.
+        let page = rows * usize::from(self.rows_per_item()) / 3;
+        let Some(Screen::Video(s)) = self.screens.last_mut() else { return Vec::new() };
+        let (request, id) = (s.request, s.id.clone());
+        if action == Action::Comments {
+            s.pane = VideoPane::Details;
+            return Vec::new();
+        }
+        let Some(c) = s.comments.as_mut() else { return Vec::new() };
+        let generation = c.generation;
+        let load = match action {
+            Action::Open => c.open(),
+            Action::Sort => {
+                let Some(next) = c.next_sort() else { return Vec::new() };
+                let sort = (next.label.clone(), next.continuation.clone());
+                return self.reload_comments(Some(sort));
+            }
+            Action::Channel => {
+                let Some(CommentRow::Comment { comment, .. }) = c.selected_row() else { return Vec::new() };
+                let author = comment.author.clone();
+                return Target::channel(&author).map(|t| self.open(t)).unwrap_or_default();
+            }
+            _ => c.navigate(action, page).flatten(),
+        };
+        load.map(|l| comments_effect(request, generation, &id, l)).into_iter().collect()
     }
 
     /// Navigation and item keys on a channel or playlist screen.
@@ -830,6 +950,8 @@ impl App {
                     error: None,
                     scroll: 0,
                     max_scroll: std::cell::Cell::new(u16::MAX),
+                    pane: VideoPane::Details,
+                    comments: None,
                 }),
                 Effect::LoadVideo { request, id },
             ),
@@ -1081,6 +1203,19 @@ impl App {
             _ => None,
         }
     }
+}
+
+/// Where the first page of a video's comments comes from: the token in the
+/// details, or else the video.
+fn first_comments(s: &VideoScreen) -> CommentsFrom {
+    match s.details.as_ref().and_then(|d| d.comments.clone()) {
+        Some(token) => CommentsFrom::Token(token),
+        None => CommentsFrom::Video(s.id.clone()),
+    }
+}
+
+fn comments_effect(request: u64, generation: u64, video_id: &str, load: CommentsLoad) -> Effect {
+    Effect::LoadComments { request, generation, video_id: video_id.to_string(), slot: load.slot, from: load.from }
 }
 
 fn more(request: u64, token: Option<String>) -> Vec<Effect> {
@@ -1603,6 +1738,192 @@ mod tests {
         key(&mut a, "k");
         let Some(Screen::Video(s)) = a.screens.last() else { panic!() };
         assert_eq!(s.scroll, 1);
+    }
+
+    pub(crate) fn details(id: &str, comments: Option<&str>) -> VideoDetails {
+        VideoDetails {
+            id: id.into(),
+            title: "Title".into(),
+            channel: None,
+            subscribers_text: None,
+            views_text: None,
+            date_text: None,
+            publish_date: None,
+            duration_secs: None,
+            likes_text: None,
+            live: false,
+            description: crate::source::model::Description::default(),
+            chapters: Vec::new(),
+            thumbnails: Vec::new(),
+            related: Vec::new(),
+            comments: comments.map(str::to_string),
+            comments_count_text: Some("10M".into()),
+        }
+    }
+
+    pub(crate) fn comment(id: &str) -> crate::source::model::Comment {
+        crate::source::model::Comment {
+            id: id.into(),
+            author: ChannelRef { id: Some(format!("UC{id}")), name: format!("@{id}"), handle: None },
+            text: crate::source::model::Description { text: format!("Comment {id}"), links: Vec::new() },
+            published_text: Some("1 day ago".into()),
+            edited: false,
+            likes_text: Some("5".into()),
+            reply_count_text: Some("2".into()),
+            replies: Some(format!("r-{id}")),
+            pinned: false,
+            hearted: false,
+            by_uploader: false,
+            verified: false,
+            reply_level: u8::from(id.contains('.')),
+        }
+    }
+
+    pub(crate) fn comment_page(ids: &[&str], continuation: Option<&str>) -> CommentPage {
+        let sort = |label: &str, selected| crate::source::model::CommentSort {
+            label: label.into(),
+            selected,
+            continuation: format!("sort-{label}"),
+        };
+        CommentPage {
+            comments: ids.iter().map(|id| comment(id)).collect(),
+            continuation: continuation.map(str::to_string),
+            count_text: Some("12 Comments".into()),
+            sorts: vec![sort("Top", true), sort("Newest", false)],
+            note: None,
+        }
+    }
+
+    fn comments_state(a: &App) -> &CommentsState {
+        let Some(Screen::Video(s)) = a.screens.last() else { panic!("no video screen") };
+        s.comments.as_ref().expect("comments")
+    }
+
+    fn pane(a: &App) -> VideoPane {
+        let Some(Screen::Video(s)) = a.screens.last() else { panic!("no video screen") };
+        s.pane
+    }
+
+    /// The generation of a `LoadComments` effect.
+    fn loads(effects: &[Effect]) -> Vec<(u64, CommentsSlot, CommentsFrom)> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::LoadComments { request: 1, generation, video_id, slot, from } if video_id == "v" => {
+                    Some((*generation, slot.clone(), from.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn comments_open_from_the_details_token_or_the_video() {
+        let mut a = app();
+        a.open(Target::Video { id: "v".into(), title: "t".into() });
+        a.update(Message::VideoLoaded { request: 1, result: Ok(details("v", Some("tok"))) });
+        let got = loads(&key(&mut a, "C"));
+        assert_eq!(got.len(), 1);
+        assert_eq!((&got[0].1, &got[0].2), (&CommentsSlot::First, &CommentsFrom::Token("tok".into())));
+        assert_eq!(pane(&a), VideoPane::Comments);
+        // C goes back to the details, and again to the comments with no new load.
+        assert!(key(&mut a, "C").is_empty());
+        assert_eq!(pane(&a), VideoPane::Details);
+        assert!(key(&mut a, "C").is_empty());
+        assert_eq!(pane(&a), VideoPane::Comments);
+        // Without a token, from the video. Before the details load too.
+        let mut a = app();
+        a.open(Target::Video { id: "v".into(), title: "t".into() });
+        let got = loads(&key(&mut a, "C"));
+        assert_eq!(got[0].2, CommentsFrom::Video("v".into()));
+    }
+
+    #[test]
+    fn comments_page_reply_and_open_the_author() {
+        let mut a = app();
+        a.update(Message::Input(Input::Resize { width: 80, height: 24 }));
+        a.open(Target::Video { id: "v".into(), title: "t".into() });
+        let (generation, ..) = loads(&key(&mut a, "C"))[0].clone();
+        let ids: Vec<String> = (0..8).map(|i| format!("c{i}")).collect();
+        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let page = comment_page(&ids, Some("p2"));
+        let effects =
+            a.update(Message::CommentsLoaded { request: 1, generation, slot: CommentsSlot::First, result: Ok(page) });
+        assert!(effects.is_empty());
+        assert_eq!(comments_state(&a).rows.len(), 8);
+        // Moving down near the end loads the next page.
+        key(&mut a, "j");
+        key(&mut a, "j");
+        let got = loads(&key(&mut a, "j"));
+        assert_eq!(got, [(generation, CommentsSlot::More, CommentsFrom::Token("p2".into()))]);
+        // Enter loads the replies of the selected comment.
+        let got = loads(&key(&mut a, "enter"));
+        assert_eq!(
+            got,
+            [(generation, CommentsSlot::Replies { parent: "c3".into() }, CommentsFrom::Token("r-c3".into()))]
+        );
+        let replies = comment_page(&["c3.a", "c3.b"], None);
+        a.update(Message::CommentsLoaded {
+            request: 1,
+            generation,
+            slot: CommentsSlot::Replies { parent: "c3".into() },
+            result: Ok(replies),
+        });
+        assert_eq!(comments_state(&a).rows.len(), 10);
+        // c opens the author of the selected comment.
+        let effects = key(&mut a, "c");
+        assert!(matches!(effects.as_slice(), [Effect::LoadChannel { id, .. }] if id == "UCc3"), "{effects:?}");
+    }
+
+    #[test]
+    fn sort_and_refresh_start_over_and_drop_old_pages() {
+        let mut a = app();
+        a.open(Target::Video { id: "v".into(), title: "t".into() });
+        let (first, ..) = loads(&key(&mut a, "C"))[0].clone();
+        a.update(Message::CommentsLoaded {
+            request: 1,
+            generation: first,
+            slot: CommentsSlot::First,
+            result: Ok(comment_page(&["a", "b"], Some("p2"))),
+        });
+        let got = loads(&key(&mut a, "o"));
+        let (newest, slot, from) = got[0].clone();
+        assert_eq!((slot, from), (CommentsSlot::First, CommentsFrom::Token("sort-Newest".into())));
+        assert!(newest > first);
+        assert_eq!(comments_state(&a).sort().unwrap().label, "Newest");
+        assert!(comments_state(&a).rows.is_empty());
+        // A late page for the old order is dropped.
+        a.update(Message::CommentsLoaded {
+            request: 1,
+            generation: first,
+            slot: CommentsSlot::More,
+            result: Ok(comment_page(&["old"], None)),
+        });
+        assert!(comments_state(&a).rows.is_empty());
+        // r reloads in the order that shows.
+        let got = loads(&key(&mut a, "r"));
+        assert_eq!(got[0].2, CommentsFrom::Token("sort-Newest".into()));
+        assert!(matches!(a.screens.last(), Some(Screen::Video(_))), "only the comments reload");
+        // An error shows in the status bar.
+        let generation = got[0].0;
+        a.update(Message::CommentsLoaded {
+            request: 1,
+            generation,
+            slot: CommentsSlot::First,
+            result: Err("down".into()),
+        });
+        assert_eq!(comments_state(&a).error.as_deref(), Some("down"));
+    }
+
+    #[test]
+    fn back_leaves_the_comments_first() {
+        let mut a = app();
+        a.open(Target::Video { id: "v".into(), title: "t".into() });
+        key(&mut a, "C");
+        key(&mut a, "esc");
+        assert_eq!(pane(&a), VideoPane::Details);
+        key(&mut a, "esc");
+        assert!(a.screens.is_empty());
     }
 
     #[test]

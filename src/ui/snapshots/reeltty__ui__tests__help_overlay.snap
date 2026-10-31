@@ -6,19 +6,19 @@ expression: "render(&app, 100, 20)"
 ┌Search────────────────────────────────────────────────────────────────────────────────────────────┐
 │Press / to search, f for filters.                                                                 │
 │  ┌Keys────────────────────────────────────────────────────────────────────────────────────────┐  │
-│  │quit                 q, ctrl-c                next tab             tab                      │  │
-│  │move up              k, up                    previous tab         shift-tab                │  │
-│  │move down            j, down                  refresh              r                        │  │
-│  │go to the top        g, home                  video details        i                        │  │
-│  │go to the bottom     G, end                   go to the channel    c                        │  │
-│  │half a page up       ctrl-u, pgup             subscribe or save    s                        │  │
-│  │half a page down     ctrl-d, pgdn             add to the queue     a                        │  │
-│  │open                 enter, l                 delete an entry      d                        │  │
-│  │go back              esc, h                   full-size player     v                        │  │
-│  │search               /                        stop mini-player     x                        │  │
-│  │search filters       f                        show or hide help    ?                        │  │
+│  │quit                 q, ctrl-c                previous tab         shift-tab                │  │
+│  │move up              k, up                    refresh              r                        │  │
+│  │move down            j, down                  video details        i                        │  │
+│  │go to the top        g, home                  go to the channel    c                        │  │
+│  │go to the bottom     G, end                   subscribe or save    s                        │  │
+│  │half a page up       ctrl-u, pgup             add to the queue     a                        │  │
+│  │half a page down     ctrl-d, pgdn             delete an entry      d                        │  │
+│  │open                 enter, l                 full-size player     v                        │  │
+│  │go back              esc, h                   stop mini-player     x                        │  │
+│  │search               /                        comments             C                        │  │
+│  │search filters       f                        sort comments        o                        │  │
+│  │next tab             tab                      show or hide help    ?                        │  │
 │  └────────────────────────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                                  │
 │                                                                                                  │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
                                                                ? help  / search  f filters  q quit

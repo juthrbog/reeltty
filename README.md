@@ -39,6 +39,8 @@ The Feed tab shows the newest videos of the channels you follow, newest first. r
 
 To play a video, select it and press `enter`. `i` shows its details. `a` adds a video to the queue, or takes it out. The Queue tab shows the queue, and `enter` there plays a video from it.
 
+On the details screen, `C` shows the comments, and `C` again shows the details. In the comments, `j` and `k` move, `enter` shows or hides the replies of a comment, `o` switches between the Top and Newest order, `c` opens the channel of the comment's author, and `r` loads the comments again. A long comment shows in full when you select it. The comments work well with the mini-player: the video plays on while you read.
+
 The History tab shows the videos you played, newest first, and how far you got. A video you stopped in the middle plays again from where you stopped. `d` deletes an entry from the history (or from the queue in the Queue tab). In the player, the keys are the same as mpv's:
 
 | Key | Action |
@@ -109,7 +111,7 @@ up = ["k", "up"]
 seek_forward_long = ["up", "l"]
 ```
 
-The actions in `[keys.browse]` are `quit`, `up`, `down`, `top`, `bottom`, `half_page_up`, `half_page_down`, `open`, `back`, `search`, `filters`, `next_tab`, `prev_tab`, `refresh`, `details`, `channel`, `toggle`, `enqueue`, `delete`, `show_player`, `close_player`, and `help`. The actions in `[keys.player]` are `back`, `minimize`, `toggle_pause`, `seek_forward`, `seek_back`, `seek_forward_long`, `seek_back_long`, `volume_up`, `volume_down`, `mute`, `speed_up`, `speed_down`, `speed_reset`, `next_chapter`, `prev_chapter`, `captions`, `quality`, `next_video`, and `prev_video`. Keys are written as `j`, `G`, `ctrl-d`, `alt-x`, `space`, `enter`, `esc`, `tab`, `shift-tab`, `backspace`, `up`, `down`, `left`, `right`, `pgup`, `pgdn`, `home`, `end`, or `f1` to `f12`. If you give a default key of one action to another action, the first action loses that key. For example, `back = ["q", "esc"]` in `[keys.player]` makes `esc` stop the video, and the mini-player then has no key. Two actions that you give the same key are an error.
+The actions in `[keys.browse]` are `quit`, `up`, `down`, `top`, `bottom`, `half_page_up`, `half_page_down`, `open`, `back`, `search`, `filters`, `next_tab`, `prev_tab`, `refresh`, `details`, `channel`, `toggle`, `enqueue`, `delete`, `show_player`, `close_player`, `comments`, `sort`, and `help`. The actions in `[keys.player]` are `back`, `minimize`, `toggle_pause`, `seek_forward`, `seek_back`, `seek_forward_long`, `seek_back_long`, `volume_up`, `volume_down`, `mute`, `speed_up`, `speed_down`, `speed_reset`, `next_chapter`, `prev_chapter`, `captions`, `quality`, `next_video`, and `prev_video`. Keys are written as `j`, `G`, `ctrl-d`, `alt-x`, `space`, `enter`, `esc`, `tab`, `shift-tab`, `backspace`, `up`, `down`, `left`, `right`, `pgup`, `pgdn`, `home`, `end`, or `f1` to `f12`. If you give a default key of one action to another action, the first action loses that key. For example, `back = ["q", "esc"]` in `[keys.player]` makes `esc` stop the video, and the mini-player then has no key. Two actions that you give the same key are an error.
 
 Local state (subscriptions, the feed, saved playlists, and the watch history) is in `~/.local/share/reeltty/reeltty.db`. Thumbnails are cached in `~/.cache/reeltty/thumbnails`, up to 100 MB. The log is in `~/.local/state/reeltty/reeltty.log`. Set `REELTTY_LOG=debug` for more detail.
 

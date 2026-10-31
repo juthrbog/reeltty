@@ -442,12 +442,27 @@ impl App {
     /// Plays a video from a link, from `start_secs` if it is known. A link to
     /// the video that plays seeks in it, in the same size.
     pub(super) fn play_link(&mut self, id: String, title: String, start_secs: Option<u32>) -> Vec<Effect> {
-        if self.player.as_ref().is_some_and(|p| p.id == id && p.has_file()) {
-            let secs = start_secs.unwrap_or(0);
-            self.status = Some(format!("Playing from {}.", clock(secs)));
-            return vec![Effect::Player(PlayerCommand::SeekTo { secs })];
+        let secs = start_secs.unwrap_or(0);
+        let same = self.player.as_mut().filter(|p| p.id == id);
+        match same.as_ref().map(|p| &p.phase) {
+            Some(Phase::Loading | Phase::Playing) => {
+                self.status = Some(format!("Playing from {}.", clock(secs)));
+                return vec![Effect::Player(PlayerCommand::SeekTo { secs })];
+            }
+            // mpv has no file yet: it starts there.
+            Some(Phase::Resolving | Phase::Waiting { .. }) => {
+                if let Some(p) = same {
+                    p.position_ms = u64::from(secs) * 1000;
+                }
+                self.status = Some(format!("Playing from {}.", clock(secs)));
+                return Vec::new();
+            }
+            _ => {}
         }
-        let effects = self.play_video(id, title, true, false);
+        // After its end or a failure, the same video starts again in the same
+        // size, and does not become its own "previous video".
+        let again = same.map(|p| p.mini);
+        let effects = self.play_video(id, title, again.is_none(), again.unwrap_or(false));
         if let (Some(secs), Some(p)) = (start_secs, self.player.as_mut()) {
             p.position_ms = u64::from(secs) * 1000;
             self.status = Some(format!("Playing from {}.", clock(secs)));

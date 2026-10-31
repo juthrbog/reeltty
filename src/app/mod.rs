@@ -802,6 +802,7 @@ impl App {
     fn follow_link(&mut self, text: &Description, index: usize) -> Vec<Effect> {
         let Some(link) = text.links.get(index) else { return Vec::new() };
         let label = text.text.chars().skip(link.start).take(link.len).collect::<String>().trim().to_string();
+        let label = label.trim_start_matches('•').trim().to_string();
         match link.target.clone() {
             LinkTarget::Url(url) => {
                 // Text from strangers: no `file:` or other schemes.
@@ -812,7 +813,20 @@ impl App {
                 self.status = Some(format!("Opened {url} in the browser."));
                 vec![Effect::OpenUrl(url)]
             }
-            LinkTarget::Video { id, start_secs } => self.play_link(id, label, start_secs),
+            LinkTarget::Video { id, start_secs } => {
+                // The link text is often a time or a URL, which would go into
+                // the history as the title. This screen's video has its title.
+                let screen = match self.screens.last() {
+                    Some(Screen::Video(s)) => Some((s.id.clone(), s.title.clone())),
+                    _ => None,
+                };
+                let title = match screen {
+                    Some((screen_id, title)) if screen_id == id => title,
+                    _ if label.is_empty() || label.contains("://") || label.contains(':') => format!("Video {id}"),
+                    _ => label,
+                };
+                self.play_link(id, title, start_secs)
+            }
             LinkTarget::Channel { id } => self.open(Target::Channel { id, name: label }),
         }
     }
@@ -2043,19 +2057,24 @@ pub(crate) mod tests {
         key(&mut a, "n");
         let effects = key(&mut a, "enter");
         assert!(effects.iter().any(|e| matches!(e, Effect::ResolveStreams { id, .. } if id == "other")), "{effects:?}");
-        assert_eq!(a.player.as_ref().unwrap().title, "other");
+        assert_eq!(a.player.as_ref().unwrap().title, "other", "the link text, which is not a URL or a time");
         // A time in this video plays it from there.
         a.player = None;
         key(&mut a, "N");
         key(&mut a, "enter");
         let p = a.player.as_ref().unwrap();
         assert_eq!((p.id.as_str(), p.position_ms), ("v", 65_000));
+        assert_eq!(p.title, "Title", "the screen's title, not the link text 1:05");
         assert_eq!(a.status.as_deref(), Some("Playing from 1:05."));
+        // While it resolves, the same link changes where it starts, with no restart.
+        let session = a.session;
+        key(&mut a, "esc");
+        assert!(key(&mut a, "enter").is_empty());
+        assert_eq!(a.session, session);
+        assert!(a.played.is_empty(), "the same video is not 'previous'");
         // While it plays, the same link seeks.
         a.update(Message::StreamsResolved { session: a.session, now: 0, result: Ok(stream_of_v()) });
         a.update(Message::Player { session: a.session, event: PlayerEvent::FileLoaded });
-        // The full player has the keys now, so shrink it to see the screen.
-        key(&mut a, "esc");
         assert_eq!(key(&mut a, "enter"), [Effect::Player(PlayerCommand::SeekTo { secs: 65 })]);
     }
 

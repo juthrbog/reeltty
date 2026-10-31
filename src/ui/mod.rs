@@ -565,6 +565,21 @@ mod tests {
         let Some(crate::app::screens::Screen::Video(VideoScreen { link, .. })) = app.screens.last() else { panic!() };
         assert_eq!(*link, Some(0));
         assert!(screen.lines().last().unwrap().contains("enter: open https://x.com"), "{screen}");
+
+        // A link at the end of a long paragraph that wraps.
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.update(Message::Input(Input::Resize { width: 40, height: 10 }));
+        app.open(Target::Video { id: "v".into(), title: "t".into() });
+        let text = format!("{}see x.com", "word ".repeat(80));
+        let start = text.chars().count() - 5;
+        let mut details = crate::app::tests::details("v", None);
+        details.description =
+            Description { text, links: vec![Link { start, len: 5, target: LinkTarget::Url("https://x.com".into()) }] };
+        app.update(Message::VideoLoaded { request: 1, result: Ok(details) });
+        render(&app, 40, 10);
+        press(&mut app, "n");
+        let screen = render(&app, 40, 10);
+        assert!(screen.contains("x.com"), "{screen}");
     }
 
     #[test]

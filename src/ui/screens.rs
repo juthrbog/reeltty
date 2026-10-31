@@ -33,7 +33,9 @@ pub fn status(screen: &Screen) -> Option<(String, bool)> {
     let list = match screen {
         Screen::Channel(s) => &s.list,
         Screen::Playlist(s) => &s.list,
-        Screen::Video(s) if s.pane == VideoPane::Comments => return s.comments.as_deref().and_then(comments_status),
+        Screen::Video(s) if s.pane == VideoPane::Comments => {
+            return s.comments.as_deref().and_then(|c| comments_status(c, &s.id));
+        }
         Screen::Video(s) => {
             let link = s.link.and_then(|i| s.details.as_ref()?.description.links.get(i));
             if let Some(link) = link {
@@ -67,18 +69,13 @@ fn link_status(target: &LinkTarget, video_id: &str) -> String {
     }
 }
 
-fn comments_status(c: &CommentsState) -> Option<(String, bool)> {
+fn comments_status(c: &CommentsState, video_id: &str) -> Option<(String, bool)> {
     if let Some(e) = &c.error {
         return Some((format!("Could not load the comments: {e}"), true));
     }
     let link = c.link.and_then(|i| c.selected_comment()?.text.links.get(i));
-    // The video of a comment link is not known here, so timestamps say the time only.
     if let Some(link) = link {
-        let text = match &link.target {
-            LinkTarget::Video { start_secs: Some(secs), .. } => format!("enter: play from {}", duration(*secs)),
-            target => link_status(target, ""),
-        };
-        return Some((text, false));
+        return Some((link_status(&link.target, video_id), false));
     }
     let text = match c.loading {
         Loading::FirstPage => "Loading comments...",
@@ -168,11 +165,17 @@ fn draw_video(app: &App, s: &VideoScreen, f: &mut Frame, area: Rect) {
     let (text, link_line) = match (&s.details, &s.error) {
         (Some(d), _) => {
             let (lines, description_start) = video_lines(app, d, s.link);
-            // The wrapped line where the selected link starts.
+            // The wrapped line where the selected link ends: the lines before
+            // its own, and its own up to the end of the link.
             let link_line = s.link.and_then(|i| d.description.links.get(i)).map(|l| {
-                let newlines = d.description.text.chars().take(l.start).filter(|&c| c == '\n').count();
-                let before = Paragraph::new(lines[..description_start + newlines].to_vec()).wrap(Wrap { trim: false });
-                u16::try_from(before.line_count(inner.width)).unwrap_or(u16::MAX)
+                let head: Vec<char> = d.description.text.chars().take(l.start + l.len).collect();
+                let newlines = head.iter().filter(|&&c| c == '\n').count();
+                let own: String =
+                    head.iter().rev().take_while(|&&c| c != '\n').collect::<Vec<_>>().into_iter().rev().collect();
+                let mut before = lines[..description_start + newlines].to_vec();
+                before.push(Line::from(own));
+                let rows = Paragraph::new(before).wrap(Wrap { trim: false }).line_count(inner.width);
+                u16::try_from(rows.saturating_sub(1)).unwrap_or(u16::MAX)
             });
             (lines, link_line)
         }

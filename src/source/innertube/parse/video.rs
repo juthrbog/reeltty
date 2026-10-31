@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use super::text::{array, channel_ref, clean, str_at, text, text_at, thumbnails};
+use super::text::{array, channel_ref, clean, is_bidi_control, str_at, strip_bidi_controls, text, text_at, thumbnails};
 use crate::source::model::{ChannelRef, Chapter, Description, Item, Link, LinkTarget, Video, VideoDetails, VideoKind};
 use crate::source::{Result, SourceError};
 
@@ -51,7 +51,9 @@ pub fn details(next: &Value, player: Option<&Value>) -> Result<VideoDetails> {
         likes_text: likes,
         live,
         description: description(&secondary["attributedDescription"], &id)
-            .or_else(|| str_at(pd, "/shortDescription").map(|s| Description { text: s.to_string(), links: Vec::new() }))
+            .or_else(|| {
+                str_at(pd, "/shortDescription").map(|s| Description { text: strip_bidi_controls(s), links: Vec::new() })
+            })
             .unwrap_or_default(),
         chapters: chapters(next),
         thumbnails: thumbnails(pd, "/thumbnail/thumbnails"),
@@ -107,7 +109,8 @@ fn player_views(pd: &Value) -> Option<String> {
     Some(format!("{out} views"))
 }
 
-/// `attributedDescription`. `None` when it has no text.
+/// `attributedDescription`, or the content of a comment. `None` when it has
+/// no text.
 pub(super) fn description(d: &Value, video_id: &str) -> Option<Description> {
     // Not cleaned or trimmed: the link offsets count from the raw text.
     let content = str_at(d, "/content")?;
@@ -125,7 +128,32 @@ pub(super) fn description(d: &Value, video_id: &str) -> Option<Description> {
             Some(Link { start, len, target })
         })
         .collect();
-    Some(Description { text: content.to_string(), links })
+    Some(without_bidi_controls(Description { text: content.to_string(), links }))
+}
+
+/// Removes direction controls from the text, and moves the links with it.
+fn without_bidi_controls(d: Description) -> Description {
+    if !d.text.chars().any(is_bidi_control) {
+        return d;
+    }
+    // The new index of each char, and the new length at the end.
+    let mut index = Vec::with_capacity(d.text.len() + 1);
+    let mut kept = 0;
+    for c in d.text.chars() {
+        index.push(kept);
+        kept += usize::from(!is_bidi_control(c));
+    }
+    index.push(kept);
+    let links = d
+        .links
+        .into_iter()
+        .filter_map(|l| {
+            let start = index[l.start];
+            let len = index[l.start + l.len] - start;
+            (len > 0).then_some(Link { start, len, ..l })
+        })
+        .collect();
+    Description { text: d.text.chars().filter(|&c| !is_bidi_control(c)).collect(), links }
 }
 
 /// The UTF-16 offset of each char in `s`, and the length of `s` in UTF-16 at the end.
@@ -386,6 +414,23 @@ mod tests {
     }
 
     #[test]
+    fn direction_controls_are_removed_and_links_move() {
+        // "\u{202E}" turns "exe.gpj" around; the link is after it.
+        let content = "a\u{202E}b\u{202C} https://x \u{2067}";
+        let start = "a\u{202E}b\u{202C} ".encode_utf16().count();
+        let d = details(
+            &with_description(content, &json!([url_run(start, 9, "https://x"), url_run(1, 1, "https://y")])),
+            None,
+        )
+        .unwrap()
+        .description;
+        assert_eq!(d.text, "ab https://x ");
+        let got: Vec<String> = d.links.iter().map(|l| d.text.chars().skip(l.start).take(l.len).collect()).collect();
+        // The link on the control alone is gone.
+        assert_eq!(got, ["https://x"]);
+    }
+
+    #[test]
     fn bad_link_offsets_are_skipped() {
         let runs = json!([
             // Starts inside the surrogate pair.
@@ -474,6 +519,8 @@ mod tests {
         assert_eq!(d.channel, Some(ChannelRef { id: Some("UCp".into()), name: "Someone".into(), handle: None }));
         assert_eq!(d.views_text.as_deref(), Some("1,234,567 views"));
         assert_eq!(d.description.text, "Plain text");
+        let player = json!({"videoDetails": {"videoId": "abc", "shortDescription": "a\u{202E}b"}});
+        assert_eq!(details(&empty_next(), Some(&player)).unwrap().description.text, "ab");
         assert!(d.chapters.is_empty());
 
         let player = json!({"videoDetails": {"videoId": "abc", "lengthSeconds": "1120"}});

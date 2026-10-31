@@ -10,6 +10,7 @@ use anyhow::{Result, anyhow};
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio::task::AbortHandle;
 
+use crate::app::comments::CommentsFrom;
 use crate::app::player::{PlayerCommand, PlayerEvent};
 use crate::app::{App, Effect, Message};
 use crate::frontend::Frontend;
@@ -205,16 +206,21 @@ fn watch_signals(tx: UnboundedSender<Message>) {
     });
 }
 
-/// Carries out one effect. Slow work runs in a task that sends a `Message`
-/// when it is done. `Break` ends the loop with its result.
-fn handle(
-    effect: Effect,
+/// Runs `load` in a task, and sends the message that `reply` makes of its result.
+fn fetch<T>(
     tx: &UnboundedSender<Message>,
-    (source, thumbnails, writer, playback): (&Arc<dyn Source>, Option<&Fetcher>, &Writer, &mut Playback),
-) -> ControlFlow<Result<()>> {
+    load: impl Future<Output = crate::source::Result<T>> + Send + 'static,
+    reply: impl FnOnce(std::result::Result<T, String>) -> Message + Send + 'static,
+) {
+    let tx = tx.clone();
+    tokio::spawn(async move {
+        let _ = tx.send(reply(load.await.map_err(|e| e.to_string())));
+    });
+}
+
+/// Carries out an effect that loads from the source.
+fn load(effect: Effect, tx: &UnboundedSender<Message>, source: &Arc<dyn Source>) {
     match effect {
-        Effect::Quit => return ControlFlow::Break(Ok(())),
-        Effect::Fail(why) => return ControlFlow::Break(Err(anyhow!(why))),
         Effect::Search { generation, query } => {
             let (tx, source) = (tx.clone(), Arc::clone(source));
             tokio::spawn(async move {
@@ -230,33 +236,61 @@ fn handle(
             });
         }
         Effect::LoadChannel { request, id } => {
-            let (tx, source) = (tx.clone(), Arc::clone(source));
-            tokio::spawn(async move {
-                let result = source.channel(&id).await.map_err(|e| e.to_string());
-                let _ = tx.send(Message::ChannelLoaded { request, result });
+            let source = Arc::clone(source);
+            fetch(tx, async move { source.channel(&id).await }, move |result| Message::ChannelLoaded {
+                request,
+                result,
             });
         }
         Effect::LoadPlaylist { request, id } => {
-            let (tx, source) = (tx.clone(), Arc::clone(source));
-            tokio::spawn(async move {
-                let result = source.playlist(&id).await.map_err(|e| e.to_string());
-                let _ = tx.send(Message::PlaylistLoaded { request, result });
+            let source = Arc::clone(source);
+            fetch(tx, async move { source.playlist(&id).await }, move |result| Message::PlaylistLoaded {
+                request,
+                result,
             });
         }
         Effect::LoadMore { request, continuation } => {
-            let (tx, source) = (tx.clone(), Arc::clone(source));
-            tokio::spawn(async move {
-                let result = source.browse_more(&continuation).await.map_err(|e| e.to_string());
-                let _ = tx.send(Message::MoreLoaded { request, result });
+            let source = Arc::clone(source);
+            fetch(tx, async move { source.browse_more(&continuation).await }, move |result| Message::MoreLoaded {
+                request,
+                result,
             });
+        }
+        Effect::LoadComments { request, generation, video_id, slot, from } => {
+            let source = Arc::clone(source);
+            let load = async move {
+                match from {
+                    CommentsFrom::Video(id) => source.comments(&id).await,
+                    CommentsFrom::Token(token) => source.comments_more(&video_id, &token).await,
+                }
+            };
+            fetch(tx, load, move |result| Message::CommentsLoaded { request, generation, slot, result });
         }
         Effect::LoadVideo { request, id } => {
-            let (tx, source) = (tx.clone(), Arc::clone(source));
-            tokio::spawn(async move {
-                let result = source.video(&id).await.map_err(|e| e.to_string());
-                let _ = tx.send(Message::VideoLoaded { request, result });
-            });
+            let source = Arc::clone(source);
+            fetch(tx, async move { source.video(&id).await }, move |result| Message::VideoLoaded { request, result });
         }
+        _ => unreachable!("not a source load: {effect:?}"),
+    }
+}
+
+/// Carries out one effect. Slow work runs in a task that sends a `Message`
+/// when it is done. `Break` ends the loop with its result.
+fn handle(
+    effect: Effect,
+    tx: &UnboundedSender<Message>,
+    (source, thumbnails, writer, playback): (&Arc<dyn Source>, Option<&Fetcher>, &Writer, &mut Playback),
+) -> ControlFlow<Result<()>> {
+    match effect {
+        Effect::Quit => return ControlFlow::Break(Ok(())),
+        Effect::Fail(why) => return ControlFlow::Break(Err(anyhow!(why))),
+        effect @ (Effect::Search { .. }
+        | Effect::SearchMore { .. }
+        | Effect::LoadChannel { .. }
+        | Effect::LoadPlaylist { .. }
+        | Effect::LoadMore { .. }
+        | Effect::LoadComments { .. }
+        | Effect::LoadVideo { .. }) => load(effect, tx, source),
         Effect::Subscribe(mut s) => {
             s.subscribed_at = now();
             writer.write(move |store| store.subscribe(&s));

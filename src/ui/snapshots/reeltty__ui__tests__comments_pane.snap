@@ -1,0 +1,28 @@
+---
+source: src/ui/mod.rs
+expression: "render(&app, 60, 24)"
+---
+ Search   Feed   Subscriptions   Playlists   Queue   History
+┌Comments · 10,645,363 Comments · Top──────────────────────┐
+│▌ @SanDiegoZoo ✓ · 6 years ago [Pinned] ♥                 │
+│▌ We're so honored that the first ever YouTube video was  │
+│▌ filmed here!                                            │
+│▌ 4.8M likes · 986 replies · open                         │
+│                                                          │
+│      @reply · 6 years ago                                │
+│      Very cool!                                          │
+│      4.8M likes · 986 replies                            │
+│                                                          │
+│      Show more replies                                   │
+│                                                          │
+│  @jawed · 6 years ago (edited)                           │
+│  line 1                                                  │
+│  line 2                                                  │
+│  line 3                                                  │
+│  line 4                                                  │
+│  line 5                                                  │
+│  line 6                                                  │
+│  more…                                                   │
+│                                                          │
+└ enter replies · o order · C details ─────────────────────┘
+                        ? help  / search  esc back  q quit

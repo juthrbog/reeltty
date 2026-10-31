@@ -2043,6 +2043,15 @@ mod tests {
     }
 
     #[test]
+    fn comments_keys_work_with_the_mini_player() {
+        let mut a = mini();
+        a.open(crate::app::screens::Target::Video { id: "v1".into(), title: "Title".into() });
+        let effects = key(&mut a, "C");
+        assert!(matches!(effects.as_slice(), [Effect::LoadComments { .. }]), "{effects:?}");
+        assert_eq!(key(&mut a, "space"), [Effect::Player(PlayerCommand::TogglePause)]);
+    }
+
+    #[test]
     fn a_resize_fits_the_mini_player() {
         let mut a = mini();
         let effects = a.update(Message::Input(Input::Resize { width: 150, height: 50 }));

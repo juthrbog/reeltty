@@ -1,4 +1,5 @@
-//! What the sources return: videos, channels, and playlists in lists.
+//! What the sources return: videos, channels, and playlists in lists, video
+//! details, and comments.
 //!
 //! Text fields keep the text that YouTube shows ("1.2M views", "3 years ago"),
 //! because exact numbers are often not in the response.
@@ -224,4 +225,59 @@ pub struct VideoDetails {
     pub thumbnails: Vec<Thumbnail>,
     /// The videos that YouTube shows next to this one, without Shorts.
     pub related: Vec<Video>,
+    /// The token for the first page of comments. `None` when the video has
+    /// no comments section, such as a live stream.
+    pub comments: Option<String>,
+    /// "10M".
+    pub comments_count_text: Option<String>,
+}
+
+/// One comment or reply.
+#[expect(clippy::struct_excessive_bools, reason = "independent marks that YouTube shows")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Comment {
+    pub id: String,
+    /// The name is the handle, such as `@SanDiegoZoo`.
+    pub author: ChannelRef,
+    pub text: Description,
+    /// "6 years ago", without " (edited)".
+    pub published_text: Option<String>,
+    pub edited: bool,
+    /// "4.8M". `None` for no likes.
+    pub likes_text: Option<String>,
+    /// "986". `None` for no replies.
+    pub reply_count_text: Option<String>,
+    /// The token for the first page of replies.
+    pub replies: Option<String>,
+    pub pinned: bool,
+    /// The uploader gave it a heart.
+    pub hearted: bool,
+    /// The uploader wrote it.
+    pub by_uploader: bool,
+    pub verified: bool,
+    /// 0 for a comment, 1 for a reply.
+    pub reply_level: u8,
+}
+
+/// An order of the comments, such as "Top" or "Newest".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommentSort {
+    pub label: String,
+    pub selected: bool,
+    /// The token for the first page in this order.
+    pub continuation: String,
+}
+
+/// One page of comments or replies.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CommentPage {
+    pub comments: Vec<Comment>,
+    /// The token for the next page, or for more replies. `None` at the end.
+    pub continuation: Option<String>,
+    /// "10,645,363 Comments". Only on the first page.
+    pub count_text: Option<String>,
+    /// Only on the first page.
+    pub sorts: Vec<CommentSort>,
+    /// Why there are no comments, such as "Comments are turned off.".
+    pub note: Option<String>,
 }

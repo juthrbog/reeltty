@@ -319,6 +319,8 @@ pub fn parse_video(json: &[u8]) -> Result<VideoDetails> {
             .collect(),
         // yt-dlp does not give related videos.
         related: Vec::new(),
+        comments: None,
+        comments_count_text: None,
     })
 }
 

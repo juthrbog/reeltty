@@ -1,0 +1,20 @@
+---
+source: src/source/innertube/parse/comments.rs
+expression: "summary(&page(&load(name), \"jNQXAC9IVRw\").unwrap())"
+---
+count: -
+next: Eg0SC2pOUVhB…
+note: -
+- UgzuC3zzpRZkjc5Qzsd4AaABAg.958xaQsh63D958yN1-HDaK level=1
+  author: ChannelRef { id: Some("UC8h3BHk1Pk1_-VH9PRIxtgg"), name: "@TheGreekPianist", handle: Some("@TheGreekPianist") }
+  published: 6 years ago edited=true
+  likes: 206K replies: - token: -
+  pinned=false hearted=false by_uploader=false verified=false
+  text: "San Diego Zoo That’s so awesome! I’m so glad the first YouTube video featured cute animals in it! 😊🐘"
+- UgzuC3zzpRZkjc5Qzsd4AaABAg.958xaQsh63D95BRUoX00jo level=1
+  author: ChannelRef { id: Some("UCix1KKidvZC_wU0yt4Nx5ng"), name: "@professormiloyt", handle: Some("@professormiloyt") }
+  published: 6 years ago edited=false
+  likes: 17K replies: - token: -
+  pinned=false hearted=false by_uploader=false verified=false
+  text: "\u{a0}@Quetzal_\u{a0} lol what"
+  link: "\u{a0}@Quetzal_\u{a0}" -> Channel { id: "UCQ8wThbBI5aZ0MF2ZfvT2Uw" }

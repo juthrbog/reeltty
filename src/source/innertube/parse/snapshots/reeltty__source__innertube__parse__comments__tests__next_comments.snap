@@ -1,0 +1,33 @@
+---
+source: src/source/innertube/parse/comments.rs
+expression: "summary(&page(&load(name), \"jNQXAC9IVRw\").unwrap())"
+---
+count: 10,645,363 Comments
+sort: Top selected=true Eg0SC2pOUVhB…
+sort: Newest selected=false Eg0SC2pOUVhB…
+next: Eg0SC2pOUVhB…
+note: -
+- UgzuC3zzpRZkjc5Qzsd4AaABAg level=0
+  author: ChannelRef { id: Some("UCC5NfQ6Mf0dq_eEwv4P_hWA"), name: "@SanDiegoZoo", handle: Some("@SanDiegoZoo") }
+  published: 6 years ago edited=false
+  likes: 4.8M replies: 986 token: Eg0SC2pOUVhB…
+  pinned=true hearted=true by_uploader=false verified=true
+  text: "We're so honored that the first ever YouTube video was filmed here!"
+- UgxBZKMFULrdIVk1nWt4AaABAg level=0
+  author: ChannelRef { id: Some("UCtA9NW3AJMEfNE1QCO2IPrw"), name: "@DaquanWiltshire1", handle: Some("@DaquanWiltshire1") }
+  published: 7 years ago edited=false
+  likes: 249K replies: 753 token: Eg0SC2pOUVhB…
+  pinned=false hearted=false by_uploader=false verified=true
+  text: "This started it all...... bruh 😳"
+- Ugxnp9ws0dexjE9L5UB4AaABAg level=0
+  author: ChannelRef { id: Some("UC4QobU6STFB0P71PMvOGN5A"), name: "@jawed", handle: Some("@jawed") }
+  published: 6 months ago edited=false
+  likes: 311K replies: 996 token: Eg0SC2pOUVhB…
+  pinned=false hearted=true by_uploader=true verified=true
+  text: "Hello"
+- UgzKEgu2agEnWHq8_Wd4AaABAg level=0
+  author: ChannelRef { id: Some("UCJrOtniJ0-NWz37R30urifQ"), name: "@Alanwalkermusic", handle: Some("@Alanwalkermusic") }
+  published: 5 years ago edited=false
+  likes: 404K replies: 933 token: Eg0SC2pOUVhB…
+  pinned=false hearted=false by_uploader=false verified=true
+  text: "Just got this piece of art recommended, never gets old!"

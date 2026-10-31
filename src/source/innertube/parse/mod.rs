@@ -5,13 +5,16 @@
 //! error.
 
 mod browse;
+mod comments;
 mod renderers;
 mod text;
 mod video;
 
 use serde_json::Value;
 
-use crate::source::model::{ChannelPage, Item, ItemPage, PlaylistPage, SearchPage, Spelling, VideoDetails};
+use crate::source::model::{
+    ChannelPage, CommentPage, Item, ItemPage, PlaylistPage, SearchPage, Spelling, VideoDetails,
+};
 use crate::source::{Result, SourceError};
 use text::{array, continuation_token, str_at, text_at};
 
@@ -156,6 +159,21 @@ pub fn browse_continuation(response: &Value) -> Result<ItemPage> {
 /// The `next` response, and the `player` response if it was read, for one video.
 pub fn video_details(next: &Value, player: Option<&Value>) -> Result<VideoDetails> {
     video::details(next, player)
+}
+
+/// The token for the first page of comments in a video's `next` response.
+pub fn comments_token(next: &Value) -> Option<String> {
+    comments::token(next)
+}
+
+/// Why a video's `next` response has no comments token.
+pub fn comments_message(next: &Value) -> Option<String> {
+    comments::message(next)
+}
+
+/// A `next` continuation response with comments or replies.
+pub fn comment_page(response: &Value, video_id: &str) -> Result<CommentPage> {
+    comments::page(response, video_id)
 }
 
 #[cfg(test)]

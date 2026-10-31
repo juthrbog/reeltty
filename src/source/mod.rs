@@ -14,7 +14,7 @@ pub mod ytdlp;
 use futures::future::BoxFuture;
 
 pub use filters::SearchQuery;
-pub use model::{ChannelPage, ItemPage, PlaylistPage, SearchPage, VideoDetails};
+pub use model::{ChannelPage, CommentPage, ItemPage, PlaylistPage, SearchPage, VideoDetails};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
@@ -64,6 +64,20 @@ pub trait Source: Send + Sync {
     fn video<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<VideoDetails>> {
         let _ = id;
         Box::pin(async { Err(SourceError::Unsupported(format!("{} cannot show video details", self.name()))) })
+    }
+
+    /// The first page of a video's comments, in YouTube's "Top" order. A
+    /// video with no comments gives a page with only a `note`.
+    fn comments<'a>(&'a self, video_id: &'a str) -> BoxFuture<'a, Result<CommentPage>> {
+        let _ = video_id;
+        Box::pin(async { Err(SourceError::Unsupported(format!("{} cannot show comments", self.name()))) })
+    }
+
+    /// The page for any comments token: the next page, another order,
+    /// replies, or more replies. `video_id` is the video of the comments.
+    fn comments_more<'a>(&'a self, video_id: &'a str, continuation: &'a str) -> BoxFuture<'a, Result<CommentPage>> {
+        let _ = (video_id, continuation);
+        Box::pin(async { Err(SourceError::Unsupported(format!("{} cannot show comments", self.name()))) })
     }
 }
 
@@ -125,6 +139,15 @@ impl<A: Source, B: Source> Source for Fallback<A, B> {
 
     fn video<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<VideoDetails>> {
         Box::pin(self.either("video", move |s| s.video(id)))
+    }
+
+    fn comments<'a>(&'a self, video_id: &'a str) -> BoxFuture<'a, Result<CommentPage>> {
+        // yt-dlp reads comments only in a slow full extraction.
+        self.primary.comments(video_id)
+    }
+
+    fn comments_more<'a>(&'a self, video_id: &'a str, continuation: &'a str) -> BoxFuture<'a, Result<CommentPage>> {
+        self.primary.comments_more(video_id, continuation)
     }
 }
 
@@ -202,6 +225,12 @@ mod tests {
         fn browse_more<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<ItemPage>> {
             self.answer(ItemPage { items: Vec::new(), continuation: Some(self.0.into()) })
         }
+        fn comments<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<CommentPage>> {
+            self.answer(CommentPage { note: Some(self.0.into()), ..CommentPage::default() })
+        }
+        fn comments_more<'a>(&'a self, _: &'a str, _: &'a str) -> BoxFuture<'a, Result<CommentPage>> {
+            self.answer(CommentPage { continuation: Some(self.0.into()), ..CommentPage::default() })
+        }
         fn video<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<VideoDetails>> {
             self.answer(VideoDetails {
                 id: id.into(),
@@ -218,6 +247,8 @@ mod tests {
                 chapters: Vec::new(),
                 thumbnails: Vec::new(),
                 related: Vec::new(),
+                comments: None,
+                comments_count_text: None,
             })
         }
     }
@@ -289,5 +320,13 @@ mod tests {
         let page = pair(true, true).browse_more("t").await.unwrap();
         assert_eq!(page.continuation.as_deref(), Some("a"));
         assert!(matches!(pair(false, true).browse_more("t").await, Err(SourceError::Network(_))));
+    }
+
+    #[tokio::test]
+    async fn comments_use_only_the_primary() {
+        assert_eq!(pair(true, true).comments("v").await.unwrap().note.as_deref(), Some("a"));
+        assert_eq!(pair(true, true).comments_more("v", "t").await.unwrap().continuation.as_deref(), Some("a"));
+        assert!(matches!(pair(false, true).comments("v").await, Err(SourceError::Network(_))));
+        assert!(matches!(pair(false, true).comments_more("v", "t").await, Err(SourceError::Network(_))));
     }
 }

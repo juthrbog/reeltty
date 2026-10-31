@@ -14,6 +14,7 @@ use crate::app::thumbnails::Thumbnails;
 use crate::keymap::Action;
 use crate::source::filters::SearchFilters;
 use crate::source::model::Spelling;
+use crate::store::HistoryEntry;
 
 pub fn draw(app: &App, f: &mut Frame, area: Rect) {
     let s = &app.search;
@@ -28,7 +29,7 @@ pub fn draw(app: &App, f: &mut Frame, area: Rect) {
     let [query, list] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
 
     f.render_widget(query_line(app, usize::from(query.width)), query);
-    draw_results(s, &app.thumbnails, f, list);
+    draw_results(s, &app.thumbnails, &app.history, f, list);
     if s.filter_menu.is_some() {
         draw_filter_menu(s, f, area);
     }
@@ -61,7 +62,7 @@ fn query_line(app: &App, width: usize) -> Paragraph<'static> {
     Paragraph::new(Line::from(spans))
 }
 
-fn draw_results(s: &SearchState, thumbnails: &Thumbnails, f: &mut Frame, area: Rect) {
+fn draw_results(s: &SearchState, thumbnails: &Thumbnails, history: &[HistoryEntry], f: &mut Frame, area: Rect) {
     if s.results.is_empty()
         && let Some(e) = &s.error
     {
@@ -78,7 +79,7 @@ fn draw_results(s: &SearchState, thumbnails: &Thumbnails, f: &mut Frame, area: R
         f.render_widget(Paragraph::new(text).dim(), area);
         return;
     }
-    items::draw_list(&s.results, s.selection, thumbnails, f, area);
+    items::draw_list(&s.results, s.selection, thumbnails, history, f, area);
 }
 
 fn draw_filter_menu(s: &SearchState, f: &mut Frame, area: Rect) {

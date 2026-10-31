@@ -372,7 +372,8 @@ mod tests {
     fn narrow_lists_drop_thumbnails() {
         let (app, _) = search_app(12, true);
         let mut t = Terminal::new(TestBackend::new(25, 6)).unwrap();
-        t.draw(|f| items::draw_list(&app.search.results, Selection::default(), &app.thumbnails, f, f.area())).unwrap();
+        t.draw(|f| items::draw_list(&app.search.results, Selection::default(), &app.thumbnails, &[], f, f.area()))
+            .unwrap();
         let buf = t.backend().buffer();
         assert!(buf.content().iter().all(|c| !c.symbol().starts_with(kitty::PLACEHOLDER)));
         // Still three lines for each item: the second one starts on row 3.
@@ -976,6 +977,28 @@ mod tests {
         app.history =
             vec![entry("a", 252, false, Some(635)), entry("b", 0, true, Some(100)), entry("c", 70, false, None)];
         insta::assert_snapshot!("history_tab", render(&app, 60, 10));
+    }
+
+    #[test]
+    fn lists_mark_watched_videos() {
+        use crate::store::HistoryEntry;
+        let entry = |id: &str, position_secs, finished| HistoryEntry {
+            video_id: id.into(),
+            title: String::new(),
+            channel_id: None,
+            channel_name: None,
+            duration_secs: Some(754),
+            position_secs,
+            finished,
+            watched_at: 1,
+        };
+        let mut app = search_app(16, false).0;
+        app.history = vec![entry("a", 252, false), entry("UCjon", 0, true)];
+        insta::assert_snapshot!("search_results_watched", render(&app, 70, 16));
+        app.history = vec![entry("a", 0, true), entry("b", 0, false)];
+        let text = render(&app, 70, 16);
+        assert!(text.contains("Fireship · watched · 12:34"), "{text}");
+        assert!(text.contains("Lofi Girl · played"), "{text}");
     }
 
     #[test]

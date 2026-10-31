@@ -104,7 +104,7 @@ Streams always come from yt-dlp:
 3. If `available_at` is in the future, show a countdown and wait. A request before that time gets HTTP 403. The wait is the length of the pre-roll ads and can be tens of seconds.
 4. Give the video URL and the audio URL to libmpv.
 
-Stream URLs expire after about 6 hours and are tied to the IP address. reeltty caches them for less than 6 hours and resolves them again after an HTTP 403 or a network change. Guest use has a limit of about 300 videos per hour, so reeltty does not prefetch many videos.
+Stream URLs expire after about 6 hours and are tied to the IP address. reeltty does not cache them: it resolves the streams again each time a video plays. If mpv gets an HTTP 403 during playback, reeltty resolves them once more and goes on from the same place. Guest use has a limit of about 300 videos per hour, so reeltty does not prefetch many videos.
 
 ### Playback
 

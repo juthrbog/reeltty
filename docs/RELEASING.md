@@ -57,7 +57,7 @@ Only Linux. reeltty links the system libmpv, and the video frames use Linux shar
 
 The formula builds from the source archive with Homebrew's Rust, so it links Homebrew's libmpv. It depends on `mpv`, `yt-dlp`, and `deno`, and it is for Linux only (`depends_on :linux`). Homebrew's Rust must be at least the `rust-version` in `Cargo.toml`.
 
-yt-dlp also needs the yt-dlp-ejs scripts for full YouTube support. Check that Homebrew's yt-dlp has them (`reeltty doctor` says so).
+yt-dlp also needs the yt-dlp-ejs scripts for full YouTube support. Homebrew's yt-dlp includes them, and it depends on `deno` too. `reeltty doctor` checks both.
 
 ## The AUR recipe
 

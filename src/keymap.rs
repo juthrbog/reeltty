@@ -167,11 +167,13 @@ pub enum Action {
     Toggle,
     Enqueue,
     Delete,
+    ShowPlayer,
+    ClosePlayer,
     Help,
 }
 
 impl Action {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 22] = [
         Self::Quit,
         Self::Up,
         Self::Down,
@@ -191,6 +193,8 @@ impl Action {
         Self::Toggle,
         Self::Enqueue,
         Self::Delete,
+        Self::ShowPlayer,
+        Self::ClosePlayer,
         Self::Help,
     ];
 
@@ -215,6 +219,8 @@ impl Action {
             Self::Toggle => "subscribe or save",
             Self::Enqueue => "add to the queue",
             Self::Delete => "delete an entry",
+            Self::ShowPlayer => "full-size player",
+            Self::ClosePlayer => "stop mini-player",
             Self::Help => "show or hide help",
         }
     }
@@ -240,6 +246,8 @@ impl Action {
             Self::Toggle => &["s"],
             Self::Enqueue => &["a"],
             Self::Delete => &["d"],
+            Self::ShowPlayer => &["v"],
+            Self::ClosePlayer => &["x"],
             Self::Help => &["?"],
         }
     }
@@ -250,6 +258,7 @@ impl Action {
 #[serde(rename_all = "snake_case")]
 pub enum PlayerAction {
     Back,
+    Minimize,
     TogglePause,
     SeekForward,
     SeekBack,
@@ -270,8 +279,9 @@ pub enum PlayerAction {
 }
 
 impl PlayerAction {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::Back,
+        Self::Minimize,
         Self::TogglePause,
         Self::SeekForward,
         Self::SeekBack,
@@ -294,6 +304,7 @@ impl PlayerAction {
     pub const fn description(self) -> &'static str {
         match self {
             Self::Back => "stop and go back",
+            Self::Minimize => "mini-player",
             Self::TogglePause => "pause or play",
             Self::SeekForward => "forward 5 s",
             Self::SeekBack => "back 5 s",
@@ -317,7 +328,9 @@ impl PlayerAction {
     /// The same keys as mpv.
     fn default_keys(self) -> &'static [&'static str] {
         match self {
-            Self::Back => &["q", "esc"],
+            // mpv leaves full screen with esc and quits with q.
+            Self::Back => &["q"],
+            Self::Minimize => &["esc"],
             Self::TogglePause => &["space", "p"],
             Self::SeekForward => &["right"],
             Self::SeekBack => &["left"],
@@ -537,7 +550,9 @@ mod tests {
         let km = KeyMap::default();
         assert_eq!(km.action(key("j")), Some(Action::Down));
         assert_eq!(km.action(key("ctrl-c")), Some(Action::Quit));
-        assert_eq!(km.action(key("x")), None);
+        assert_eq!(km.action(key("x")), Some(Action::ClosePlayer));
+        assert_eq!(km.action(key("v")), Some(Action::ShowPlayer));
+        assert_eq!(km.action(key("z")), None);
     }
 
     #[test]
@@ -590,6 +605,7 @@ mod tests {
         assert_eq!(km.player.action(key("q")), Some(PlayerAction::Back));
         assert_eq!(km.player.action(key("space")), Some(PlayerAction::TogglePause));
         assert_eq!(km.player.action(key("j")), None);
+        assert_eq!(km.player.action(key("esc")), Some(PlayerAction::Minimize));
 
         let o = PlayerKeyOverrides::from([(PlayerAction::Mute, vec!["space".to_string()])]);
         let err = KeyMap::new(&KeyOverrides::new(), &o).unwrap_err();

@@ -159,7 +159,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keymap::{Action, KeyPress};
+    use crate::keymap::{Action, KeyPress, PlayerAction};
 
     #[test]
     fn empty_file_gives_defaults() {
@@ -184,6 +184,20 @@ mod tests {
         assert_eq!(c.yt_dlp_program(), PathBuf::from("/home/me/.local/bin/yt-dlp"));
         let km = c.keymap().unwrap();
         assert_eq!(km.action("n".parse::<KeyPress>().unwrap()), Some(Action::Down));
+    }
+
+    #[test]
+    fn reads_the_mini_player_keys() {
+        let c = Config::parse(
+            "[keys.browse]\nshow_player = [\"P\"]\nclose_player = [\"X\"]\n[keys.player]\nminimize = [\"i\"]",
+        )
+        .unwrap();
+        let km = c.keymap().unwrap();
+        let key = |s: &str| s.parse::<KeyPress>().unwrap();
+        assert_eq!(km.action(key("P")), Some(Action::ShowPlayer));
+        assert_eq!(km.action(key("X")), Some(Action::ClosePlayer));
+        assert_eq!(km.player.action(key("i")), Some(PlayerAction::Minimize));
+        assert_eq!(km.player.action(key("esc")), None);
     }
 
     #[test]

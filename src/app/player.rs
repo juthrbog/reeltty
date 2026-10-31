@@ -8,7 +8,7 @@
 //!
 //! The app never reads the clock. The runtime puts the time in the messages.
 
-use super::{App, Effect};
+use super::{App, Effect, Tab};
 use crate::keymap::{Action, KeyPress, PlayerAction};
 use crate::source::model::{ChannelRef, Chapter, Video, VideoDetails, VideoKind};
 use crate::source::streams::{Caption, Quality, Streams, pick_caption, rung};
@@ -40,6 +40,16 @@ const PLAYED_MAX: usize = 50;
 /// Going to the previous chapter in the first seconds of a chapter goes to
 /// the one before it, as in mpv.
 const CHAPTER_GRACE_MS: u64 = 2000;
+/// Rows under the mini-player's video for the title, the progress bar, and
+/// the state.
+pub const MINI_INFO_ROWS: u16 = 3;
+/// The mini-player takes a third of the screen width, within these limits.
+const MINI_COLS: (u16, u16) = (24, 64);
+/// A smaller screen has no room for the mini-player. Playback goes on, and
+/// the status bar shows the video.
+const MINI_MIN_SCREEN: (u16, u16) = (72, 14);
+/// The video size when the mini-player does not show, in cells.
+const HIDDEN_CELLS: (u16, u16) = (16, 4);
 
 /// Where the video goes on screen, in cells, and the pixel size that mpv
 /// renders.
@@ -58,10 +68,17 @@ impl Geometry {
     /// Fits a video with the `aspect` ratio into a screen of `cols` x `rows`
     /// cells of `cell` pixels, above the status rows, and centers it.
     pub fn fit(cols: u16, rows: u16, cell: (u16, u16), aspect: (u32, u32)) -> Self {
+        Self::fit_area(cols, rows.saturating_sub(STATUS_ROWS), cell, aspect)
+    }
+
+    /// Fits a video with the `aspect` ratio into an area of `cols` x `rows`
+    /// cells of `cell` pixels, and centers it. `x` and `y` are from the top
+    /// left of the area.
+    pub fn fit_area(cols: u16, rows: u16, cell: (u16, u16), aspect: (u32, u32)) -> Self {
         let (cw, ch) = if cell.0 == 0 || cell.1 == 0 { DEFAULT_CELL } else { cell };
         let (cw, ch) = (u32::from(cw), u32::from(ch));
         let area_cols = u32::from(cols).clamp(1, u32::from(MAX_CELLS));
-        let area_rows = u32::from(rows.saturating_sub(STATUS_ROWS)).clamp(1, u32::from(MAX_CELLS));
+        let area_rows = u32::from(rows).clamp(1, u32::from(MAX_CELLS));
         let (aw, ah) = if aspect.0 == 0 || aspect.1 == 0 { DEFAULT_ASPECT } else { aspect };
         let (pw, ph) = (area_cols * cw, area_rows * ch);
         // The largest picture with the right shape in the area, in pixels.
@@ -86,7 +103,7 @@ impl Geometry {
         let small = |n: u32| u16::try_from(n).unwrap_or(u16::MAX);
         // Center in the whole screen, which can be larger than the most cells a picture can have.
         let screen_cols = u32::from(cols).max(1);
-        let screen_rows = u32::from(rows.saturating_sub(STATUS_ROWS)).max(1);
+        let screen_rows = u32::from(rows).max(1);
         Self {
             x: small((screen_cols - gc) / 2),
             y: small((screen_rows - gr) / 2),
@@ -95,6 +112,53 @@ impl Geometry {
             width: small((w / 16).max(1) * 16),
             height: small((h / 2).max(1) * 2),
         }
+    }
+}
+
+/// The column on the right of the browse screen that holds the mini-player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Dock {
+    pub x: u16,
+    pub y: u16,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+/// The dock on a screen of `width` x `height` cells: the right part of the
+/// browse body, under the tab row and above the status bar. `None` when the
+/// screen is too small.
+pub fn dock(width: u16, height: u16) -> Option<Dock> {
+    if width < MINI_MIN_SCREEN.0 || height < MINI_MIN_SCREEN.1 {
+        return None;
+    }
+    let cols = (width / 3).clamp(MINI_COLS.0, MINI_COLS.1);
+    Some(Dock { x: width - cols, y: 1, cols, rows: height - 2 })
+}
+
+/// Where the mini-player goes on a screen of `width` x `height` cells: the
+/// dock, and the video in a box at the bottom of the dock, above the info
+/// rows. The geometry is from the top left of the screen. `None` when the
+/// screen is too small.
+pub fn mini_layout(width: u16, height: u16, cell: (u16, u16), aspect: (u32, u32)) -> Option<(Dock, Geometry)> {
+    let dock = dock(width, height)?;
+    let cols = dock.cols;
+    // A tall video takes at most half of the dock.
+    let room = (dock.rows - MINI_INFO_ROWS - 2).min(dock.rows / 2);
+    let mut g = Geometry::fit_area(cols - 2, room, cell, aspect);
+    g.x += dock.x + 1;
+    g.y = dock.y + dock.rows - MINI_INFO_ROWS - 1 - g.rows;
+    Some((dock, g))
+}
+
+/// The video geometry of the full player, or of the mini-player.
+fn player_geometry(mini: bool, width: u16, height: u16, cell: (u16, u16), aspect: (u32, u32)) -> Geometry {
+    if !mini {
+        return Geometry::fit(width, height, cell, aspect);
+    }
+    match mini_layout(width, height, cell, aspect) {
+        Some((_, g)) => g,
+        // Nothing shows it, so mpv renders a small picture.
+        None => Geometry::fit_area(HIDDEN_CELLS.0, HIDDEN_CELLS.1, cell, aspect),
     }
 }
 
@@ -231,6 +295,8 @@ pub struct PlayerState {
     pub position_ms: u64,
     pub duration_ms: Option<u64>,
     pub geometry: Geometry,
+    /// The video plays in the mini-player, and the browse screen shows.
+    pub mini: bool,
     pub chapters: Vec<Chapter>,
     pub channel: Option<ChannelRef>,
     /// From yt-dlp, for the history.
@@ -362,13 +428,17 @@ impl PlayerState {
 }
 
 impl App {
-    /// Plays a video, or says why it cannot.
+    /// Plays a video full size, or says why it cannot. The video that plays
+    /// in the mini-player already goes back to full size.
     pub fn play(&mut self, id: String, title: String) -> Vec<Effect> {
-        self.play_video(id, title, true)
+        if self.player.as_ref().is_some_and(|p| p.mini && p.id == id) {
+            return self.restore_player();
+        }
+        self.play_video(id, title, true, false)
     }
 
     /// Plays a video. With `remember`, the video that plays now can come back with "previous video".
-    fn play_video(&mut self, id: String, title: String, remember: bool) -> Vec<Effect> {
+    fn play_video(&mut self, id: String, title: String, remember: bool, mini: bool) -> Vec<Effect> {
         if let Some(why) = self.graphics.message() {
             self.status = Some(why);
             return Vec::new();
@@ -392,7 +462,7 @@ impl App {
         self.forward.retain(|v| v.id != id);
         self.queue_selection.clamp(self.queue.len(), self.plain_rows());
         self.session += 1;
-        let geometry = Geometry::fit(self.width, self.height, self.cell, DEFAULT_ASPECT);
+        let geometry = player_geometry(mini, self.width, self.height, self.cell, DEFAULT_ASPECT);
         let state = PlayerState {
             session: self.session,
             id,
@@ -406,6 +476,7 @@ impl App {
             position_ms: 0,
             duration_ms: None,
             geometry,
+            mini,
             chapters: Vec::new(),
             channel: None,
             duration_secs: None,
@@ -512,9 +583,10 @@ impl App {
         self.forward.iter().rev().chain(&self.queue).chain(related).take(UP_NEXT_MAX).cloned().collect()
     }
 
-    /// Plays a video from the up next list.
+    /// Plays a video from the up next list, in the same size.
     fn play_next(&mut self, v: Video) -> Vec<Effect> {
-        self.play(v.id, v.title)
+        let mini = self.player.as_ref().is_some_and(|p| p.mini);
+        self.play_video(v.id, v.title, true, mini)
     }
 
     fn on_ended(&mut self, session: u64) -> Vec<Effect> {
@@ -601,7 +673,7 @@ impl App {
         p.switch = None;
         if let (Some(w), Some(h)) = (streams.format.width, streams.format.height) {
             p.aspect = (w, h);
-            p.geometry = Geometry::fit(width, height, cell, p.aspect);
+            p.geometry = player_geometry(p.mini, width, height, cell, p.aspect);
             p.quality = Some(w.min(h));
         }
         p.chapters.clone_from(&streams.chapters);
@@ -727,16 +799,73 @@ impl App {
         if self.player.as_ref().is_some_and(|p| p.quality_menu.is_some() && p.has_file()) {
             return self.on_quality_menu_key(key, action);
         }
-        if action == Some(PlayerAction::Back) {
-            let save = self.save_watch(false);
-            self.player = None;
-            return save.into_iter().chain([Effect::Player(PlayerCommand::Stop)]).collect();
+        match action {
+            Some(PlayerAction::Back) => return self.stop_player(),
+            Some(PlayerAction::Minimize) => return self.minimize(),
+            _ => {}
         }
         if action != Some(PlayerAction::PrevVideo)
             && self.player.as_ref().is_some_and(|p| p.phase == Phase::Ended && p.up_next.is_some())
         {
             return self.on_up_next_key(key, action);
         }
+        self.player_action(action)
+    }
+
+    /// Stops the player and goes back to browsing.
+    pub(super) fn stop_player(&mut self) -> Vec<Effect> {
+        let save = self.save_watch(false);
+        if self.player.take().is_none() {
+            return Vec::new();
+        }
+        save.into_iter().chain([Effect::Player(PlayerCommand::Stop)]).collect()
+    }
+
+    /// Shrinks the player to the mini-player. Playback goes on.
+    pub(super) fn minimize(&mut self) -> Vec<Effect> {
+        let Some(p) = &mut self.player else { return Vec::new() };
+        p.mini = true;
+        p.quality_menu = None;
+        self.refit_player()
+    }
+
+    /// Shows the mini-player full size again.
+    pub(super) fn restore_player(&mut self) -> Vec<Effect> {
+        let Some(p) = &mut self.player else { return Vec::new() };
+        p.mini = false;
+        self.refit_player()
+    }
+
+    /// Keys while the mini-player plays and the browse screen shows. `None`
+    /// when the key is for the browse screen.
+    ///
+    /// Typing and the help come first. Then the browse keys, and then the
+    /// player keys that browse does not use.
+    pub(super) fn on_mini_player_key(&mut self, key: KeyPress) -> Option<Vec<Effect>> {
+        let typing = self.tab == Tab::Search && self.screens.is_empty() && self.search.captures_keys();
+        if typing || self.show_help {
+            return None;
+        }
+        match self.keymap.action(key) {
+            Some(Action::ShowPlayer) => Some(self.restore_player()),
+            Some(Action::ClosePlayer) => Some(self.stop_player()),
+            Some(_) => None,
+            None => match self.keymap.player.action(key)? {
+                // These only make sense full size.
+                PlayerAction::Back | PlayerAction::Minimize | PlayerAction::Quality => None,
+                // The up next list is not on screen, so its first video plays.
+                PlayerAction::NextVideo
+                    if self.player.as_ref().is_some_and(|p| p.phase == Phase::Ended && p.up_next.is_some()) =>
+                {
+                    Some(self.on_up_next_key(key, Some(PlayerAction::NextVideo)))
+                }
+                action => Some(self.player_action(Some(action))),
+            },
+        }
+    }
+
+    /// Runs a player key that is not about the screen.
+    fn player_action(&mut self, action: Option<PlayerAction>) -> Vec<Effect> {
         match action {
             Some(PlayerAction::NextVideo) => {
                 let next = self.player.as_ref().map(|p| self.next_videos(p)).unwrap_or_default();
@@ -756,7 +885,8 @@ impl App {
                     let current = plain_video(&p.id, &p.title);
                     self.forward.push(current);
                 }
-                return self.play_video(prev.id, prev.title, false);
+                let mini = self.player.as_ref().is_some_and(|p| p.mini);
+                return self.play_video(prev.id, prev.title, false, mini);
             }
             _ => {}
         }
@@ -809,7 +939,8 @@ impl App {
             Some(PlayerAction::VolumeUp) => PlayerCommand::Volume { delta: VOLUME_STEP },
             Some(PlayerAction::VolumeDown) => PlayerCommand::Volume { delta: -VOLUME_STEP },
             Some(PlayerAction::Mute) => PlayerCommand::ToggleMute,
-            Some(PlayerAction::Back | PlayerAction::NextVideo | PlayerAction::PrevVideo) | None => return Vec::new(),
+            Some(PlayerAction::Back | PlayerAction::Minimize | PlayerAction::NextVideo | PlayerAction::PrevVideo)
+            | None => return Vec::new(),
         };
         vec![Effect::Player(command)]
     }
@@ -836,7 +967,8 @@ impl App {
                 let secs = u32::try_from(p.position_ms / 1000).unwrap_or(u32::MAX);
                 return vec![Effect::Player(PlayerCommand::SwitchVideo { url: q.url, secs })];
             }
-            (Some(Action::Back | Action::Quit), _) | (_, Some(PlayerAction::Back | PlayerAction::Quality)) => {
+            (Some(Action::Back | Action::Quit), _)
+            | (_, Some(PlayerAction::Back | PlayerAction::Minimize | PlayerAction::Quality)) => {
                 p.quality_menu = None;
             }
             _ => {}
@@ -844,11 +976,11 @@ impl App {
         Vec::new()
     }
 
-    /// Fits the video to a new screen or cell size.
+    /// Fits the video to a new screen or cell size, or to the other player size.
     pub(super) fn refit_player(&mut self) -> Vec<Effect> {
         let (width, height, cell) = (self.width, self.height, self.cell);
         let Some(p) = &mut self.player else { return Vec::new() };
-        let geometry = Geometry::fit(width, height, cell, p.aspect);
+        let geometry = player_geometry(p.mini, width, height, cell, p.aspect);
         if geometry == p.geometry {
             return Vec::new();
         }
@@ -918,6 +1050,7 @@ mod tests {
     use super::*;
     use crate::app::{Input, Message};
     use crate::keymap::KeyMap;
+    use crate::source::model::Item;
     use crate::source::streams::{Caption, FormatInfo, Quality};
     use crate::terminal::detect::Graphics;
 
@@ -1684,5 +1817,181 @@ mod tests {
         a.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(streams(None)) });
         let send = Effect::Player(PlayerCommand::Segments { segments: vec![sponsor(10_000, 20_000)], continues: true });
         assert_eq!(event(&mut a, PlayerEvent::FileLoaded), [send]);
+    }
+
+    #[test]
+    fn fit_area_is_fit_without_the_status_rows() {
+        assert_eq!(Geometry::fit_area(80, 22, (10, 20), (16, 9)), Geometry::fit(80, 24, (10, 20), (16, 9)));
+    }
+
+    #[test]
+    fn the_mini_player_docks_at_the_bottom_right() {
+        // 120 x 40: the dock is a third of the width, under the tab row and above the status bar.
+        let (dock, g) = mini_layout(120, 40, (10, 20), (16, 9)).unwrap();
+        assert_eq!(dock, Dock { x: 80, y: 1, cols: 40, rows: 38 });
+        // 38 cells of 10 px is 380 px wide, so 214 px high: 11 rows.
+        assert_eq!((g.cols, g.rows), (38, 11));
+        assert_eq!(g.x, 81);
+        // The box ends above the 3 info rows, on the last row of the dock.
+        assert_eq!(g.y + g.rows + 1 + MINI_INFO_ROWS, dock.y + dock.rows);
+        // A portrait video takes at most half of the dock.
+        let (dock, g) = mini_layout(120, 40, (10, 20), (9, 16)).unwrap();
+        assert!(g.rows <= dock.rows / 2, "{g:?}");
+        assert!(g.x > dock.x && g.x + g.cols < dock.x + dock.cols, "{g:?}");
+        // The widest dock, and the smallest screen with one.
+        assert_eq!(mini_layout(300, 60, (10, 20), (16, 9)).unwrap().0.cols, 64);
+        let (dock, g) = mini_layout(72, 14, (10, 20), (16, 9)).unwrap();
+        assert_eq!(dock.cols, 24);
+        assert!(g.y > dock.y, "{g:?}");
+        assert_eq!(mini_layout(71, 40, (10, 20), (16, 9)), None);
+        assert_eq!(mini_layout(120, 13, (10, 20), (16, 9)), None);
+    }
+
+    /// A playing video, shrunk to the mini-player on a 120 x 40 screen.
+    fn mini() -> App {
+        let mut a = playing(false);
+        a.update(Message::Input(Input::Resize { width: 120, height: 40 }));
+        event(&mut a, PlayerEvent::FileLoaded);
+        let (_, g) = mini_layout(120, 40, (10, 20), (16, 9)).unwrap();
+        assert_eq!(key(&mut a, "esc"), [Effect::Player(PlayerCommand::Resize(g))]);
+        let p = a.player.as_ref().unwrap();
+        assert!(p.mini);
+        assert_eq!(p.geometry, g);
+        a
+    }
+
+    #[test]
+    fn esc_shrinks_the_player_and_playback_goes_on() {
+        let mut a = playing(false);
+        key(&mut a, "v");
+        assert!(a.player.as_ref().unwrap().quality_menu.is_some());
+        // In the quality menu, esc only closes the menu.
+        assert!(key(&mut a, "esc").is_empty());
+        assert!(!a.player.as_ref().unwrap().mini);
+        let a = mini();
+        assert_eq!(a.player.as_ref().unwrap().phase, Phase::Playing);
+        // Before mpv runs, only the state changes.
+        let mut a = app();
+        a.play("v1".into(), "Title".into());
+        assert!(key(&mut a, "esc").is_empty());
+        assert!(a.player.as_ref().unwrap().mini);
+    }
+
+    #[test]
+    fn mini_player_keys_come_after_the_browse_keys() {
+        let mut a = mini();
+        a.search.results = related(&["r1", "r2"]).into_iter().map(Item::Video).collect();
+        // Browse keys move in the list.
+        assert!(key(&mut a, "j").is_empty());
+        assert_eq!(a.search.selection.index, 1);
+        // Player keys that browse does not use control the video.
+        assert_eq!(key(&mut a, "space"), [Effect::Player(PlayerCommand::TogglePause)]);
+        assert_eq!(key(&mut a, "right"), [Effect::Player(PlayerCommand::Seek { secs: 5 })]);
+        assert_eq!(key(&mut a, "m"), [Effect::Player(PlayerCommand::ToggleMute)]);
+        // The quality menu needs the full player.
+        assert!(key(&mut a, "v").iter().all(|e| matches!(e, Effect::Player(PlayerCommand::Resize(_)))));
+        assert!(!a.player.as_ref().unwrap().mini, "v is the browse key for the full player");
+        assert!(a.player.as_ref().unwrap().quality_menu.is_none());
+        let mut a = mini();
+        // / opens the search line, and keys go into it while it is open.
+        assert!(key(&mut a, "/").is_empty());
+        assert!(key(&mut a, "space").is_empty());
+        assert!(key(&mut a, "x").is_empty());
+        assert_eq!(a.search.input.as_deref(), Some(" x"));
+        assert!(a.player.is_some());
+        // The help comes first too.
+        key(&mut a, "esc");
+        key(&mut a, "?");
+        assert!(key(&mut a, "space").is_empty());
+    }
+
+    #[test]
+    fn v_shows_the_full_player_and_x_stops_it() {
+        let mut a = mini();
+        let full = Geometry::fit(120, 40, (10, 20), (16, 9));
+        assert_eq!(key(&mut a, "v"), [Effect::Player(PlayerCommand::Resize(full))]);
+        assert!(!a.player.as_ref().unwrap().mini);
+        key(&mut a, "esc");
+        let effects = a.update(Message::Input(Input::Key("x".parse().unwrap())));
+        assert!(
+            matches!(effects.as_slice(), [Effect::SaveWatch(_), Effect::Player(PlayerCommand::Stop)]),
+            "{effects:?}"
+        );
+        assert_eq!(a.player, None);
+        // Without a player, the keys do nothing.
+        assert!(key(&mut a, "x").is_empty());
+        assert!(key(&mut a, "v").is_empty());
+        // q in browse quits, and keeps the place in the video.
+        let mut a = mini();
+        let effects = a.update(Message::Input(Input::Key("q".parse().unwrap())));
+        assert!(matches!(effects.as_slice(), [Effect::SaveWatch(_), Effect::Quit]), "{effects:?}");
+    }
+
+    #[test]
+    fn opening_a_video_from_the_mini_player() {
+        // The video that plays goes back to full size, with no restart.
+        let mut a = mini();
+        a.search.results = vec![Item::Video(plain_video("v1", "Title")), Item::Video(plain_video("v2", "Other"))];
+        assert!(matches!(key(&mut a, "enter").as_slice(), [Effect::Player(PlayerCommand::Resize(_))]));
+        assert!(!a.player.as_ref().unwrap().mini);
+        assert_eq!(a.player.as_ref().unwrap().session, 1);
+        // Another video replaces it, full size.
+        key(&mut a, "esc");
+        key(&mut a, "j");
+        let effects = key(&mut a, "enter");
+        assert!(resolves(&effects, "v2"), "{effects:?}");
+        assert!(!a.player.as_ref().unwrap().mini);
+    }
+
+    #[test]
+    fn the_next_video_stays_in_the_mini_player() {
+        let mut a = mini();
+        a.update(Message::RelatedLoaded { session: 1, result: Ok(related(&["r1", "r2"])) });
+        event(&mut a, PlayerEvent::Ended);
+        for _ in 1..AUTOPLAY_SECS {
+            a.update(Message::Tick { session: 1, now: 0 });
+        }
+        let effects = a.update(Message::Tick { session: 1, now: 0 });
+        assert!(resolves(&effects, "r1"), "{effects:?}");
+        let p = a.player.as_ref().unwrap();
+        assert!(p.mini);
+        assert_eq!(p.geometry, mini_layout(120, 40, (10, 20), (16, 9)).unwrap().1);
+        let effects = a.update(Message::StreamsResolved { session: 2, now: 0, result: Ok(streams(None)) });
+        let g = a.player.as_ref().unwrap().geometry;
+        assert_eq!(g, mini_layout(120, 40, (10, 20), (16, 9)).unwrap().1);
+        assert!(
+            matches!(effects.as_slice(), [Effect::Player(PlayerCommand::Start { geometry, .. })] if *geometry == g)
+        );
+        // > and < keep the size too.
+        a.update(Message::Player { session: 2, event: PlayerEvent::FileLoaded });
+        let effects = key(&mut a, "<");
+        assert!(resolves(&effects, "v1"), "{effects:?}");
+        assert!(a.player.as_ref().unwrap().mini);
+        let effects = key(&mut a, ">");
+        assert!(resolves(&effects, "r1"), "{effects:?}");
+        assert!(a.player.as_ref().unwrap().mini);
+    }
+
+    #[test]
+    fn next_after_the_end_plays_the_first_video_in_up_next() {
+        let mut a = mini();
+        a.autoplay = false;
+        a.update(Message::RelatedLoaded { session: 1, result: Ok(related(&["r1", "r2"])) });
+        event(&mut a, PlayerEvent::Ended);
+        let effects = key(&mut a, ">");
+        assert!(resolves(&effects, "r1"), "{effects:?}");
+        assert!(a.player.as_ref().unwrap().mini);
+    }
+
+    #[test]
+    fn a_resize_fits_the_mini_player() {
+        let mut a = mini();
+        let effects = a.update(Message::Input(Input::Resize { width: 150, height: 50 }));
+        let g = mini_layout(150, 50, (10, 20), (16, 9)).unwrap().1;
+        assert_eq!(effects, [Effect::Player(PlayerCommand::Resize(g))]);
+        // No room for the dock: a small picture that nothing shows.
+        let effects = a.update(Message::Input(Input::Resize { width: 60, height: 20 }));
+        let g = Geometry::fit_area(HIDDEN_CELLS.0, HIDDEN_CELLS.1, (10, 20), (16, 9));
+        assert_eq!(effects, [Effect::Player(PlayerCommand::Resize(g))]);
     }
 }

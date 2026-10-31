@@ -1,0 +1,20 @@
+---
+source: src/ui/mod.rs
+expression: "render(&app, 80, 16)"
+---
+ Search   Feed   Subscriptions   Playlists   Queue   History                    
+┌Search: rust (6,192,373 results)────────────────────┐                          
+│rust                                                │                          
+│Rust in 100 seconds                                 │┌────────────────────────┐
+│  Fireship · 12:34 · 1.2M views · 3 years ago · 4K  ││                        │
+│LIVE Lofi beats to code to                          ││                        │
+│  Lofi Girl · 32 watching · 4K                      ││                        │
+│MEMBERS Async Rust with a friend                    ││     Up next in 5 s     │
+│  Jon Gjengset and Ana · 12:34 · 1.2M views · 3 yea…││   Rust in 100 seconds  │
+│CHANNEL Jon Gjengset ✓                              ││                        │
+│  @jonhoo · 111K subscribers                        ││                        │
+│PLAYLIST Crust of Rust                              │└────────────────────────┘
+│  Jon Gjengset · 44 videos                          │ Big Buck Bunny           
+│                                                    │ 1:05 ━──────────── 10:35 
+└────────────────────────────────────────────────────┘ Ended  v full  x stop    
+                                           ? help  / search  f filters  q quit

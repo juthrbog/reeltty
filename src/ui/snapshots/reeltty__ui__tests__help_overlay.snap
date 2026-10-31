@@ -5,18 +5,18 @@ expression: "render(&app, 100, 20)"
  Search   Feed   Subscriptions   Playlists   Queue   History                                        
 ┌Search────────────────────────────────────────────────────────────────────────────────────────────┐
 │Press / to search, f for filters.                                                                 │
-│                                                                                                  │
 │  ┌Keys────────────────────────────────────────────────────────────────────────────────────────┐  │
-│  │quit                 q, ctrl-c                search filters       f                        │  │
-│  │move up              k, up                    next tab             tab                      │  │
-│  │move down            j, down                  previous tab         shift-tab                │  │
-│  │go to the top        g, home                  refresh              r                        │  │
-│  │go to the bottom     G, end                   video details        i                        │  │
-│  │half a page up       ctrl-u, pgup             go to the channel    c                        │  │
-│  │half a page down     ctrl-d, pgdn             subscribe or save    s                        │  │
-│  │open                 enter, l                 add to the queue     a                        │  │
-│  │go back              esc, h                   delete an entry      d                        │  │
-│  │search               /                        show or hide help    ?                        │  │
+│  │quit                 q, ctrl-c                next tab             tab                      │  │
+│  │move up              k, up                    previous tab         shift-tab                │  │
+│  │move down            j, down                  refresh              r                        │  │
+│  │go to the top        g, home                  video details        i                        │  │
+│  │go to the bottom     G, end                   go to the channel    c                        │  │
+│  │half a page up       ctrl-u, pgup             subscribe or save    s                        │  │
+│  │half a page down     ctrl-d, pgdn             add to the queue     a                        │  │
+│  │open                 enter, l                 delete an entry      d                        │  │
+│  │go back              esc, h                   full-size player     v                        │  │
+│  │search               /                        stop mini-player     x                        │  │
+│  │search filters       f                        show or hide help    ?                        │  │
 │  └────────────────────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                                  │
 │                                                                                                  │

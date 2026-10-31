@@ -102,6 +102,8 @@ fn run_tui(paths: &Paths) -> Result<()> {
         app.captions_language.clone_from(&config.captions.language);
         app.captions_on = config.captions.on;
         app.autoplay = config.autoplay.0;
+        let sponsorblock = start_sponsorblock(config.sponsorblock.skipped());
+        app.sponsorblock = sponsorblock.is_some();
         app.saved_playlists = saved_playlists;
         app.history = history;
         let filter = reeltty::app::feed::FeedFilter { shorts: config.feed.shorts, live: config.feed.live };
@@ -110,9 +112,19 @@ fn run_tui(paths: &Paths) -> Result<()> {
             .then(|| start_thumbnails(&paths.thumbnail_cache))
             .flatten();
         app.thumbnails = Thumbnails::new(thumbnails.is_some());
-        let services = Services { source, store, thumbnails, ytdlp };
+        let services = Services { source, store, thumbnails, ytdlp, sponsorblock };
         reeltty::runtime::run(&mut app, &mut frontend, services).await
     })
+}
+
+/// The SponsorBlock client, or `None` when no category is skipped.
+fn start_sponsorblock(categories: &[reeltty::sponsorblock::Category]) -> Option<reeltty::sponsorblock::Client> {
+    if categories.is_empty() {
+        return None;
+    }
+    reeltty::sponsorblock::Client::new(categories.to_vec())
+        .inspect_err(|e| tracing::warn!("SponsorBlock is off: {e:#}"))
+        .ok()
 }
 
 /// The thumbnail downloader. Old cache files are removed in the background.

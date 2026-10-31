@@ -123,20 +123,41 @@ fn draw_progress(p: &PlayerState, f: &mut Frame, area: Rect) {
     let left = clock(p.position_ms);
     let right = p.duration_ms.map(clock).unwrap_or_default();
     let bar_width = usize::from(area.width).saturating_sub(left.width() + right.width() + 4);
-    let filled = match p.duration_ms {
-        Some(d) if d > 0 => {
-            let filled = u128::from(p.position_ms.min(d)) * bar_width as u128 / u128::from(d);
-            usize::try_from(filled).unwrap_or(bar_width)
+    let mut spans = vec![Span::from(format!(" {left} "))];
+    spans.extend(bar(p, bar_width));
+    spans.push(Span::from(format!(" {right} ")));
+    f.render_widget(Line::from(spans), area);
+}
+
+/// The progress bar, `width` cells wide. Parts that SponsorBlock skips are
+/// green.
+fn bar(p: &PlayerState, width: usize) -> Vec<Span<'static>> {
+    let Some(d) = p.duration_ms.filter(|d| *d > 0) else { return vec![Span::from("─".repeat(width)).dim()] };
+    let segments = p.skip_segments();
+    // The time at the start of cell `i`.
+    let at = |i: usize| u64::try_from(u128::from(d) * i as u128 / width.max(1) as u128).unwrap_or(d);
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut run = String::new();
+    let mut run_style: Option<(Style, bool)> = None;
+    for i in 0..width {
+        let (start, end) = (at(i), at(i + 1));
+        let played = end <= p.position_ms.min(d);
+        let skipped = segments.iter().any(|s| s.start_ms < end && start < s.end_ms);
+        let style = match (played, skipped) {
+            (_, true) => Style::new().green(),
+            (true, false) => Style::new().red(),
+            (false, false) => Style::new().dim(),
+        };
+        if run_style.is_some_and(|s| s != (style, played)) {
+            spans.push(Span::styled(std::mem::take(&mut run), run_style.map_or_else(Style::new, |s| s.0)));
         }
-        _ => 0,
-    };
-    let line = Line::from(vec![
-        Span::from(format!(" {left} ")),
-        Span::from("━".repeat(filled)).red(),
-        Span::from("─".repeat(bar_width - filled)).dim(),
-        Span::from(format!(" {right} ")),
-    ]);
-    f.render_widget(line, area);
+        run.push(if played { '━' } else { '─' });
+        run_style = Some((style, played));
+    }
+    if let Some((style, _)) = run_style {
+        spans.push(Span::styled(run, style));
+    }
+    spans
 }
 
 fn draw_status(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {

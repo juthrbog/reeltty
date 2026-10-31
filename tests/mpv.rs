@@ -195,6 +195,7 @@ mod player {
     use reeltty::app::player::{Geometry, PlayerCommand, PlayerEvent, SpeedStep};
     use reeltty::player::{EventSender, Player};
     use reeltty::source::streams::{FormatInfo, Streams};
+    use reeltty::sponsorblock::{Category, Segment};
     use reeltty::terminal::kitty::VideoSink;
 
     const OPTIONS: &[(&str, &str)] = &[("ao", "null"), ("hwdec", "no")];
@@ -412,6 +413,73 @@ mod player {
             Player::start(9, &streams("/no/such/file.mp4".into()), geometry(32, 18), sink, send, 0, OPTIONS).unwrap();
         let PlayerEvent::Failed(why) = wait_for(&rx, |e| matches!(e, PlayerEvent::Failed(_))) else { unreachable!() };
         assert!(!why.is_empty());
+        player.stop().join().unwrap();
+    }
+
+    fn sponsor(start_ms: u64, end_ms: u64) -> Segment {
+        Segment { category: Category::Sponsor, start_ms, end_ms, video_duration_ms: None }
+    }
+
+    /// The events until one that `pick` accepts.
+    fn events_until(rx: &mpsc::Receiver<PlayerEvent>, pick: impl Fn(&PlayerEvent) -> bool) -> Vec<PlayerEvent> {
+        let end = Instant::now() + Duration::from_secs(5);
+        let mut events = Vec::new();
+        while let Ok(e) = rx.recv_timeout(end.saturating_duration_since(Instant::now())) {
+            let done = pick(&e);
+            events.push(e);
+            if done {
+                return events;
+            }
+        }
+        panic!("no such event in 5 s: {events:?}");
+    }
+
+    fn position(e: &PlayerEvent) -> Option<u64> {
+        if let PlayerEvent::Position(ms) = e { Some(*ms) } else { None }
+    }
+
+    #[test]
+    fn skips_segments_when_playback_reaches_them() {
+        let sink = Arc::new(VideoSink::new(Box::new(Screen::default())));
+        let (send, rx) = channel();
+        let player = Player::start(13, &streams(super::testsrc(10)), geometry(32, 18), sink, send, 0, OPTIONS).unwrap();
+        player.command(&PlayerCommand::Segments { segments: vec![sponsor(1000, 4000)], continues: false });
+        let events = events_until(&rx, |e| position(e).is_some_and(|ms| ms >= 4000));
+        assert!(events.contains(&PlayerEvent::Skipped(Category::Sponsor)), "{events:?}");
+        assert!(!events.iter().filter_map(position).any(|ms| (1500..3900).contains(&ms)), "{events:?}");
+        player.stop().join().unwrap();
+    }
+
+    #[test]
+    fn late_segments_skip_where_playback_is() {
+        let sink = Arc::new(VideoSink::new(Box::new(Screen::default())));
+        let (send, rx) = channel();
+        let player = Player::start(14, &streams(super::testsrc(10)), geometry(32, 18), sink, send, 5, OPTIONS).unwrap();
+        // The segments come late, in the middle of one. lavfi reports 0.2 s
+        // after the start, and then mpv seeks back to it, so wait for 6 s.
+        wait_for(&rx, |e| position(e).is_some_and(|ms| ms >= 6000));
+        player.command(&PlayerCommand::Segments { segments: vec![sponsor(4000, 9000)], continues: false });
+        let events = events_until(&rx, |e| position(e).is_some_and(|ms| ms >= 9000));
+        assert!(events.contains(&PlayerEvent::Skipped(Category::Sponsor)), "{events:?}");
+        player.stop().join().unwrap();
+    }
+
+    #[test]
+    fn a_seek_into_a_segment_and_a_quality_change_do_not_skip() {
+        let sink = Arc::new(VideoSink::new(Box::new(Screen::default())));
+        let (send, rx) = channel();
+        let player = Player::start(15, &streams(super::testsrc(10)), geometry(32, 18), sink, send, 0, OPTIONS).unwrap();
+        let segments = vec![sponsor(3000, 9000)];
+        player.command(&PlayerCommand::Segments { segments: segments.clone(), continues: false });
+        wait_for(&rx, |e| *e == PlayerEvent::FileLoaded);
+        player.command(&PlayerCommand::SeekTo { secs: 4 });
+        let mut events = events_until(&rx, |e| position(e).is_some_and(|ms| ms >= 5000));
+        let other = "av://lavfi:testsrc=size=160x120:rate=30:duration=10";
+        player.command(&PlayerCommand::SwitchVideo { url: other.into(), secs: 5 });
+        events.extend(events_until(&rx, |e| *e == PlayerEvent::FileLoaded));
+        player.command(&PlayerCommand::Segments { segments, continues: false });
+        events.extend(events_until(&rx, |e| position(e).is_some_and(|ms| ms >= 6000)));
+        assert!(!events.contains(&PlayerEvent::Skipped(Category::Sponsor)), "{events:?}");
         player.stop().join().unwrap();
     }
 }

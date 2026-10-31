@@ -17,6 +17,7 @@ use crate::player::{self, Player};
 use crate::source::Source;
 use crate::source::model::Item;
 use crate::source::ytdlp::YtDlp;
+use crate::sponsorblock;
 use crate::store::Store;
 use crate::terminal::kitty::VideoSink;
 use crate::thumbnails::Fetcher;
@@ -29,11 +30,14 @@ pub struct Services {
     pub thumbnails: Option<Fetcher>,
     /// Finds stream URLs.
     pub ytdlp: YtDlp,
+    /// `None` when SponsorBlock is off.
+    pub sponsorblock: Option<sponsorblock::Client>,
 }
 
 /// The video that plays, and the work before it.
 struct Playback {
     ytdlp: YtDlp,
+    sponsorblock: Option<sponsorblock::Client>,
     sink: Option<Arc<VideoSink>>,
     player: Option<Player>,
     /// The stream search or the ads wait.
@@ -151,6 +155,7 @@ pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services
     let (source, thumbnails) = (services.source, services.thumbnails);
     let mut playback = Playback {
         ytdlp: services.ytdlp,
+        sponsorblock: services.sponsorblock,
         sink: frontend.video_sink(),
         player: None,
         pending: None,
@@ -294,6 +299,15 @@ fn handle(
             tokio::spawn(async move {
                 let result = source.video(&id).await.map(|d| d.related).map_err(|e| e.to_string());
                 let _ = tx.send(Message::RelatedLoaded { session, result });
+            });
+        }
+        // Not pending work: it must not stop the stream search.
+        Effect::LoadSegments { session, id } => {
+            let Some(client) = playback.sponsorblock.clone() else { return ControlFlow::Continue(()) };
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let result = client.segments(&id).await.map_err(|e| format!("{e:#}"));
+                let _ = tx.send(Message::SegmentsLoaded { session, result });
             });
         }
         Effect::Player(command) => playback.handle(command, tx),

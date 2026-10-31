@@ -547,6 +547,31 @@ mod tests {
     }
 
     #[test]
+    fn the_progress_bar_marks_skipped_parts() {
+        use crate::sponsorblock::{Category, Segment};
+        let mut app = playing_app();
+        let event = |e| Message::Player { session: 1, event: e };
+        app.update(event(crate::app::player::PlayerEvent::Duration(100_000)));
+        app.update(event(crate::app::player::PlayerEvent::Position(50_000)));
+        let segment =
+            |start_ms, end_ms| Segment { category: Category::Sponsor, start_ms, end_ms, video_duration_ms: None };
+        app.update(Message::SegmentsLoaded {
+            session: 1,
+            result: Ok(vec![segment(20_000, 30_000), segment(70_000, 80_000)]),
+        });
+        let buf = buffer(&app, 40, 12);
+        // " 0:50 " comes first, then a bar of 40 - 6 - 6 = 28 cells for 100 s.
+        let y = 10;
+        let cell = |secs: u16| &buf[(6 + secs * 28 / 100, y)];
+        for (secs, color, symbol) in
+            [(10, Color::Red, "━"), (25, Color::Green, "━"), (60, Color::Reset, "─"), (75, Color::Green, "─")]
+        {
+            assert_eq!(cell(secs).symbol(), symbol, "at {secs} s");
+            assert_eq!(cell(secs).fg, color, "at {secs} s");
+        }
+    }
+
+    #[test]
     fn player_before_and_after_playback() {
         let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
         app.update(Message::Input(Input::Resize { width: 50, height: 8 }));

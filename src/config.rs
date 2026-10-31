@@ -6,6 +6,7 @@ use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
 use crate::keymap::{KeyMap, KeyOverrides, PlayerKeyOverrides};
+use crate::sponsorblock::Category;
 
 /// File locations from the XDG base directories.
 #[derive(Debug, Clone)]
@@ -42,7 +43,29 @@ pub struct Config {
     pub autoplay: Autoplay,
     pub captions: Captions,
     pub feed: Feed,
+    pub sponsorblock: SponsorBlock,
     pub keys: Keys,
+}
+
+/// The `[sponsorblock]` table: which parts of videos to skip.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SponsorBlock {
+    pub on: bool,
+    pub categories: Vec<Category>,
+}
+
+impl Default for SponsorBlock {
+    fn default() -> Self {
+        Self { on: true, categories: vec![Category::Sponsor] }
+    }
+}
+
+impl SponsorBlock {
+    /// The categories to skip. None when it is off.
+    pub fn skipped(&self) -> &[Category] {
+        if self.on { &self.categories } else { &[] }
+    }
 }
 
 /// The `[feed]` table: which videos the subscriptions feed shows.
@@ -175,6 +198,17 @@ mod tests {
         assert!(err.to_string().contains("bound to both"), "{err}");
         let err = Config::parse("[keys.player]\nmute = [\"space\"]").unwrap_err();
         assert!(err.to_string().contains("[keys.player]"), "{err}");
+    }
+
+    #[test]
+    fn reads_sponsorblock() {
+        let c = Config::parse("").unwrap();
+        assert_eq!(c.sponsorblock.skipped(), [Category::Sponsor]);
+        let c = Config::parse("[sponsorblock]\ncategories = [\"intro\", \"music_offtopic\"]").unwrap();
+        assert_eq!(c.sponsorblock.skipped(), [Category::Intro, Category::MusicOfftopic]);
+        let c = Config::parse("[sponsorblock]\non = false").unwrap();
+        assert!(c.sponsorblock.skipped().is_empty());
+        assert!(Config::parse("[sponsorblock]\ncategories = [\"ads\"]").is_err());
     }
 
     #[test]

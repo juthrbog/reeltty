@@ -12,6 +12,7 @@ use super::{App, Effect};
 use crate::keymap::{Action, KeyPress, PlayerAction};
 use crate::source::model::{ChannelRef, Chapter, Video, VideoDetails, VideoKind};
 use crate::source::streams::{Caption, Quality, Streams, pick_caption, rung};
+use crate::sponsorblock::{self, Category, Segment};
 use crate::store::HistoryEntry;
 use crate::terminal::kitty::MAX_CELLS;
 
@@ -128,6 +129,8 @@ pub enum PlayerEvent {
     Speed(u16),
     /// mpv could not load the caption track.
     CaptionsFailed(String),
+    /// The player skipped a SponsorBlock segment.
+    Skipped(Category),
     Ended,
     Failed(String),
     /// A player thread stopped by a bug. The app quits.
@@ -171,6 +174,8 @@ pub enum PlayerCommand {
         secs: u32,
     },
     Resize(Geometry),
+    /// The SponsorBlock segments to skip.
+    Segments(Vec<Segment>),
     /// Stops playback, and the stream search or the wait before it.
     Stop,
 }
@@ -257,6 +262,8 @@ pub struct PlayerState {
     streams: Option<Box<Streams>>,
     /// The streams were found again once after an HTTP 403 error.
     retried: bool,
+    /// From SponsorBlock, as they came.
+    segments: Vec<Segment>,
 }
 
 impl PlayerState {
@@ -306,6 +313,23 @@ impl PlayerState {
             }
             Some(starts.rev().find(|s| ms(*s) < before).unwrap_or(0))
         }
+    }
+
+    /// The SponsorBlock segments to skip in this video. mpv's length is
+    /// exact. yt-dlp's comes first, before the file loads.
+    pub fn skip_segments(&self) -> Vec<Segment> {
+        if self.live {
+            return Vec::new();
+        }
+        let duration = self.duration_ms.or(self.duration_secs.map(|s| u64::from(s) * 1000));
+        sponsorblock::usable(&self.segments, duration)
+    }
+
+    /// The command that gives the player the segments to skip. mpv must
+    /// have the file. The player ignores the same segments again.
+    fn segments_command(&self) -> Option<Effect> {
+        let segments = self.skip_segments();
+        (self.has_file() && !segments.is_empty()).then_some(Effect::Player(PlayerCommand::Segments(segments)))
     }
 
     /// The commands to show the caption track again after a file loads.
@@ -391,6 +415,7 @@ impl App {
             aspect: DEFAULT_ASPECT,
             streams: None,
             retried: false,
+            segments: Vec::new(),
         };
         let mut state = state;
         if let Some(secs) = self.resume_at(&state.id) {
@@ -399,6 +424,9 @@ impl App {
         }
         effects.push(self.resolve(&state));
         effects.push(Effect::LoadRelated { session: state.session, id: state.id.clone() });
+        if self.sponsorblock {
+            effects.push(Effect::LoadSegments { session: state.session, id: state.id.clone() });
+        }
         self.player = Some(state);
         effects
     }
@@ -446,6 +474,16 @@ impl App {
             return self.show_up_next(session);
         }
         Vec::new()
+    }
+
+    pub(super) fn on_segments(&mut self, session: u64, result: Result<Vec<Segment>, String>) -> Vec<Effect> {
+        let Some(p) = self.player_of(session) else { return Vec::new() };
+        match result {
+            Ok(segments) => p.segments = segments,
+            // The video plays anyway.
+            Err(e) => tracing::warn!("no SponsorBlock segments: {e}"),
+        }
+        p.segments_command().into_iter().collect()
     }
 
     /// The videos that can play next: the ones that "previous video" went
@@ -616,6 +654,8 @@ impl App {
                 p.switch = None;
                 // Caption tracks belong to one file, and a quality change loads a new one.
                 let mut effects = p.reload_captions();
+                // A new player after an HTTP 403 error has no segments yet.
+                effects.extend(p.segments_command());
                 if !p.recorded {
                     p.recorded = true;
                     effects.extend(self.save_watch(false));
@@ -629,12 +669,17 @@ impl App {
                     return self.save_watch(false).into_iter().collect();
                 }
             }
-            PlayerEvent::Duration(ms) => p.duration_ms = Some(ms),
+            PlayerEvent::Duration(ms) => {
+                p.duration_ms = Some(ms);
+                // The exact length can keep or drop other segments.
+                return p.segments_command().into_iter().collect();
+            }
             PlayerEvent::Paused(b) => p.paused = b,
             PlayerEvent::Buffering(b) => p.buffering = b,
             PlayerEvent::Volume(v) => p.volume = v,
             PlayerEvent::Muted(b) => p.muted = b,
             PlayerEvent::Speed(s) => p.speed = s,
+            PlayerEvent::Skipped(category) => self.status = Some(format!("Skipped {}.", category.label())),
             PlayerEvent::CaptionsFailed(e) => {
                 p.caption = None;
                 p.caption_loaded = false;
@@ -1528,5 +1573,85 @@ mod tests {
         a.update(Message::Player { session: 1, event: PlayerEvent::Position(300_000) });
         let s = saves(&a.update(Message::Input(Input::Key("q".parse().unwrap()))));
         assert_eq!(s[0].position_secs, 0);
+    }
+
+    fn sponsor(start_ms: u64, end_ms: u64) -> Segment {
+        Segment { category: Category::Sponsor, start_ms, end_ms, video_duration_ms: None }
+    }
+
+    fn segments_loaded(a: &mut App, session: u64, result: Result<Vec<Segment>, String>) -> Vec<Effect> {
+        a.update(Message::SegmentsLoaded { session, result })
+    }
+
+    #[test]
+    fn segments_load_only_when_sponsorblock_is_on() {
+        let mut a = app();
+        assert!(!a.play("v1".into(), "T".into()).iter().any(|e| matches!(e, Effect::LoadSegments { .. })));
+        a.sponsorblock = true;
+        let effects = a.play("v2".into(), "T".into());
+        assert!(effects.contains(&Effect::LoadSegments { session: 2, id: "v2".into() }), "{effects:?}");
+    }
+
+    #[test]
+    fn segments_go_to_the_player_once_it_has_the_file() {
+        let mut a = app();
+        a.sponsorblock = true;
+        a.play("v1".into(), "T".into());
+        // They come while yt-dlp still looks for the streams.
+        assert!(segments_loaded(&mut a, 1, Ok(vec![sponsor(10_000, 20_000)])).is_empty());
+        let mut s = streams(None);
+        s.duration_secs = Some(100);
+        a.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(s) });
+        let send = Effect::Player(PlayerCommand::Segments(vec![sponsor(10_000, 20_000)]));
+        assert!(event(&mut a, PlayerEvent::FileLoaded).contains(&send));
+        // They come after the file loaded.
+        assert_eq!(segments_loaded(&mut a, 1, Ok(vec![sponsor(10_000, 20_000)])), [send]);
+        // mpv's exact length: a segment that ends 0.5 s before the end ends there.
+        assert_eq!(
+            segments_loaded(&mut a, 1, Ok(vec![sponsor(90_000, 99_700)])),
+            [Effect::Player(PlayerCommand::Segments(vec![sponsor(90_000, 100_000)]))]
+        );
+        assert_eq!(
+            event(&mut a, PlayerEvent::Duration(100_200)),
+            [Effect::Player(PlayerCommand::Segments(vec![sponsor(90_000, 100_200)]))]
+        );
+    }
+
+    #[test]
+    fn segments_of_an_old_session_or_errors_change_nothing() {
+        let mut a = playing(false);
+        a.sponsorblock = true;
+        event(&mut a, PlayerEvent::FileLoaded);
+        assert!(segments_loaded(&mut a, 0, Ok(vec![sponsor(1000, 2000)])).is_empty());
+        assert!(a.player.as_ref().unwrap().skip_segments().is_empty());
+        assert!(segments_loaded(&mut a, 1, Err("timed out".into())).is_empty());
+        assert_eq!(a.status, None);
+        assert_eq!(phase(&a), Phase::Playing);
+    }
+
+    #[test]
+    fn live_streams_skip_nothing() {
+        let mut a = app();
+        a.sponsorblock = true;
+        a.play("live".into(), "Radio".into());
+        let mut s = streams(None);
+        s.live = true;
+        a.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(s) });
+        event(&mut a, PlayerEvent::FileLoaded);
+        assert!(segments_loaded(&mut a, 1, Ok(vec![sponsor(1000, 2000)])).is_empty());
+    }
+
+    #[test]
+    fn a_skip_shows_in_the_status_and_a_new_player_gets_the_segments() {
+        let mut a = playing(false);
+        event(&mut a, PlayerEvent::FileLoaded);
+        segments_loaded(&mut a, 1, Ok(vec![sponsor(10_000, 20_000)]));
+        event(&mut a, PlayerEvent::Skipped(Category::Sponsor));
+        assert_eq!(a.status.as_deref(), Some("Skipped sponsor."));
+        // After an HTTP 403 error, the new player needs them again.
+        event(&mut a, PlayerEvent::Failed("HTTP error 403".into()));
+        a.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(streams(None)) });
+        let send = Effect::Player(PlayerCommand::Segments(vec![sponsor(10_000, 20_000)]));
+        assert_eq!(event(&mut a, PlayerEvent::FileLoaded), [send]);
     }
 }

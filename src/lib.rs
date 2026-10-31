@@ -9,8 +9,11 @@ pub mod keymap;
 pub mod player;
 pub mod runtime;
 pub mod source;
+pub mod sponsorblock;
 pub mod store;
 pub mod takeout;
 pub mod terminal;
+#[cfg(test)]
+mod test_server;
 pub mod thumbnails;
 pub mod ui;

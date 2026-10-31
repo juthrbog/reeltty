@@ -18,6 +18,7 @@ use crate::keymap::{Action, KeyMap, KeyPress};
 use crate::source::filters::SearchQuery;
 use crate::source::model::{ChannelPage, ChannelRef, Item, ItemPage, PlaylistPage, SearchPage, Video, VideoDetails};
 use crate::source::streams::Streams;
+use crate::sponsorblock::Segment;
 use crate::store::{FeedVideo, HISTORY_LIMIT, HistoryEntry, SavedPlaylist, Subscription};
 use crate::terminal::detect::Graphics;
 use crate::thumbnails::{Picture, Slot};
@@ -94,6 +95,11 @@ pub enum Message {
     RelatedLoaded {
         session: u64,
         result: Result<Vec<Video>, String>,
+    },
+    /// The reply to `Effect::LoadSegments`.
+    SegmentsLoaded {
+        session: u64,
+        result: Result<Vec<Segment>, String>,
     },
 }
 
@@ -197,6 +203,11 @@ pub enum Effect {
         session: u64,
         id: String,
     },
+    /// Find the SponsorBlock segments of the video that plays.
+    LoadSegments {
+        session: u64,
+        id: String,
+    },
     Player(PlayerCommand),
 }
 
@@ -286,6 +297,7 @@ pub const SCREEN_HEADER_ROWS: u16 = 2;
 pub const ROWS_PER_ITEM: u16 = 2;
 
 #[derive(Debug, Clone)]
+#[expect(clippy::struct_excessive_bools, reason = "independent settings from the configuration")]
 pub struct App {
     pub keymap: KeyMap,
     pub graphics: Graphics,
@@ -317,6 +329,8 @@ pub struct App {
     pub queue_selection: Selection,
     /// When a video ends, play the next one from the queue or the related videos.
     pub autoplay: bool,
+    /// Skip SponsorBlock segments. The runtime has the categories.
+    pub sponsorblock: bool,
     /// The videos played before the one that plays now, oldest first. It
     /// lasts until the player closes.
     played: Vec<Video>,
@@ -357,6 +371,7 @@ impl App {
             queue: Vec::new(),
             queue_selection: Selection::default(),
             autoplay: true,
+            sponsorblock: false,
             played: Vec::new(),
             forward: Vec::new(),
             width: 80,
@@ -508,6 +523,7 @@ impl App {
             Message::Tick { session, now } => self.on_tick(session, now),
             Message::Player { session, event } => self.on_player_event(session, event),
             Message::RelatedLoaded { session, result } => self.on_related(session, result),
+            Message::SegmentsLoaded { session, result } => self.on_segments(session, result),
             Message::FeedLoading { count } => self.on_feed_loading(count),
             Message::FeedChannelLoaded { channel_id, fetched_at, result } => {
                 self.on_feed_channel(channel_id, fetched_at, result)

@@ -5,7 +5,8 @@
 //! - The render thread waits for mpv's frames, renders them into a buffer,
 //!   and sends them to the `VideoSink`. mpv's render call waits until each
 //!   frame is due, so this thread sets the pace.
-//! - The event thread turns mpv events into `Message::Player`.
+//! - The event thread turns mpv events into `Message::Player`. It also
+//!   skips SponsorBlock segments, because it sees every position.
 //!
 //! The main thread only sends commands, which never wait. `stop` closes the
 //! sink at once, so no frame comes after it, and leaves the rest of the
@@ -25,6 +26,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::app::Message;
 use crate::app::player::{Geometry, PlayerCommand, PlayerEvent, SpeedStep};
 use crate::source::streams::Streams;
+use crate::sponsorblock::{Segment, Skipper};
 use crate::terminal::kitty::{Presented, VideoSink};
 use mpv::{EndReason, Event, Events, Format, Frame, Mpv, Renderer, Signal, Value};
 
@@ -62,6 +64,8 @@ const OPTIONS: &[(&str, &str)] = &[
 /// The reply ID of the command that loads captions, so that a failure can be
 /// told to the app.
 const CAPTIONS_REPLY: u64 = 1;
+/// The reply ID of a SponsorBlock skip.
+const SKIP_REPLY: u64 = 2;
 
 /// The properties that the event thread observes, by ID.
 const PROPERTIES: &[(u64, &str, Format)] = &[
@@ -105,6 +109,8 @@ pub struct Player {
     sink: Arc<VideoSink>,
     shared: Arc<Shared>,
     events_quit: Arc<AtomicBool>,
+    /// New segments to skip, for the event thread to take.
+    segments: Arc<Mutex<Option<Vec<Segment>>>>,
     threads: Vec<JoinHandle<()>>,
 }
 
@@ -176,12 +182,13 @@ impl Player {
             spawn("mpv-render", Arc::clone(&send), move || render_loop(session, renderer, &shared, &sink, &send))
         };
         let events_quit = Arc::new(AtomicBool::new(false));
+        let segments = Arc::new(Mutex::new(None));
         let events = {
-            let quit = Arc::clone(&events_quit);
-            spawn("mpv-events", Arc::clone(&send), move || event_loop(events, &quit, &send))
+            let (quit, mpv, segments) = (Arc::clone(&events_quit), mpv.clone(), Arc::clone(&segments));
+            spawn("mpv-events", Arc::clone(&send), move || event_loop(events, &quit, &mpv, &segments, &send))
         };
         tracing::debug!("mpv started in {:?}", started.elapsed());
-        Ok(Self { session, mpv, sink, shared, events_quit, threads: vec![render, events] })
+        Ok(Self { session, mpv, sink, shared, events_quit, segments, threads: vec![render, events] })
     }
 
     /// Runs a control command. Commands never wait for mpv. mpv runs them
@@ -214,6 +221,10 @@ impl Player {
                 self.shared.signal.notify();
                 Ok(())
             }
+            PlayerCommand::Segments(segments) => {
+                *self.segments.lock().unwrap_or_else(PoisonError::into_inner) = Some(segments.clone());
+                Ok(())
+            }
             PlayerCommand::Start { .. } | PlayerCommand::Stop => Ok(()),
         };
         if let Err(e) = result {
@@ -225,7 +236,7 @@ impl Player {
     /// threads and mpv stop on the returned thread.
     pub fn stop(self) -> JoinHandle<()> {
         self.sink.close();
-        let Self { session, mpv, sink, shared, events_quit, threads } = self;
+        let Self { session, mpv, sink, shared, events_quit, threads, .. } = self;
         std::thread::Builder::new()
             .name("player-reaper".into())
             .spawn(move || {
@@ -242,7 +253,8 @@ impl Player {
                 for t in threads {
                     let _ = t.join();
                 }
-                // The last reference: mpv stops here.
+                // The last reference, now that the event thread has
+                // dropped its own: mpv stops here.
                 drop(mpv);
                 sink.reap(session, REAP_WAIT);
             })
@@ -352,9 +364,16 @@ impl Errors {
     }
 }
 
-fn event_loop(mut events: Events, quit: &AtomicBool, send: &EventSender) {
+fn event_loop(
+    mut events: Events,
+    quit: &AtomicBool,
+    mpv: &Mpv,
+    segments: &Mutex<Option<Vec<Segment>>>,
+    send: &EventSender,
+) {
     let mut errors = Errors::default();
     let mut second = None;
+    let mut skipper = Skipper::default();
     while !quit.load(Ordering::Relaxed) {
         let Some(event) = events.wait(Duration::from_millis(500)) else { continue };
         match event {
@@ -372,6 +391,7 @@ fn event_loop(mut events: Events, quit: &AtomicBool, send: &EventSender) {
             Event::CommandReply { error: Some(e), .. } => tracing::debug!("mpv command failed: {e}"),
             Event::FileLoaded => {
                 errors.0.clear();
+                skipper.on_file_loaded();
                 send(PlayerEvent::FileLoaded);
             }
             Event::EndFile { reason: EndReason::Eof, .. } => send(PlayerEvent::Ended),
@@ -380,8 +400,18 @@ fn event_loop(mut events: Events, quit: &AtomicBool, send: &EventSender) {
                 send(PlayerEvent::Failed(why));
             }
             // Show the new position at once after a seek.
-            Event::Seek | Event::PlaybackRestart => second = None,
+            Event::Seek => {
+                second = None;
+                skipper.on_seek();
+            }
+            Event::PlaybackRestart => {
+                second = None;
+                skipper.on_restart();
+            }
             Event::Property { id, value } => {
+                if let (1, Value::Double(t)) = (id, value) {
+                    skip(&mut skipper, segments, mpv, millis(t), send);
+                }
                 if let Some(event) = property_event(id, value, &mut second) {
                     send(event);
                 }
@@ -391,11 +421,29 @@ fn event_loop(mut events: Events, quit: &AtomicBool, send: &EventSender) {
     }
 }
 
+/// Seeks past a segment if position `ms` is in one that must be skipped.
+fn skip(skipper: &mut Skipper, segments: &Mutex<Option<Vec<Segment>>>, mpv: &Mpv, ms: u64, send: &EventSender) {
+    if let Some(new) = segments.lock().unwrap_or_else(PoisonError::into_inner).take() {
+        skipper.set(new);
+    }
+    let Some(segment) = skipper.on_position(ms) else { return };
+    // `exact`: a seek to a keyframe before the end would skip again.
+    let end = format!("{}.{:03}", segment.end_ms / 1000, segment.end_ms % 1000);
+    match mpv.command_async(SKIP_REPLY, &["seek", &end, "absolute+exact"]) {
+        Ok(()) => send(PlayerEvent::Skipped(segment.category)),
+        Err(e) => tracing::warn!("cannot skip a segment: {e}"),
+    }
+}
+
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "rounded and clamped")]
+fn millis(secs: f64) -> u64 {
+    (secs.max(0.0) * 1000.0).round() as u64
+}
+
 /// The app event for an observed property. The position is sent once a
 /// second, not on every frame.
 fn property_event(id: u64, value: Value, second: &mut Option<u64>) -> Option<PlayerEvent> {
-    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "rounded and clamped")]
-    let ms = |s: f64| (s.max(0.0) * 1000.0).round() as u64;
+    let ms = millis;
     match (id, value) {
         (1, Value::Double(t)) => {
             let ms = ms(t);

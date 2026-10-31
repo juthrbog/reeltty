@@ -58,6 +58,8 @@ The History tab shows the videos you played, newest first, and how far you got. 
 
 When a video ends, an "Up next" list shows the queue, then related videos. With autoplay on, the first one plays after 5 seconds. Move in the list with `j` and `k` to stop the countdown, and press `enter` to play the selected video. Live streams never play by themselves.
 
+reeltty skips sponsor messages that the SponsorBlock community marked, and the status line says "Skipped sponsor.". The skipped parts are green on the progress bar. If you go back into a skipped part, it plays. The `[sponsorblock]` settings choose what to skip. For each video, reeltty sends your IP address and the first 4 characters of a hash of the video ID to sponsor.ajay.app. The server answers with the segments of all videos whose hash starts with those characters, so it does not learn which video you play.
+
 In the quality menu, move with the browse keys (`j`, `k`), choose with `enter`, and close it with `esc`. The video goes on from the same place.
 
 As a guest, you sometimes wait before a video starts. YouTube makes guests wait as long as the ads would play, and reeltty shows a countdown.
@@ -81,6 +83,13 @@ autoplay = true
 [feed]
 shorts = false
 live = false
+
+# SponsorBlock: which parts of videos to skip. The categories are sponsor,
+# selfpromo, interaction, intro, outro, preview, hook, filler, and
+# music_offtopic.
+[sponsorblock]
+on = true
+categories = ["sponsor"]
 
 # Captions: the language, and if they are on when a video starts.
 # Captions made by a person come first, then automatic ones.

@@ -29,7 +29,7 @@ This document records the design decisions from the design session on 2026-10-26
 | Q3 | Data sources | yt-dlp for stream URLs. A custom InnerTube client for metadata. Both sit behind a `Source` trait. |
 | Q4 | Language | Rust with ratatui. |
 | Q5, Q24 | v1 features | See "Features". |
-| Q6 | Layout | Modal: a browse screen and a full-screen player. A mini-player (picture in picture) comes in v1.1. |
+| Q6 | Layout | Modal: a browse screen and a full-screen player. In v1.1, `esc` shrinks the player to a mini-player in a dock at the bottom right of the browse screen. See "Playback". |
 | Q7 | Keys | Vim keys for navigation, mpv keys for the player. All keys can be changed in the configuration file. |
 | Q8 | Storage | TOML configuration at `$XDG_CONFIG_HOME/reeltty/config.toml`. State in SQLite (`rusqlite`, bundled) at `$XDG_DATA_HOME/reeltty/reeltty.db`. |
 | Q9 | App structure | One binary on tokio. Elm-style: one `App` state, all events arrive as `Message` values on a channel. The UI thread never blocks. The frame writer has its own thread. |
@@ -120,6 +120,14 @@ SponsorBlock segments come from the privacy endpoint `/api/skipSegments/<hash pr
 - New segments for the same video (mpv's exact length can change them) keep the position state.
 - When the first segments come, a position in a segment skips it. This covers an intro at 0, a resume inside a segment, and segments that come after playback started.
 - If SponsorBlock does not answer in 5 seconds, or fails, the video plays without skips.
+
+The mini-player is the same player at another size. The app sends `Resize` with a smaller geometry, and the frame writer renders at that size. Nothing in the player or the Kitty code changes. The dock is the right third of the browse body (24 to 64 columns). The video sits in a box at the bottom of the dock, with the title, the progress bar, and the state under it. A dock column, not a box drawn over the list, keeps the list selection visible, and wide characters in the list cannot hide placeholder cells. The rules:
+
+- Keys: typing and the help come first, then the browse keys, then the player keys that browse does not use. `v` shows the player full size, and `x` stops it.
+- The next video (autoplay, `>`, `<`) stays in the mini-player. Opening a video from the list plays it full size. Opening the video that plays shows it full size, with no restart.
+- Thumbnails load while the mini-player plays.
+- The streams are still resolved for the full-size pane, so the full size stays sharp, with no new resolve.
+- Below 72 x 14 cells there is no dock. The sound plays on, mpv renders a small picture that nothing shows, and the status bar shows the title and the time.
 
 ### Terminal detection
 

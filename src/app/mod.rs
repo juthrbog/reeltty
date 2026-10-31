@@ -318,7 +318,8 @@ pub struct App {
     /// A short message for the status bar, cleared by the next key.
     pub status: Option<String>,
     pub thumbnails: Thumbnails,
-    /// The full-screen player, over everything else.
+    /// The player: full size over everything else, or in the mini-player
+    /// next to the browse screen.
     pub player: Option<PlayerState>,
     /// The caption language, such as `en`.
     pub captions_language: String,
@@ -411,7 +412,7 @@ impl App {
         {
             effects.insert(0, save);
         }
-        if self.thumbnails.enabled && self.player.is_none() {
+        if self.thumbnails.enabled && self.player.as_ref().is_none_or(|p| p.mini) {
             // The visible items and the next screen of them.
             let (items, selection, rows) = match self.screens.last() {
                 Some(Screen::Channel(s)) => (s.list.items.as_slice(), s.list.selection, self.rows(SCREEN_HEADER_ROWS)),
@@ -575,8 +576,13 @@ impl App {
         if key == KeyPress::ctrl('c') {
             return vec![Effect::Quit];
         }
-        if self.player.is_some() {
+        if self.player.as_ref().is_some_and(|p| !p.mini) {
             return self.on_player_key(key);
+        }
+        if self.player.is_some()
+            && let Some(effects) = self.on_mini_player_key(key)
+        {
+            return effects;
         }
         let action = self.keymap.action(key);
         if action == Some(Action::Refresh) {
@@ -988,6 +994,7 @@ impl App {
             self.status = Some(format!("Added to the queue. {} in the queue.", self.queue.len()));
         }
         self.queue_selection.clamp(self.queue.len(), self.plain_rows());
+        self.refresh_up_next();
     }
 
     fn on_queue_key(&mut self, action: Option<Action>) -> Option<Vec<Effect>> {
@@ -1143,6 +1150,19 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn loads_thumbnails_with_the_mini_player_but_not_the_full_one() {
+        let mut a = app();
+        a.thumbnails = Thumbnails::new(true);
+        a.update(Message::Input(Input::Resize { width: 100, height: 24 }));
+        let generation = search(&mut a, "rust");
+        a.play("v1".into(), "Title".into());
+        let effects = a.update(Message::SearchResult { generation, append: false, result: Ok(page_of(10, 0, false)) });
+        assert!(thumbnail_urls(&effects).is_empty());
+        let effects = a.update(Message::Input(Input::Key("esc".parse().unwrap())));
+        assert!(!thumbnail_urls(&effects).is_empty(), "{effects:?}");
     }
 
     #[test]
@@ -1460,7 +1480,7 @@ mod tests {
                 Effect::LoadRelated { session: 1, id: "v1".into() }
             ]
         );
-        assert_eq!(key(&mut a, "esc"), [Effect::Player(PlayerCommand::Stop)]);
+        assert_eq!(key(&mut a, "q"), [Effect::Player(PlayerCommand::Stop)]);
         assert!(matches!(a.screens.last(), Some(Screen::Video(_))));
         key(&mut a, "esc");
         assert!(a.screens.is_empty());

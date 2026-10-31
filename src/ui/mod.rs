@@ -12,18 +12,27 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Row, Table, Tabs};
 use unicode_width::UnicodeWidthStr as _;
 
+use crate::app::player::dock;
 use crate::app::{App, Tab};
 use crate::keymap::Action;
 
 pub fn view(app: &App, f: &mut Frame) {
-    if let Some(p) = &app.player {
+    if let Some(p) = app.player.as_ref().filter(|p| !p.mini) {
         return player::draw(app, p, f);
     }
     let [tabs, body, status] =
         Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)]).areas(f.area());
     draw_tabs(app, f, tabs);
-    draw_body(app, f, body);
-    draw_status(app, f, status);
+    let dock = app.player.as_ref().and_then(|_| dock(f.area().width, f.area().height));
+    match (&app.player, dock) {
+        (Some(p), Some(d)) => {
+            let [list, column] = Layout::horizontal([Constraint::Min(0), Constraint::Length(d.cols)]).areas(body);
+            draw_body(app, f, list);
+            player::draw_mini(app, p, f, column);
+        }
+        _ => draw_body(app, f, body),
+    }
+    draw_status(app, f, status, dock.is_none());
     if app.show_help {
         draw_help(app, f, body);
     }
@@ -53,7 +62,9 @@ fn draw_body(app: &App, f: &mut Frame, area: Rect) {
     }
 }
 
-fn draw_status(app: &App, f: &mut Frame, area: Rect) {
+/// The key hints and a message. With `no_dock`, the screen is too small for
+/// the mini-player, so the message can be the video that plays.
+fn draw_status(app: &App, f: &mut Frame, area: Rect, no_dock: bool) {
     let hint = |a: Action, label: &str| {
         app.keymap.first_key(a).map(|k| vec![Span::from(k.to_string()).bold(), Span::from(format!(" {label}  "))])
     };
@@ -70,6 +81,8 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect) {
         .status
         .clone()
         .map(|m| (m, false))
+        // Nothing else on screen shows the video, so it comes before lasting notes.
+        .or_else(|| app.player.as_ref().filter(|_| no_dock).map(player::status_message))
         .or_else(|| match app.screens.last() {
             Some(screen) => screens::status(screen),
             None => (app.tab == Tab::Search).then(|| search::status(&app.search)).flatten(),
@@ -661,6 +674,95 @@ mod tests {
             .take(2)
             .collect();
         insta::assert_snapshot!("queue_tab", render(&app, 60, 10));
+    }
+
+    /// Search results, and a video in the mini-player, on a `width` x `height` screen.
+    fn mini_app(width: u16, height: u16, streams: bool) -> App {
+        use crate::app::player::PlayerEvent;
+        use crate::source::streams::{FormatInfo, Streams};
+        let mut app = app_with_results(height);
+        app.update(Message::Input(Input::Resize { width, height }));
+        app.update(Message::Input(Input::CellSize { width: 10, height: 20 }));
+        app.play("v1".into(), "Big Buck Bunny".into());
+        if streams {
+            let streams = Streams {
+                video_url: "https://v".into(),
+                audio_url: None,
+                headers: Vec::new(),
+                available_at: None,
+                expires_at: None,
+                format: FormatInfo { width: Some(1280), height: Some(720), ..FormatInfo::default() },
+                chapters: Vec::new(),
+                channel: None,
+                duration_secs: None,
+                live: false,
+                qualities: Vec::new(),
+                captions: Vec::new(),
+            };
+            app.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(Box::new(streams)) });
+            for event in [PlayerEvent::FileLoaded, PlayerEvent::Duration(635_000), PlayerEvent::Position(65_000)] {
+                app.update(Message::Player { session: 1, event });
+            }
+        }
+        press(&mut app, "esc");
+        app
+    }
+
+    #[test]
+    fn mini_player_next_to_search_results() {
+        let app = mini_app(100, 24, true);
+        insta::assert_snapshot!(render(&app, 100, 24));
+        // The video cells are in the box, and nothing else names the video image.
+        let buf = buffer(&app, 100, 24);
+        let g = app.player.as_ref().unwrap().geometry;
+        let (r, gr, b) = kitty::id_color(kitty::VIDEO_ID);
+        let mut cells = 0;
+        for y in 0..24 {
+            for x in 0..100 {
+                if buf[(x, y)].fg == Color::Rgb(r, gr, b) && buf[(x, y)].symbol().starts_with(kitty::PLACEHOLDER) {
+                    assert!((g.x..g.x + g.cols).contains(&x) && (g.y..g.y + g.rows).contains(&y), "{x},{y}");
+                    cells += 1;
+                }
+            }
+        }
+        assert_eq!(cells, g.cols * g.rows);
+    }
+
+    #[test]
+    fn mini_player_before_and_after_playback() {
+        use crate::app::player::PlayerEvent;
+        let app = mini_app(80, 16, false);
+        insta::assert_snapshot!("mini_player_resolving", render(&app, 80, 16));
+        let mut app = mini_app(80, 16, true);
+        let videos: Vec<Video> = sample_results()
+            .into_iter()
+            .filter_map(|i| match i {
+                Item::Video(v) if v.kind == VideoKind::Normal => Some(v),
+                _ => None,
+            })
+            .collect();
+        app.update(Message::RelatedLoaded { session: 1, result: Ok(videos) });
+        app.update(Message::Player { session: 1, event: PlayerEvent::Ended });
+        insta::assert_snapshot!("mini_player_up_next", render(&app, 80, 16));
+    }
+
+    #[test]
+    fn a_small_screen_shows_the_mini_player_in_the_status_bar() {
+        let app = mini_app(60, 16, true);
+        let text = render(&app, 60, 16);
+        assert!(text.lines().last().unwrap().contains("▶ Big Buck Bunny 1:05 / 10:35"), "{text}");
+        assert!(!text.contains('▒'), "no video shows: {text}");
+        // A failure shows, in red.
+        let mut app = mini_app(60, 16, false);
+        let result = Err("private video".into());
+        app.update(Message::StreamsResolved { session: 1, now: 0, result });
+        let buf = buffer(&app, 60, 16);
+        let last: String = (0..60).map(|x| buf[(x, 15)].symbol()).collect();
+        assert!(last.contains("Cannot play Big Buck Bunny: private video"), "{last}");
+        assert_eq!(buf[(0, 15)].fg, Color::Red);
+        // Before the streams, it says so.
+        let text = render(&mini_app(60, 16, false), 60, 16);
+        assert!(text.contains("▶ Big Buck Bunny · finding the video streams…"), "{text}");
     }
 
     #[test]

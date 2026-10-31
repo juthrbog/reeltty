@@ -1,0 +1,28 @@
+---
+source: src/ui/mod.rs
+expression: "render(&app, 100, 24)"
+---
+ Search   Feed   Subscriptions   Playlists   Queue   History                                        
+┌Search: rust (6,192,373 results)─────────────────────────────────┐                                 
+│rust                                                             │                                 
+│Rust in 100 seconds                                              │                                 
+│  Fireship · 12:34 · 1.2M views · 3 years ago · 4K               │                                 
+│LIVE Lofi beats to code to                                       │                                 
+│  Lofi Girl · 32 watching · 4K                                   │                                 
+│MEMBERS Async Rust with a friend                                 │                                 
+│  Jon Gjengset and Ana · 12:34 · 1.2M views · 3 years ago        │                                 
+│CHANNEL Jon Gjengset ✓                                           │┌───────────────────────────────┐
+│  @jonhoo · 111K subscribers                                     ││▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+│PLAYLIST Crust of Rust                                           ││▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+│  Jon Gjengset · 44 videos                                       ││▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+│                                                                 ││▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+│                                                                 ││▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+│                                                                 ││▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+│                                                                 ││▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+│                                                                 ││▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+│                                                                 ││▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+│                                                                 │└───────────────────────────────┘
+│                                                                 │ Big Buck Bunny                  
+│                                                                 │ 1:05 ━━────────────────── 10:35 
+└─────────────────────────────────────────────────────────────────┘ Playing  720p  v full  x stop   
+                                                               ? help  / search  f filters  q quit

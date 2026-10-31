@@ -159,7 +159,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keymap::{Action, KeyPress};
+    use crate::keymap::{Action, KeyPress, PlayerAction};
 
     #[test]
     fn empty_file_gives_defaults() {
@@ -187,6 +187,20 @@ mod tests {
     }
 
     #[test]
+    fn reads_the_mini_player_keys() {
+        let c = Config::parse(
+            "[keys.browse]\nshow_player = [\"P\"]\nclose_player = [\"X\"]\n[keys.player]\nminimize = [\"i\"]",
+        )
+        .unwrap();
+        let km = c.keymap().unwrap();
+        let key = |s: &str| s.parse::<KeyPress>().unwrap();
+        assert_eq!(km.action(key("P")), Some(Action::ShowPlayer));
+        assert_eq!(km.action(key("X")), Some(Action::ClosePlayer));
+        assert_eq!(km.player.action(key("i")), Some(PlayerAction::Minimize));
+        assert_eq!(km.player.action(key("esc")), None);
+    }
+
+    #[test]
     fn rejects_unknown_fields_and_actions() {
         assert!(Config::parse("thumbnail = false").is_err());
         assert!(Config::parse("[keys.browse]\nfly = [\"f\"]").is_err());
@@ -194,9 +208,9 @@ mod tests {
 
     #[test]
     fn rejects_bad_keys() {
-        let err = Config::parse("[keys.browse]\ndown = [\"k\"]").unwrap_err();
+        let err = Config::parse("[keys.browse]\ndown = [\"k\"]\nup = [\"k\"]").unwrap_err();
         assert!(err.to_string().contains("bound to both"), "{err}");
-        let err = Config::parse("[keys.player]\nmute = [\"space\"]").unwrap_err();
+        let err = Config::parse("[keys.player]\nmute = [\"space\"]\nback = [\"space\"]").unwrap_err();
         assert!(err.to_string().contains("[keys.player]"), "{err}");
     }
 

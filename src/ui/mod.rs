@@ -113,30 +113,39 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect, no_dock: bool) {
     }
 }
 
-/// The width of one column in the help.
-const HELP_COLUMN: u16 = 40;
-
 /// The keys of the browse screen, then of the player. The player keys work
 /// in the mini-player too, when browse does not use them.
 fn draw_help(app: &App, f: &mut Frame, area: Rect) {
-    let row = |description: &str, keys: &[crate::keymap::KeyPress]| {
-        let keys = keys.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
-        Row::new([description.to_string(), keys])
-    };
-    let heading = |title: &str| Row::new([Line::from(title.to_string()).bold(), Line::default()]);
-    let mut rows = vec![heading("Browse")];
-    rows.extend(app.keymap.bindings().iter().map(|(a, keys)| row(a.description(), keys)));
-    rows.push(heading("Player"));
-    rows.extend(app.keymap.player.bindings().iter().map(|(a, keys)| row(a.description(), keys)));
+    let keys = |keys: &[crate::keymap::KeyPress]| keys.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
+    // A heading has no keys.
+    let mut entries: Vec<(String, Option<String>)> = vec![("Browse".into(), None)];
+    entries.extend(app.keymap.bindings().iter().map(|(a, k)| (a.description().to_string(), Some(keys(k)))));
+    entries.push(("Player".into(), None));
+    entries.extend(app.keymap.player.bindings().iter().map(|(a, k)| (a.description().to_string(), Some(keys(k)))));
+    let cells = |n: Option<usize>| u16::try_from(n.unwrap_or(0)).unwrap_or(u16::MAX);
+    let description_width = cells(entries.iter().map(|(d, _)| d.width()).max());
+    let keys_width = cells(entries.iter().map(|(_, k)| k.as_deref().map_or(0, str::width)).max());
+    // Two spaces after each column.
+    let column = description_width.saturating_add(keys_width).saturating_add(3);
     // As many columns as the height needs and the width allows.
     let fit = usize::from(area.height.saturating_sub(2)).max(1);
-    let most = usize::from(area.width.saturating_sub(2) / HELP_COLUMN).max(1);
-    let columns = rows.len().div_ceil(fit).clamp(1, most);
-    let per_column = rows.len().div_ceil(columns);
+    let most = usize::from(area.width.saturating_sub(2) / column.max(1)).max(1);
+    let columns = entries.len().div_ceil(fit).clamp(1, most);
+    let per_column = entries.len().div_ceil(columns);
     let height = u16::try_from(per_column).unwrap_or(u16::MAX).saturating_add(2);
-    let width = HELP_COLUMN * u16::try_from(columns).unwrap_or(1) + 2;
+    let width = column.saturating_mul(u16::try_from(columns).unwrap_or(1)).saturating_add(2);
     let popup = centered(area, width, height);
-    let block = Block::bordered().title("Keys");
+    let mut block = Block::bordered().title("Keys");
+    if per_column > fit {
+        block = block.title_bottom(Line::from(" More keys in a larger window ").dim());
+    }
+    let rows: Vec<Row> = entries
+        .into_iter()
+        .map(|(description, keys)| match keys {
+            Some(keys) => Row::new([description, keys]),
+            None => Row::new([Line::from(description).bold(), Line::default()]),
+        })
+        .collect();
     let inner = block.inner(popup);
     f.render_widget(Clear, popup);
     f.render_widget(block, popup);
@@ -145,7 +154,7 @@ fn draw_help(app: &App, f: &mut Frame, area: Rect) {
     let mut rows = rows.into_iter();
     for column in areas.iter() {
         let chunk: Vec<Row> = rows.by_ref().take(per_column).collect();
-        f.render_widget(Table::new(chunk, [Constraint::Length(20), Constraint::Min(0)]), *column);
+        f.render_widget(Table::new(chunk, [Constraint::Length(description_width), Constraint::Min(0)]), *column);
     }
 }
 
@@ -217,7 +226,10 @@ mod tests {
     fn help_overlay() {
         let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
         press(&mut app, "?");
-        insta::assert_snapshot!(render(&app, 130, 24));
+        insta::assert_snapshot!(render(&app, 120, 24));
+        // Smaller windows say that keys are missing.
+        assert!(render(&app, 80, 24).contains("More keys in a larger window"));
+        assert!(!render(&app, 120, 24).contains("More keys"));
     }
 
     fn sample_results() -> Vec<Item> {

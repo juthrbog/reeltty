@@ -189,6 +189,9 @@ struct SinkState {
     drawn: Drawn,
     /// The cells of the frame that the terminal has now.
     placed: Option<(u16, u16)>,
+    /// The screen shows other video cells now, so the render thread must
+    /// send a frame, even when the video is paused.
+    redraw: bool,
 }
 
 impl std::fmt::Debug for VideoSink {
@@ -209,6 +212,7 @@ impl VideoSink {
                 counter: 0,
                 drawn: Drawn::Unknown,
                 placed: None,
+                redraw: false,
             }),
         }
     }
@@ -229,7 +233,12 @@ impl VideoSink {
     /// reason, and the screen is blank until the next frame.
     pub fn set_drawn(&self, cells: Option<(u16, u16)>) {
         let mut s = self.lock();
-        s.drawn = cells.map_or(Drawn::Hidden, |(cols, rows)| Drawn::Cells(cols, rows));
+        let drawn = cells.map_or(Drawn::Hidden, |(cols, rows)| Drawn::Cells(cols, rows));
+        // A frame for these cells may have been dropped before this call.
+        if drawn != s.drawn && cells.is_some() {
+            s.redraw = true;
+        }
+        s.drawn = drawn;
         if cells.is_some() && s.placed.is_some_and(|placed| Some(placed) != cells) {
             s.placed = None;
             let delete = delete(VIDEO_ID);
@@ -237,6 +246,12 @@ impl VideoSink {
                 tracing::warn!("cannot delete the video image: {e}");
             }
         }
+    }
+
+    /// Whether the render thread must send a frame for new video cells on
+    /// screen. It is asked once.
+    pub fn take_redraw(&self) -> bool {
+        std::mem::take(&mut self.lock().redraw)
     }
 
     /// Sends a frame of `session`, if it is still open, the screen shows
@@ -428,6 +443,14 @@ mod tests {
         sink.set_drawn(None);
         assert_eq!(present((2, 1)), Presented::Hidden);
         assert_eq!(out.take(), "");
+        // When video cells show again, the render thread is asked for a frame,
+        // also if it was told Hidden just before.
+        sink.take_redraw();
+        sink.set_drawn(Some((4, 2)));
+        assert!(sink.take_redraw());
+        assert!(!sink.take_redraw(), "once");
+        sink.set_drawn(Some((4, 2)));
+        assert!(!sink.take_redraw(), "nothing changed");
         sink.close();
     }
 

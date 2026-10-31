@@ -1,28 +1,28 @@
 ---
 source: src/ui/mod.rs
-expression: "render(&app, 130, 24)"
+expression: "render(&app, 120, 24)"
 ---
- Search   Feed   Subscriptions   Playlists   Queue   History                                                                      
-┌Search──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│Press / to search, f for filters.                                                                                               │
-│   ┌Keys────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐   │
-│   │Browse                                  video details        i                  back 5 s             left               │   │
-│   │quit                 q, ctrl-c          go to the channel    c                  forward 1 min        up                 │   │
-│   │move up              k, up              subscribe or save    s                  back 1 min           down               │   │
-│   │move down            j, down            add to the queue     a                  volume up            0, *               │   │
-│   │go to the top        g, home            delete an entry      d                  volume down          9, /               │   │
-│   │go to the bottom     G, end             full-size player     v                  mute or unmute       m                  │   │
-│   │half a page up       ctrl-u, pgup       stop mini-player     x                  faster               ]                  │   │
-│   │half a page down     ctrl-d, pgdn       comments             C                  slower               [                  │   │
-│   │open                 enter, l           sort comments        o                  normal speed         backspace          │   │
-│   │go back              esc, h             show or hide help    ?                  next chapter         pgdn               │   │
-│   │search               /                  Player                                  previous chapter     pgup               │   │
-│   │search filters       f                  stop and go back     q                  captions on or off   c                  │   │
-│   │next tab             tab                mini-player          esc                video quality        v                  │   │
-│   │previous tab         shift-tab          pause or play        space, p           next video           >                  │   │
-│   │refresh              r                  forward 5 s          right              previous video       <                  │   │
-│   └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                                                                │
-│                                                                                                                                │
-└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-                                                                                             ? help  / search  f filters  q quit
+ Search   Feed   Subscriptions   Playlists   Queue   History                                                            
+┌Search────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Press / to search, f for filters.                                                                                     │
+│        ┌Keys───────────────────────────────────────────────────────────────────────────────────────────────┐         │
+│        │Browse                           video details      i             back 5 s           left          │         │
+│        │quit               q, ctrl-c     go to the channel  c             forward 1 min      up            │         │
+│        │move up            k, up         subscribe or save  s             back 1 min         down          │         │
+│        │move down          j, down       add to the queue   a             volume up          0, *          │         │
+│        │go to the top      g, home       delete an entry    d             volume down        9, /          │         │
+│        │go to the bottom   G, end        full-size player   v             mute or unmute     m             │         │
+│        │half a page up     ctrl-u, pgup  stop mini-player   x             faster             ]             │         │
+│        │half a page down   ctrl-d, pgdn  comments           C             slower             [             │         │
+│        │open               enter, l      sort comments      o             normal speed       backspace     │         │
+│        │go back            esc, h        show or hide help  ?             next chapter       pgdn          │         │
+│        │search             /             Player                           previous chapter   pgup          │         │
+│        │search filters     f             stop and go back   q             captions on or off c             │         │
+│        │next tab           tab           mini-player        esc           video quality      v             │         │
+│        │previous tab       shift-tab     pause or play      space, p      next video         >             │         │
+│        │refresh            r             forward 5 s        right         previous video     <             │         │
+│        └───────────────────────────────────────────────────────────────────────────────────────────────────┘         │
+│                                                                                                                      │
+│                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                                                                   ? help  / search  f filters  q quit

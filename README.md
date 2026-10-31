@@ -25,7 +25,7 @@ cargo build --release
 ./target/release/reeltty
 ```
 
-Press `?` in reeltty to see the keys.
+Press `?` in reeltty to see the keys of the browse screen and of the player.
 
 To import your YouTube subscriptions, export them with [Google Takeout](https://takeout.google.com/) (choose "YouTube and YouTube Music", then "subscriptions"). Unpack the archive, then run:
 

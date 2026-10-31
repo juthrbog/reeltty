@@ -92,6 +92,11 @@ impl Frontend for TerminalFrontend {
     }
 
     fn draw(&mut self, app: &App) -> Result<()> {
+        // Before the stdout lock: the video thread takes the sink lock first,
+        // then stdout, so this order cannot deadlock.
+        if let Some(video) = &self.video {
+            video.set_drawn(crate::ui::video_cells(app));
+        }
         // The video thread writes frames to stdout too. Holding the stdout
         // lock (it is reentrant) keeps its frames out of the middle of a draw.
         let _stdout = std::io::stdout().lock();

@@ -301,9 +301,12 @@ fn render_loop(session: u64, mut mpv_renderer: Renderer, shared: &Shared, sink: 
             frame = Frame::new(geometry.width, geometry.height);
         }
         let new_frame = woke && mpv_renderer.has_frame();
+        // The screen shows other video cells. The frame for them can have
+        // been dropped before the screen drew them.
+        let wanted = sink.take_redraw();
         // After a resize, render the last frame again, so a paused video is
         // shown at the new size.
-        if !(new_frame || (resized || redraw) && rendered) {
+        if !(new_frame || (resized || redraw || wanted) && rendered) {
             continue;
         }
         if let Err(e) = mpv_renderer.render(&mut frame) {
@@ -322,7 +325,8 @@ fn render_loop(session: u64, mut mpv_renderer: Renderer, shared: &Shared, sink: 
                 skipped += 1;
                 redraw = true;
             }
-            Ok(Presented::Closed) => redraw = false,
+            // New cells on screen (`take_redraw`) or a new frame bring the video back.
+            Ok(Presented::Closed | Presented::Hidden) => redraw = false,
             Err(e) => {
                 if !write_failed {
                     tracing::warn!("cannot send a video frame: {e:#}");

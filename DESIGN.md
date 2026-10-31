@@ -137,6 +137,7 @@ The mini-player is the same player at another size. The app sends `Resize` with 
 - Thumbnails load while the mini-player plays.
 - The streams are still resolved for the full-size pane, so the full size stays sharp, with no new resolve.
 - Below 72 x 14 cells there is no dock. The sound plays on, mpv renders a small picture that nothing shows, and the status bar shows the title and the time.
+- A size change (the mini-player, full size, or a terminal resize) must not show a frame in the wrong grid of placeholders, where it is cropped or stretched. Before each draw, the frontend tells the video sink which cells it draws. The sink drops frames of other sizes, and deletes the frame the terminal has when the size changes, so the video is blank for one frame instead. The frontend does this before it takes the stdout lock, because the render thread takes the sink lock first and stdout second.
 
 ### Terminal detection
 

@@ -322,7 +322,8 @@ fn render_loop(session: u64, mut mpv_renderer: Renderer, shared: &Shared, sink: 
                 skipped += 1;
                 redraw = true;
             }
-            Ok(Presented::Closed) => redraw = false,
+            // A size change or a new frame brings the video back.
+            Ok(Presented::Closed | Presented::Hidden) => redraw = false,
             Err(e) => {
                 if !write_failed {
                     tracing::warn!("cannot send a video frame: {e:#}");

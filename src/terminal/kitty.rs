@@ -151,10 +151,22 @@ impl Uploads {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Presented {
     Shown,
-    /// The terminal has not read the last frames yet, so this one was dropped.
+    /// The terminal has not read the last frames yet, or the screen does
+    /// not show cells of this size yet, so this one was dropped.
     Skipped,
+    /// The screen shows no video now, so this one was dropped.
+    Hidden,
     /// The video was closed, or another one started.
     Closed,
+}
+
+/// What the screen shows of the video.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Drawn {
+    /// The frontend has not said, so every frame goes.
+    Unknown,
+    Hidden,
+    Cells(u16, u16),
 }
 
 /// The terminal has not read this many frames yet: drop the next one.
@@ -174,6 +186,9 @@ struct SinkState {
     /// Frames that the terminal did not read yet, with their session.
     unread: VecDeque<(u64, String)>,
     counter: u64,
+    drawn: Drawn,
+    /// The cells of the frame that the terminal has now.
+    placed: Option<(u16, u16)>,
 }
 
 impl std::fmt::Debug for VideoSink {
@@ -186,7 +201,16 @@ impl VideoSink {
     /// Writes the escapes to `out`, which must be the terminal (`stdout`)
     /// outside tests.
     pub fn new(out: Box<dyn Write + Send>) -> Self {
-        Self { state: Mutex::new(SinkState { out, session: None, unread: VecDeque::new(), counter: 0 }) }
+        Self {
+            state: Mutex::new(SinkState {
+                out,
+                session: None,
+                unread: VecDeque::new(),
+                counter: 0,
+                drawn: Drawn::Unknown,
+                placed: None,
+            }),
+        }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, SinkState> {
@@ -198,12 +222,34 @@ impl VideoSink {
         self.lock().session = Some(session);
     }
 
-    /// Sends a frame of `session`, if it is still open and the terminal
-    /// keeps up.
+    /// Says which video cells the screen shows, before the frontend draws
+    /// them. A frame for other cells waits: in the wrong grid of
+    /// placeholders, it shows cropped or stretched. When the screen shows
+    /// another size, the frame that the terminal has is deleted for the same
+    /// reason, and the screen is blank until the next frame.
+    pub fn set_drawn(&self, cells: Option<(u16, u16)>) {
+        let mut s = self.lock();
+        s.drawn = cells.map_or(Drawn::Hidden, |(cols, rows)| Drawn::Cells(cols, rows));
+        if cells.is_some() && s.placed.is_some_and(|placed| Some(placed) != cells) {
+            s.placed = None;
+            let delete = delete(VIDEO_ID);
+            if let Err(e) = s.out.write_all(delete.as_bytes()).and_then(|()| s.out.flush()) {
+                tracing::warn!("cannot delete the video image: {e}");
+            }
+        }
+    }
+
+    /// Sends a frame of `session`, if it is still open, the screen shows
+    /// video cells of its size, and the terminal keeps up.
     pub fn present(&self, session: u64, rgba: &[u8], size: (u16, u16), cells: (u16, u16)) -> anyhow::Result<Presented> {
         let mut s = self.lock();
         if s.session != Some(session) {
             return Ok(Presented::Closed);
+        }
+        match s.drawn {
+            Drawn::Hidden => return Ok(Presented::Hidden),
+            Drawn::Cells(cols, rows) if (cols, rows) != cells => return Ok(Presented::Skipped),
+            Drawn::Cells(..) | Drawn::Unknown => {}
         }
         s.unread.retain(|(_, name)| shm::exists(name));
         if s.unread.iter().filter(|(id, _)| *id == session).count() >= MAX_UNREAD_FRAMES {
@@ -215,12 +261,14 @@ impl VideoSink {
         s.unread.push_back((session, name.clone()));
         let escape = video_frame(&name, size.0, size.1, cells.0, cells.1);
         s.out.write_all(escape.as_bytes()).and_then(|()| s.out.flush())?;
+        s.placed = Some(cells);
         Ok(Presented::Shown)
     }
 
     /// Stops all frames and deletes the video image.
     pub fn close(&self) {
         let mut s = self.lock();
+        s.placed = None;
         if s.session.take().is_some() {
             let delete = delete(VIDEO_ID);
             if let Err(e) = s.out.write_all(delete.as_bytes()).and_then(|()| s.out.flush()) {
@@ -346,6 +394,41 @@ mod tests {
         sink.reap(5, Duration::from_millis(20));
         assert!(sink.lock().unread.is_empty());
         assert!(names.iter().all(|n| !shm::exists(n)));
+    }
+
+    #[test]
+    fn video_sink_sends_only_frames_for_the_cells_on_screen() {
+        let out = Shared::default();
+        let sink = Arc::new(VideoSink::new(Box::new(out.clone())));
+        let present = |cells| sink.present(1, &[0; 4], (1, 1), cells).unwrap();
+        let read = |sink: &VideoSink| {
+            for (_, name) in sink.lock().unread.drain(..) {
+                shm::unlink(&name);
+            }
+        };
+        sink.open(1);
+        sink.set_drawn(Some((4, 2)));
+        assert_eq!(present((4, 2)), Presented::Shown);
+        read(&sink);
+        out.take();
+        // The app shrinks the video, and the render thread is first.
+        assert_eq!(present((2, 1)), Presented::Skipped);
+        assert_eq!(out.take(), "");
+        // The screen draws the small cells: the big frame goes.
+        sink.set_drawn(Some((2, 1)));
+        assert_eq!(out.take(), delete(VIDEO_ID));
+        assert_eq!(present((4, 2)), Presented::Skipped, "a frame of the old size");
+        assert_eq!(present((2, 1)), Presented::Shown);
+        read(&sink);
+        // The same size again deletes nothing.
+        out.take();
+        sink.set_drawn(Some((2, 1)));
+        assert_eq!(out.take(), "");
+        // No video on screen.
+        sink.set_drawn(None);
+        assert_eq!(present((2, 1)), Presented::Hidden);
+        assert_eq!(out.take(), "");
+        sink.close();
     }
 
     #[test]

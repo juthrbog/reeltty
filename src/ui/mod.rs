@@ -12,7 +12,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Row, Table, Tabs};
 use unicode_width::UnicodeWidthStr as _;
 
-use crate::app::player::dock;
+use crate::app::player::{Phase, dock};
 use crate::app::{App, Tab};
 use crate::keymap::Action;
 
@@ -36,6 +36,15 @@ pub fn view(app: &App, f: &mut Frame) {
     if app.show_help {
         draw_help(app, f, body);
     }
+}
+
+/// The size in cells of the video that `view` draws, or `None` when it
+/// draws no video.
+pub fn video_cells(app: &App) -> Option<(u16, u16)> {
+    let p = app.player.as_ref().filter(|p| p.is_running())?;
+    let up_next = p.phase == Phase::Ended && p.up_next.is_some();
+    let no_dock = p.mini && dock(app.width, app.height).is_none();
+    (!up_next && !no_dock).then_some((p.geometry.cols, p.geometry.rows))
 }
 
 fn draw_tabs(app: &App, f: &mut Frame, area: Rect) {
@@ -104,27 +113,35 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect, no_dock: bool) {
     }
 }
 
+/// The width of one column in the help.
+const HELP_COLUMN: u16 = 40;
+
+/// The keys of the browse screen, then of the player. The player keys work
+/// in the mini-player too, when browse does not use them.
 fn draw_help(app: &App, f: &mut Frame, area: Rect) {
-    let rows: Vec<Row> = app
-        .keymap
-        .bindings()
-        .iter()
-        .map(|(action, keys)| {
-            let keys = keys.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
-            Row::new([action.description().to_string(), keys])
-        })
-        .collect();
-    // Two columns when one does not fit.
-    let columns = if rows.len() + 2 > usize::from(area.height) { 2 } else { 1 };
+    let row = |description: &str, keys: &[crate::keymap::KeyPress]| {
+        let keys = keys.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
+        Row::new([description.to_string(), keys])
+    };
+    let heading = |title: &str| Row::new([Line::from(title.to_string()).bold(), Line::default()]);
+    let mut rows = vec![heading("Browse")];
+    rows.extend(app.keymap.bindings().iter().map(|(a, keys)| row(a.description(), keys)));
+    rows.push(heading("Player"));
+    rows.extend(app.keymap.player.bindings().iter().map(|(a, keys)| row(a.description(), keys)));
+    // As many columns as the height needs and the width allows.
+    let fit = usize::from(area.height.saturating_sub(2)).max(1);
+    let most = usize::from(area.width.saturating_sub(2) / HELP_COLUMN).max(1);
+    let columns = rows.len().div_ceil(fit).clamp(1, most);
     let per_column = rows.len().div_ceil(columns);
     let height = u16::try_from(per_column).unwrap_or(u16::MAX).saturating_add(2);
-    let width = 46 * u16::try_from(columns).unwrap_or(1) + 2;
+    let width = HELP_COLUMN * u16::try_from(columns).unwrap_or(1) + 2;
     let popup = centered(area, width, height);
     let block = Block::bordered().title("Keys");
     let inner = block.inner(popup);
     f.render_widget(Clear, popup);
     f.render_widget(block, popup);
-    let areas = Layout::horizontal(vec![Constraint::Ratio(1, 2); columns]).split(inner);
+    let ratio = u32::try_from(columns).unwrap_or(1);
+    let areas = Layout::horizontal(vec![Constraint::Ratio(1, ratio); columns]).split(inner);
     let mut rows = rows.into_iter();
     for column in areas.iter() {
         let chunk: Vec<Row> = rows.by_ref().take(per_column).collect();
@@ -200,7 +217,7 @@ mod tests {
     fn help_overlay() {
         let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
         press(&mut app, "?");
-        insta::assert_snapshot!(render(&app, 100, 20));
+        insta::assert_snapshot!(render(&app, 130, 24));
     }
 
     fn sample_results() -> Vec<Item> {
@@ -807,6 +824,28 @@ mod tests {
             }
         }
         assert_eq!(cells, g.cols * g.rows);
+    }
+
+    #[test]
+    fn video_cells_follow_what_view_draws() {
+        use crate::app::player::PlayerEvent;
+        let app = playing_app();
+        let g = app.player.as_ref().unwrap().geometry;
+        assert_eq!(video_cells(&app), Some((g.cols, g.rows)));
+        // The mini-player on a screen with room for the dock, then without.
+        let mut app = mini_app(100, 24, true);
+        let g = app.player.as_ref().unwrap().geometry;
+        assert_eq!(video_cells(&app), Some((g.cols, g.rows)));
+        assert_eq!(video_cells(&mini_app(60, 16, true)), None);
+        // Before mpv runs, and the up next list.
+        assert_eq!(video_cells(&mini_app(100, 24, false)), None);
+        let videos = sample_results().into_iter().filter_map(|i| match i {
+            Item::Video(v) if v.kind == VideoKind::Normal => Some(v),
+            _ => None,
+        });
+        app.update(Message::RelatedLoaded { session: 1, result: Ok(videos.collect()) });
+        app.update(Message::Player { session: 1, event: PlayerEvent::Ended });
+        assert_eq!(video_cells(&app), None);
     }
 
     #[test]

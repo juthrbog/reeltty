@@ -131,6 +131,8 @@ impl YtDlp {
 struct Info {
     id: Option<String>,
     title: Option<String>,
+    /// The title without the date and time that yt-dlp adds for a live stream.
+    fulltitle: Option<String>,
     description: Option<String>,
     channel: Option<String>,
     channel_id: Option<String>,
@@ -298,7 +300,7 @@ pub fn parse_video(json: &[u8]) -> Result<VideoDetails> {
     chapters.sort_by_key(|c| c.start_secs);
     Ok(VideoDetails {
         id,
-        title: info.title.unwrap_or_default(),
+        title: info.fulltitle.or(info.title).unwrap_or_default(),
         channel: channel_ref(info.channel.or(info.uploader), info.channel_id, info.uploader_id),
         subscribers_text: info.channel_follower_count.map(subscribers_text),
         views_text,
@@ -660,11 +662,13 @@ mod tests {
 
     #[test]
     fn reads_a_live_video() {
-        let json = br#"{"id": "v", "title": "Radio", "is_live": true, "live_status": "is_live",
+        // yt-dlp adds the date and time to the title of a live stream, but not to `fulltitle`.
+        let json = br#"{"id": "v", "title": "Radio 2026-10-31 10:54", "fulltitle": "Radio", "is_live": true, "live_status": "is_live",
             "duration": null, "view_count": 50, "concurrent_view_count": 10132, "upload_date": "20260819",
             "uploader_id": "UC-old", "uploader": "Up", "chapters": null, "thumbnails": null}"#;
         let v = parse_video(json).unwrap();
         assert!(v.live);
+        assert_eq!(v.title, "Radio");
         assert_eq!(v.duration_secs, None);
         assert_eq!(v.views_text.as_deref(), Some("10,132 watching now"));
         assert_eq!(v.date_text.as_deref(), Some("Started streaming on Aug 19, 2026"));

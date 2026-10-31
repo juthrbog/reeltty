@@ -110,6 +110,12 @@ pub enum Message {
         session: u64,
         result: Result<Vec<Video>, String>,
     },
+    /// The real title of the video of `session`, from the same call as the
+    /// related videos.
+    VideoTitle {
+        session: u64,
+        title: String,
+    },
     /// The reply to `Effect::LoadSegments`.
     SegmentsLoaded {
         session: u64,
@@ -220,7 +226,7 @@ pub enum Effect {
         session: u64,
         count: u8,
     },
-    /// Find the videos related to the one that plays.
+    /// Find the videos related to the one that plays, and its real title.
     LoadRelated {
         session: u64,
         id: String,
@@ -546,6 +552,7 @@ impl App {
             Message::Tick { session, now } => self.on_tick(session, now),
             Message::Player { session, event } => self.on_player_event(session, event),
             Message::RelatedLoaded { session, result } => self.on_related(session, result),
+            Message::VideoTitle { session, title } => self.on_video_title(session, title),
             Message::SegmentsLoaded { session, result } => self.on_segments(session, result),
             Message::FeedLoading { count } => self.on_feed_loading(count),
             Message::FeedChannelLoaded { channel_id, fetched_at, result } => {

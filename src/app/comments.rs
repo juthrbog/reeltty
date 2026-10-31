@@ -117,16 +117,18 @@ impl CommentsState {
                     self.sorts = page.sorts;
                 }
                 self.note = page.note;
-                self.continuation = page.continuation;
                 let rows = self.fresh(page.comments);
+                // A page with no comments to show ends the list, so that
+                // empty pages cannot load one after another by themselves.
+                self.continuation = page.continuation.filter(|_| !rows.is_empty());
                 self.rows.extend(rows);
             }
             CommentsSlot::More => {
                 self.loading = Loading::Idle;
-                let had = page.comments.len();
                 let rows = self.fresh(page.comments);
-                // A page of repeats only: YouTube can repeat pages forever.
-                self.continuation = if had > 0 && rows.is_empty() { None } else { page.continuation };
+                // A page of repeats only, or an empty one, ends the list:
+                // YouTube can repeat pages forever.
+                self.continuation = page.continuation.filter(|_| !rows.is_empty());
                 self.rows.extend(rows);
             }
             CommentsSlot::Replies { parent } => {
@@ -194,6 +196,7 @@ impl CommentsState {
         }
         let token = self.continuation.clone()?;
         self.loading = Loading::MorePages;
+        self.error = None;
         Some(CommentsLoad { slot: CommentsSlot::More, from: CommentsFrom::Token(token) })
     }
 
@@ -353,6 +356,14 @@ mod tests {
         s.add_page(CommentsSlot::More, page(&["c1", "n1"], Some("p4")));
         assert_eq!(s.continuation, None);
         assert_eq!(s.navigate(Action::Bottom, 6), Some(None));
+        // An empty page with a token ends the list too, and loads nothing by itself.
+        let mut s = CommentsState::loading(1);
+        assert_eq!(s.add_page(CommentsSlot::First, page(&[], Some("p2"))), None);
+        let mut s = CommentsState::loading(1);
+        s.add_page(CommentsSlot::First, page(&["a"], Some("p2")));
+        s.loading = Loading::MorePages;
+        assert_eq!(s.add_page(CommentsSlot::More, page(&[], Some("p3"))), None);
+        assert_eq!(s.continuation, None);
         assert_eq!(s.navigate(Action::Refresh, 6), None);
     }
 
@@ -428,6 +439,13 @@ mod tests {
         let mut s = CommentsState::loading(1);
         s.fail(&CommentsSlot::First, "down".into());
         assert_eq!((s.loading, s.error.as_deref()), (Loading::Idle, Some("down")));
+        // A new try clears the error.
+        let mut s = CommentsState::loading(1);
+        s.add_page(CommentsSlot::First, page(&["a"], Some("p2")));
+        s.loading = Loading::MorePages;
+        s.fail(&CommentsSlot::More, "down".into());
+        assert!(s.navigate(Action::Down, 6).flatten().is_some());
+        assert_eq!(s.error, None);
         s.loading_replies = Some("a".into());
         s.fail(&CommentsSlot::Replies { parent: "a".into() }, "x".into());
         assert_eq!(s.loading_replies, None);

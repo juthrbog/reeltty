@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use super::text::{array, channel_ref, clean, is_bidi_control, str_at, text, text_at, thumbnails};
+use super::text::{array, channel_ref, clean, is_bidi_control, str_at, strip_bidi_controls, text, text_at, thumbnails};
 use crate::source::model::{ChannelRef, Chapter, Description, Item, Link, LinkTarget, Video, VideoDetails, VideoKind};
 use crate::source::{Result, SourceError};
 
@@ -51,7 +51,9 @@ pub fn details(next: &Value, player: Option<&Value>) -> Result<VideoDetails> {
         likes_text: likes,
         live,
         description: description(&secondary["attributedDescription"], &id)
-            .or_else(|| str_at(pd, "/shortDescription").map(|s| Description { text: s.to_string(), links: Vec::new() }))
+            .or_else(|| {
+                str_at(pd, "/shortDescription").map(|s| Description { text: strip_bidi_controls(s), links: Vec::new() })
+            })
             .unwrap_or_default(),
         chapters: chapters(next),
         thumbnails: thumbnails(pd, "/thumbnail/thumbnails"),
@@ -517,6 +519,8 @@ mod tests {
         assert_eq!(d.channel, Some(ChannelRef { id: Some("UCp".into()), name: "Someone".into(), handle: None }));
         assert_eq!(d.views_text.as_deref(), Some("1,234,567 views"));
         assert_eq!(d.description.text, "Plain text");
+        let player = json!({"videoDetails": {"videoId": "abc", "shortDescription": "a\u{202E}b"}});
+        assert_eq!(details(&empty_next(), Some(&player)).unwrap().description.text, "ab");
         assert!(d.chapters.is_empty());
 
         let player = json!({"videoDetails": {"videoId": "abc", "lengthSeconds": "1120"}});

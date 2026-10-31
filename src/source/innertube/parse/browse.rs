@@ -3,7 +3,9 @@
 use serde_json::Value;
 
 use super::items;
-use super::text::{array, channel_ref, clean, continuation_token, handle, str_at, text, text_at, thumbnails};
+use super::text::{
+    array, channel_ref, clean, continuation_token, handle, str_at, strip_bidi_controls, text, text_at, thumbnails,
+};
 use crate::source::model::{ChannelInfo, ChannelPage, ChannelRef, Item, ItemPage, PlaylistInfo, PlaylistPage};
 use crate::source::{Result, SourceError};
 
@@ -94,7 +96,10 @@ fn channel_info(response: &Value) -> Result<ChannelInfo> {
         handle: handle_text,
         subscribers_text,
         videos_text,
-        description: str_at(m, "/description").map(str::trim).filter(|d| !d.is_empty()).map(str::to_string),
+        description: str_at(m, "/description")
+            .map(strip_bidi_controls)
+            .map(|d| d.trim().to_string())
+            .filter(|d| !d.is_empty()),
         verified: verified(header),
         avatar,
     })
@@ -171,9 +176,9 @@ fn playlist_info(response: &Value) -> Result<PlaylistInfo> {
     }
 
     let description = str_at(m, "/description")
-        .map(str::trim)
+        .map(strip_bidi_controls)
+        .map(|d| d.trim().to_string())
         .filter(|d| !d.is_empty())
-        .map(str::to_string)
         .or_else(|| text_at(primary, "/description"));
     let mut thumbs = thumbnails(header, "/heroImage/contentPreviewImageViewModel/image/sources");
     if thumbs.is_empty() {

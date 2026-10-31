@@ -220,7 +220,7 @@ fn draw_comments(app: &App, screen: &VideoScreen, list: &CommentsState, f: &mut 
     if list.rows.is_empty() {
         let text = match (&list.error, list.loading, &list.note) {
             (Some(e), _, _) => Paragraph::new(format!("Could not load the comments: {e}")).red(),
-            (None, Loading::FirstPage, _) => Paragraph::new("Loading comments...").dim(),
+            (None, Loading::FirstPage | Loading::MorePages, _) => Paragraph::new("Loading comments...").dim(),
             (None, _, Some(note)) => Paragraph::new(note.clone()).dim(),
             (None, _, None) => Paragraph::new("No comments.").dim(),
         };

@@ -15,6 +15,11 @@ pub fn is_bidi_control(c: char) -> bool {
     matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
 }
 
+/// Removes direction controls. Newlines and spaces stay.
+pub fn strip_bidi_controls(s: &str) -> String {
+    s.chars().filter(|&c| !is_bidi_control(c)).collect()
+}
+
 /// Removes direction marks and controls, and spaces at the ends.
 pub fn clean(s: &str) -> String {
     s.chars().filter(|&c| !BIDI_MARKS.contains(&c) && !is_bidi_control(c)).collect::<String>().trim().to_string()

@@ -64,6 +64,7 @@ yt-dlp also needs the yt-dlp-ejs scripts for full YouTube support. Check that Ho
 The release has a PKGBUILD and its `.SRCINFO` (as `SRCINFO`). They build from the source archive and run `cargo test`. To publish to the AUR, review them, copy them into the AUR repository of reeltty (renaming `SRCINFO` to `.SRCINFO`), and push. The release workflow does not push to the AUR.
 
 - With rustup, `rust-toolchain.toml` picks the Rust version that CI uses. With the `rust` package, it must be at least the `rust-version` in `Cargo.toml`.
+- A prerelease such as `v0.2.0-rc.1` gets the pkgver `0.2.0rc1`. pkgver cannot hold a hyphen, and pacman sorts `0.2.0rc1` before `0.2.0`, so the final release is an upgrade.
 - `options=('!lto')` is needed: rusqlite builds SQLite from C, and with LTO, makepkg's `CFLAGS` make GCC bitcode that the Rust linker cannot read.
 
 ## Test the release setup

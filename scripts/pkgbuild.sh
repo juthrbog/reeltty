@@ -6,8 +6,9 @@
 #
 # VERSION is the version without "v", for example 0.1.0. SOURCE is the
 # source archive of the release, reeltty_VERSION_source.tar.gz. A version
-# with a hyphen, such as 0.2.0-rc.1, gets a pkgver with an underscore,
-# because pkgver cannot hold a hyphen.
+# with a hyphen, such as 0.2.0-rc.1, gets the pkgver 0.2.0rc1: pkgver cannot
+# hold a hyphen, and pacman sorts 0.2.0rc1 before 0.2.0 (but 0.2.0_rc.1
+# after it).
 set -euo pipefail
 
 if [[ $# -ne 3 ]]; then
@@ -22,7 +23,11 @@ if [[ ! "$sum" =~ ^[0-9a-f]{64}$ ]]; then
   echo "no checksum for $source" >&2
   exit 1
 fi
-pkgver="${version//-/_}"
+pkgver="${version%%-*}"
+if [[ "$version" == *-* ]]; then
+  suffix="${version#*-}"
+  pkgver+="${suffix//[-.]/}"
+fi
 url="https://github.com/juthrbog/reeltty"
 desc="Keyboard-driven YouTube player that runs in the terminal"
 tarball="reeltty-${version}.tar.gz::${url}/releases/download/v${version}/reeltty_${version}_source.tar.gz"

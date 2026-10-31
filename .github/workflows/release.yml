@@ -151,10 +151,14 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends libmpv2
           tar -xzf reeltty_*.tar.gz
-          ldd ./reeltty
-          ldd ./reeltty | grep -q 'libmpv.so.2 => /'
-          ./reeltty --version
-          ./reeltty --version | grep -Eq '^reeltty [0-9]+\.[0-9]+\.[0-9]+'
+          # Capture first: grep -q in a pipe can stop reading early, and
+          # with pipefail, the writer's SIGPIPE fails the step.
+          libs="$(ldd ./reeltty)"
+          echo "$libs"
+          grep -q 'libmpv.so.2 => /' <<< "$libs"
+          version="$(./reeltty --version)"
+          echo "$version"
+          grep -Eq '^reeltty [0-9]+\.[0-9]+\.[0-9]+' <<< "$version"
 
   # The source archive, the Homebrew formula and the PKGBUILD. The formula
   # and the PKGBUILD build from the source archive.

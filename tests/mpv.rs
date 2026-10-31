@@ -472,6 +472,10 @@ mod player {
         let segments = vec![sponsor(3000, 9000)];
         player.command(&PlayerCommand::Segments { segments: segments.clone(), continues: false });
         wait_for(&rx, |e| *e == PlayerEvent::FileLoaded);
+        // The event thread takes the segments with the first position. A seek
+        // before that lands where the first segments come, and that skips,
+        // as for an intro at 0. A slow machine can get there first.
+        wait_for(&rx, |e| position(e).is_some());
         player.command(&PlayerCommand::SeekTo { secs: 4 });
         let mut events = events_until(&rx, |e| position(e).is_some_and(|ms| ms >= 5000));
         let other = "av://lavfi:testsrc=size=160x120:rate=30:duration=10";

@@ -6,23 +6,23 @@ expression: "render(&app, 120, 24)"
 ┌Search────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │Press / to search, f for filters.                                                                                     │
 │        ┌Keys───────────────────────────────────────────────────────────────────────────────────────────────┐         │
-│        │Browse                           video details      i             back 5 s           left          │         │
-│        │quit               q, ctrl-c     go to the channel  c             forward 1 min      up            │         │
-│        │move up            k, up         subscribe or save  s             back 1 min         down          │         │
-│        │move down          j, down       add to the queue   a             volume up          0, *          │         │
-│        │go to the top      g, home       delete an entry    d             volume down        9, /          │         │
-│        │go to the bottom   G, end        full-size player   v             mute or unmute     m             │         │
-│        │half a page up     ctrl-u, pgup  stop mini-player   x             faster             ]             │         │
-│        │half a page down   ctrl-d, pgdn  comments           C             slower             [             │         │
-│        │open               enter, l      sort comments      o             normal speed       backspace     │         │
-│        │go back            esc, h        show or hide help  ?             next chapter       pgdn          │         │
-│        │search             /             Player                           previous chapter   pgup          │         │
-│        │search filters     f             stop and go back   q             captions on or off c             │         │
-│        │next tab           tab           mini-player        esc           video quality      v             │         │
-│        │previous tab       shift-tab     pause or play      space, p      next video         >             │         │
-│        │refresh            r             forward 5 s        right         previous video     <             │         │
+│        │Browse                           go to the channel  c             back 5 s           left          │         │
+│        │quit               q, ctrl-c     subscribe or save  s             forward 1 min      up            │         │
+│        │move up            k, up         add to the queue   a             back 1 min         down          │         │
+│        │move down          j, down       delete an entry    d             volume up          0, *          │         │
+│        │go to the top      g, home       full-size player   v             volume down        9, /          │         │
+│        │go to the bottom   G, end        stop mini-player   x             mute or unmute     m             │         │
+│        │half a page up     ctrl-u, pgup  comments           C             faster             ]             │         │
+│        │half a page down   ctrl-d, pgdn  sort comments      o             slower             [             │         │
+│        │open               enter, l      next link          n             normal speed       backspace     │         │
+│        │go back            esc, h        previous link      N             next chapter       pgdn          │         │
+│        │search             /             show or hide help  ?             previous chapter   pgup          │         │
+│        │search filters     f             Player                           captions on or off c             │         │
+│        │next tab           tab           stop and go back   q             video quality      v             │         │
+│        │previous tab       shift-tab     mini-player        esc           next video         >             │         │
+│        │refresh            r             pause or play      space, p      previous video     <             │         │
+│        │video details      i             forward 5 s        right                                          │         │
 │        └───────────────────────────────────────────────────────────────────────────────────────────────────┘         │
-│                                                                                                                      │
 │                                                                                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
                                                                                    ? help  / search  f filters  q quit

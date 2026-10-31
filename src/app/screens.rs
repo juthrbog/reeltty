@@ -59,14 +59,32 @@ pub struct VideoScreen {
     pub details: Option<VideoDetails>,
     pub loading: bool,
     pub error: Option<String>,
-    /// The first visible line of the details text.
-    pub scroll: u16,
+    /// The first visible line of the details text. Drawing moves it to show
+    /// a link that `n` or `N` selected.
+    pub scroll: Cell<u16>,
     /// The largest useful `scroll`. Drawing sets it, because only drawing
     /// knows how the text wraps. `u16::MAX` until the first draw.
     pub max_scroll: Cell<u16>,
+    /// The selected link of the description, for `enter`.
+    pub link: Option<usize>,
+    /// The next draw scrolls the selected link into view.
+    pub reveal: Cell<bool>,
     pub pane: VideoPane,
     /// Loaded when the comments first show, and kept when the details show again.
     pub comments: Option<Box<CommentsState>>,
+}
+
+/// The link after `current`, or before it, among `len` links. It goes round.
+pub fn step_link(current: Option<usize>, len: usize, forward: bool) -> Option<usize> {
+    if len == 0 {
+        return None;
+    }
+    Some(match (current, forward) {
+        (None, true) => 0,
+        (None, false) => len - 1,
+        (Some(i), true) => (i + 1) % len,
+        (Some(i), false) => (i + len - 1) % len,
+    })
 }
 
 /// What the video screen shows.

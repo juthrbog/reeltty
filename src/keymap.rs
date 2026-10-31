@@ -171,11 +171,13 @@ pub enum Action {
     ClosePlayer,
     Comments,
     Sort,
+    NextLink,
+    PrevLink,
     Help,
 }
 
 impl Action {
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 26] = [
         Self::Quit,
         Self::Up,
         Self::Down,
@@ -199,6 +201,8 @@ impl Action {
         Self::ClosePlayer,
         Self::Comments,
         Self::Sort,
+        Self::NextLink,
+        Self::PrevLink,
         Self::Help,
     ];
 
@@ -227,6 +231,8 @@ impl Action {
             Self::ClosePlayer => "stop mini-player",
             Self::Comments => "comments",
             Self::Sort => "sort comments",
+            Self::NextLink => "next link",
+            Self::PrevLink => "previous link",
             Self::Help => "show or hide help",
         }
     }
@@ -256,6 +262,8 @@ impl Action {
             Self::ClosePlayer => &["x"],
             Self::Comments => &["C"],
             Self::Sort => &["o"],
+            Self::NextLink => &["n"],
+            Self::PrevLink => &["N"],
             Self::Help => &["?"],
         }
     }

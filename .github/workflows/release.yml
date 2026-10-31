@@ -1,0 +1,328 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  # A change to the release setup runs the build and the checks, but
+  # publishes nothing.
+  pull_request:
+    paths:
+      - ".github/release.yml"
+      - ".github/workflows/release.yml"
+      - "scripts/archive.sh"
+      - "scripts/formula.sh"
+      - "scripts/pkgbuild.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # A tag publishes binaries, so the code must pass the same checks as CI
+  # first. This job has no write permission.
+  test:
+    name: Test
+    # Ubuntu 24.04 has mpv 0.37 (client API 2.2), the oldest that reeltty supports.
+    runs-on: ubuntu-24.04
+    steps:
+      # Actions are pinned to a commit SHA, with the version in a comment.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The tag and Cargo.toml must name the same version, or the binary
+      # prints another version than the release.
+      - name: Check the version
+        if: github.ref_type == 'tag'
+        run: |
+          crate="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          if [[ "${GITHUB_REF_NAME#v}" != "$crate" ]]; then
+            echo "The tag is $GITHUB_REF_NAME, but Cargo.toml has $crate."
+            exit 1
+          fi
+
+      # The tests link to libmpv and play a generated test video.
+      - name: Install libmpv
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libmpv-dev
+
+      # Keep this version the same as rust-toolchain.toml. No cache in
+      # release builds, so a poisoned cache cannot reach them.
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1
+        with:
+          components: rustfmt, clippy
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+        env:
+          INSTA_UPDATE: "no"
+
+      # Advisories (RustSec), licenses, bans and sources.
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - target: linux-amd64
+            runner: ubuntu-24.04
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install libmpv
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libmpv-dev
+
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1
+
+      - name: Set the version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=snapshot" >> "$GITHUB_ENV"
+          fi
+
+      # The binary holds no paths of the build machine.
+      - name: Build
+        env:
+          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=reeltty --remap-path-prefix=/home/runner/.cargo=cargo
+        run: cargo build --release --locked
+
+      # task release:dry-run packs the same way.
+      - name: Package
+        env:
+          TARGET: ${{ matrix.target }}
+        run: scripts/archive.sh "$VERSION" "${TARGET/-/_}" release
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reeltty-${{ matrix.target }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  # Each archive must run on its platform, with only the libmpv of the system.
+  verify:
+    name: Run on ${{ matrix.target }}
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            runner: ubuntu-24.04
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: reeltty-${{ matrix.target }}
+
+      # The run-time package only, not the headers.
+      - name: Run reeltty --version
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends libmpv2
+          tar -xzf reeltty_*.tar.gz
+          # Capture first: grep -q in a pipe can stop reading early, and
+          # with pipefail, the writer's SIGPIPE fails the step.
+          libs="$(ldd ./reeltty)"
+          echo "$libs"
+          grep -q 'libmpv.so.2 => /' <<< "$libs"
+          version="$(./reeltty --version)"
+          echo "$version"
+          grep -Eq '^reeltty [0-9]+\.[0-9]+\.[0-9]+' <<< "$version"
+
+  # The source archive, the Homebrew formula and the PKGBUILD. The formula
+  # and the PKGBUILD build from the source archive.
+  recipes:
+    name: Source and recipes
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # A snapshot takes the version of Cargo.toml, so the formula test,
+      # which compares it with reeltty --version, works.
+      - name: Set the version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')" >> "$GITHUB_ENV"
+          fi
+
+      # git archive gives the same bytes for the same commit.
+      - name: Write the source archive
+        run: |
+          mkdir -p release
+          git archive --format=tar --prefix="reeltty-${VERSION}/" HEAD \
+            | gzip -n > "release/reeltty_${VERSION}_source.tar.gz"
+
+      - name: Write the Homebrew formula and the PKGBUILD
+        run: |
+          source="release/reeltty_${VERSION}_source.tar.gz"
+          scripts/formula.sh "$VERSION" "$source" > release/reeltty.rb
+          scripts/pkgbuild.sh "$VERSION" "$source" release
+          ruby -c release/reeltty.rb
+          bash -n release/PKGBUILD
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reeltty-recipes
+          path: release/*
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  # The formula builds from source with Homebrew's Rust and libmpv. A
+  # snapshot installs it from the source archive of this run, in a local tap.
+  # The tap's own workflow tests the published formula after a release.
+  homebrew:
+    name: Homebrew formula
+    if: github.event_name != 'push'
+    needs: recipes
+    runs-on: ubuntu-24.04
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: reeltty-recipes
+
+      - name: Install and test the formula
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew tap-new --no-git juthrbog/snapshot
+          tap="$(brew --repository juthrbog/snapshot)"
+          source="$(ls "$PWD"/reeltty_*_source.tar.gz)"
+          sed "s|^  url \".*\"|  url \"file://$source\"|" reeltty.rb > "$tap/Formula/reeltty.rb"
+          grep -n '^  url' "$tap/Formula/reeltty.rb"
+          brew install --build-from-source juthrbog/snapshot/reeltty
+          brew test juthrbog/snapshot/reeltty
+          reeltty --version
+
+  publish:
+    name: Publish
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [build, verify, recipes]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release
+      id-token: write # sign with cosign and sign the provenance attestation
+      attestations: write # store the provenance attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: reeltty-*
+          path: release
+          merge-multiple: true
+
+      # .SRCINFO is a hidden file, so it gets a visible name on the release.
+      - name: Write checksums
+        working-directory: release
+        run: |
+          mv .SRCINFO SRCINFO
+          sha256sum *.tar.gz reeltty.rb PKGBUILD SRCINFO > checksums.txt
+          cat checksums.txt
+
+      # cosign signs checksums.txt without a key: the signature holds the
+      # identity of this workflow. The checksums cover every other file.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign the checksums
+        working-directory: release
+        run: cosign sign-blob --yes --bundle checksums.txt.sigstore.json checksums.txt
+
+      # Users can check where a file came from with
+      # "gh attestation verify <file> --repo juthrbog/reeltty".
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: release/checksums.txt
+
+      # The release notes list the pull requests since the last release.
+      # .github/release.yml sorts them into sections. A tag with a hyphen,
+      # such as v0.2.0-rc.1, makes a prerelease.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag \
+            "${prerelease[@]}"
+
+      # The tap gets the new formula through a deploy key of
+      # juthrbog/homebrew-tap. Its private key is the HOMEBREW_TAP_SSH_KEY
+      # secret of this repository.
+      - name: Check the Homebrew setup
+        id: tap
+        env:
+          TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo 'Prerelease: the Homebrew formula stays unchanged.'
+          elif [[ -z "$TAP_SSH_KEY" ]]; then
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo '::warning::Homebrew publication skipped. Set the HOMEBREW_TAP_SSH_KEY secret (see docs/RELEASING.md).'
+          else
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out the Homebrew tap
+        if: steps.tap.outputs.enabled == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: juthrbog/homebrew-tap
+          ref: main
+          ssh-key: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
+          path: .homebrew-tap
+
+      - name: Update the Homebrew formula
+        if: steps.tap.outputs.enabled == 'true'
+        run: |
+          mkdir -p .homebrew-tap/Formula
+          cp release/reeltty.rb .homebrew-tap/Formula/reeltty.rb
+          git -C .homebrew-tap config user.name 'github-actions[bot]'
+          git -C .homebrew-tap config user.email \
+            '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C .homebrew-tap add Formula/reeltty.rb
+          if ! git -C .homebrew-tap diff --cached --quiet; then
+            git -C .homebrew-tap commit -m "Update reeltty to $GITHUB_REF_NAME"
+            git -C .homebrew-tap push
+          fi

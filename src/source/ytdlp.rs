@@ -730,12 +730,17 @@ mod tests {
         assert!(matches!(y.search_more("x").await, Err(SourceError::Unsupported(_))));
     }
 
+    /// Writes a fake yt-dlp. A child process writes the program file: when
+    /// this process writes it, a fork in another test thread can keep the
+    /// file open for writing, and then running it fails with "Text file busy".
     #[cfg(unix)]
     fn script(dir: &tempfile::TempDir, body: &str) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt as _;
+        let source = dir.path().join("fake-yt-dlp.txt");
         let path = dir.path().join("fake-yt-dlp");
-        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(&source, format!("#!/bin/sh\n{body}\n")).unwrap();
+        let status =
+            std::process::Command::new("install").args(["-m", "755"]).arg(&source).arg(&path).status().unwrap();
+        assert!(status.success());
         path
     }
 

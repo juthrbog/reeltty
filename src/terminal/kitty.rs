@@ -415,13 +415,15 @@ mod tests {
     fn video_sink_sends_only_frames_for_the_cells_on_screen() {
         let out = Shared::default();
         let sink = Arc::new(VideoSink::new(Box::new(out.clone())));
-        let present = |cells| sink.present(1, &[0; 4], (1, 1), cells).unwrap();
+        // Session 2: the other sink tests use other sessions, so their shared
+        // memory names never clash when the tests run at the same time.
+        let present = |cells| sink.present(2, &[0; 4], (1, 1), cells).unwrap();
         let read = |sink: &VideoSink| {
             for (_, name) in sink.lock().unread.drain(..) {
                 shm::unlink(&name);
             }
         };
-        sink.open(1);
+        sink.open(2);
         sink.set_drawn(Some((4, 2)));
         assert_eq!(present((4, 2)), Presented::Shown);
         read(&sink);

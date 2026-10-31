@@ -208,9 +208,9 @@ mod tests {
 
     #[test]
     fn rejects_bad_keys() {
-        let err = Config::parse("[keys.browse]\ndown = [\"k\"]").unwrap_err();
+        let err = Config::parse("[keys.browse]\ndown = [\"k\"]\nup = [\"k\"]").unwrap_err();
         assert!(err.to_string().contains("bound to both"), "{err}");
-        let err = Config::parse("[keys.player]\nmute = [\"space\"]").unwrap_err();
+        let err = Config::parse("[keys.player]\nmute = [\"space\"]\nback = [\"space\"]").unwrap_err();
         assert!(err.to_string().contains("[keys.player]"), "{err}");
     }
 

@@ -994,6 +994,7 @@ impl App {
             self.status = Some(format!("Added to the queue. {} in the queue.", self.queue.len()));
         }
         self.queue_selection.clamp(self.queue.len(), self.plain_rows());
+        self.refresh_up_next();
     }
 
     fn on_queue_key(&mut self, action: Option<Action>) -> Option<Vec<Effect>> {

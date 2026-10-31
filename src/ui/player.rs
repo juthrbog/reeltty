@@ -122,10 +122,15 @@ pub fn draw_mini(app: &App, p: &PlayerState, f: &mut Frame, dock: Rect) {
 
 /// The state of the mini-player, and the keys for full size and stop.
 fn draw_mini_state(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
-    let key = |a| app.keymap.first_key(a).map(|k| k.to_string()).unwrap_or_default();
-    let hint = |a, label: &'static str| vec![Span::from(key(a)).bold(), Span::from(label)];
     let mut parts = status_parts(p);
-    let mut hints = Some([hint(Action::ShowPlayer, " full  "), hint(Action::ClosePlayer, " stop")].concat());
+    // Only the keys that the configuration file did not take away.
+    let mut hints = Some(
+        [(Action::ShowPlayer, " full"), (Action::ClosePlayer, " stop")]
+            .into_iter()
+            .filter_map(|(a, label)| app.keymap.first_key(a).map(|k| [Span::from(k.to_string()).bold(), label.into()]))
+            .collect::<Vec<_>>()
+            .join(&Span::from("  ")),
+    );
     // Drop the state from its end first, but keep the first part, then the hints.
     let line = loop {
         let mut spans = vec![Span::from(" ")];
@@ -172,13 +177,28 @@ fn phase_message(p: &PlayerState) -> Line<'static> {
     }
 }
 
+/// The mini-player as a status bar message, for a screen with no room for
+/// the dock. `true` for an error.
+pub fn status_message(p: &PlayerState) -> (String, bool) {
+    let state = match &p.phase {
+        Phase::Failed(e) => return (format!("Cannot play {}: {e}", p.title), true),
+        Phase::Resolving => " · finding the video streams…".to_string(),
+        Phase::Waiting { .. } => format!(" · starts in {} s", p.wait_left().unwrap_or(0)),
+        Phase::Loading | Phase::Playing | Phase::Ended => match p.duration_ms {
+            Some(d) => format!(" {} / {}", clock(p.position_ms), clock(d)),
+            None => format!(" {}", clock(p.position_ms)),
+        },
+    };
+    (format!("▶ {}{state}", p.title), false)
+}
+
 /// The text in place of the video before it plays, or after it failed.
 fn draw_message(p: &PlayerState, f: &mut Frame, area: Rect) {
     draw_centered(f, area, vec![Line::from(p.title.clone()).bold(), Line::default(), phase_message(p)]);
 }
 
 /// `1:05`, or `1:02:05` from one hour.
-pub fn clock(ms: u64) -> String {
+fn clock(ms: u64) -> String {
     let s = ms / 1000;
     let (h, m, s) = (s / 3600, s / 60 % 60, s % 60);
     if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m}:{s:02}") }

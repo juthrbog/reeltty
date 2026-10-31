@@ -429,9 +429,11 @@ impl PlayerState {
 
 impl App {
     /// Plays a video full size, or says why it cannot. The video that plays
-    /// in the mini-player already goes back to full size.
+    /// in the mini-player goes back to full size. After its end or a
+    /// failure, it starts again.
     pub fn play(&mut self, id: String, title: String) -> Vec<Effect> {
-        if self.player.as_ref().is_some_and(|p| p.mini && p.id == id) {
+        let alive = |p: &PlayerState| !matches!(p.phase, Phase::Ended | Phase::Failed(_));
+        if self.player.as_ref().is_some_and(|p| p.mini && p.id == id && alive(p)) {
             return self.restore_player();
         }
         self.play_video(id, title, true, false)
@@ -580,7 +582,25 @@ impl App {
                 || self.queue.iter().any(|v| v.id == id)
         };
         let related = p.related.iter().filter(|v| v.kind != VideoKind::Live && !listed(&v.id));
-        self.forward.iter().rev().chain(&self.queue).chain(related).take(UP_NEXT_MAX).cloned().collect()
+        // The mini-player lets the user queue the video that plays.
+        let queue = self.queue.iter().filter(|v| v.id != p.id);
+        self.forward.iter().rev().chain(queue).chain(related).take(UP_NEXT_MAX).cloned().collect()
+    }
+
+    /// Builds the up next list again after the queue changed. The browse
+    /// screen can change the queue while the mini-player shows the end.
+    pub(super) fn refresh_up_next(&mut self) {
+        let Some(p) = self.player.as_ref().filter(|p| p.phase == Phase::Ended && p.up_next.is_some()) else {
+            return;
+        };
+        let videos = self.next_videos(p);
+        let Some(p) = &mut self.player else { return };
+        if videos.is_empty() {
+            p.up_next = None;
+        } else if let Some(up) = &mut p.up_next {
+            up.selection = up.selection.min(videos.len() - 1);
+            up.videos = videos;
+        }
     }
 
     /// Plays a video from the up next list, in the same size.
@@ -1981,6 +2001,45 @@ mod tests {
         let effects = key(&mut a, ">");
         assert!(resolves(&effects, "r1"), "{effects:?}");
         assert!(a.player.as_ref().unwrap().mini);
+    }
+
+    #[test]
+    fn queue_changes_after_the_end_change_up_next() {
+        let mut a = mini();
+        a.queue = related(&["q1", "q2"]);
+        a.update(Message::RelatedLoaded { session: 1, result: Ok(related(&["r1"])) });
+        event(&mut a, PlayerEvent::Ended);
+        assert_eq!(up_next_ids(&a), ["q1", "q2", "r1"]);
+        // d on the first video in the Queue tab.
+        a.tab = Tab::Queue;
+        key(&mut a, "d");
+        assert_eq!(up_next_ids(&a), ["q2", "r1"]);
+        for _ in 1..AUTOPLAY_SECS {
+            a.update(Message::Tick { session: 1, now: 0 });
+        }
+        let effects = a.update(Message::Tick { session: 1, now: 0 });
+        assert!(resolves(&effects, "q2"), "{effects:?}");
+    }
+
+    #[test]
+    fn the_video_that_plays_never_comes_next_from_the_queue() {
+        let mut a = mini();
+        a.search.results = vec![Item::Video(plain_video("v1", "Title"))];
+        key(&mut a, "a");
+        assert_eq!(a.queue.len(), 1);
+        event(&mut a, PlayerEvent::Ended);
+        assert!(a.player.as_ref().unwrap().up_next.is_none());
+    }
+
+    #[test]
+    fn opening_the_video_after_its_end_plays_it_again() {
+        let mut a = mini();
+        a.search.results = vec![Item::Video(plain_video("v1", "Title"))];
+        event(&mut a, PlayerEvent::Ended);
+        let effects = key(&mut a, "enter");
+        assert!(resolves(&effects, "v1"), "{effects:?}");
+        assert_eq!(a.player.as_ref().unwrap().session, 2);
+        assert!(!a.player.as_ref().unwrap().mini);
     }
 
     #[test]

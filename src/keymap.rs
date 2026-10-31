@@ -430,18 +430,33 @@ fn name(action: impl fmt::Debug) -> String {
 
 impl<A: Actions> Bindings<A> {
     /// Builds the table from the defaults and the overrides in the configuration file.
+    ///
+    /// A default key that the configuration file gives to another action
+    /// goes to that action. So a file from before a new action got its
+    /// default keys still loads.
     pub fn new(overrides: &Overrides<A>) -> Result<Self, KeyMapError> {
+        let mut written = HashMap::new();
+        for (&action, list) in overrides {
+            let keys = list
+                .iter()
+                .map(|s| {
+                    s.parse().map_err(|source| KeyMapError::Parse { table: A::TABLE, action: name(action), source })
+                })
+                .collect::<Result<Vec<KeyPress>, _>>()?;
+            written.insert(action, keys);
+        }
+        let taken: HashSet<KeyPress> = written.values().flatten().copied().collect();
         let mut lookup = HashMap::new();
         let mut bindings = Vec::new();
         for &action in A::all() {
-            let mut keys: Vec<KeyPress> = match overrides.get(&action) {
-                Some(list) => list
+            let mut keys: Vec<KeyPress> = match written.remove(&action) {
+                Some(keys) => keys,
+                None => action
+                    .default_keys()
                     .iter()
-                    .map(|s| {
-                        s.parse().map_err(|source| KeyMapError::Parse { table: A::TABLE, action: name(action), source })
-                    })
-                    .collect::<Result<_, _>>()?,
-                None => action.default_keys().iter().map(|s| s.parse().expect("default keys parse")).collect(),
+                    .map(|s| s.parse().expect("default keys parse"))
+                    .filter(|k| !taken.contains(k))
+                    .collect(),
             };
             if action == A::REQUIRED && keys.is_empty() {
                 return Err(KeyMapError::NoKey { table: A::TABLE, action: name(action) });
@@ -584,7 +599,7 @@ mod tests {
 
     #[test]
     fn conflict_is_an_error() {
-        let o = KeyOverrides::from([(Action::Down, vec!["k".to_string()])]);
+        let o = KeyOverrides::from([(Action::Down, vec!["k".to_string()]), (Action::Up, vec!["k".to_string()])]);
         let err = KeyMap::new(&o, &PlayerKeyOverrides::new()).unwrap_err();
         assert_eq!(
             err,
@@ -598,6 +613,26 @@ mod tests {
     }
 
     #[test]
+    fn a_default_key_gives_way_to_a_written_one() {
+        // The keys that came before the mini-player still load.
+        let browse = KeyOverrides::from([(Action::Delete, vec!["x".to_string()])]);
+        let player = PlayerKeyOverrides::from([(PlayerAction::Back, vec!["q".to_string(), "esc".to_string()])]);
+        let km = KeyMap::new(&browse, &player).unwrap();
+        assert_eq!(km.action(key("x")), Some(Action::Delete));
+        assert_eq!(km.first_key(Action::ClosePlayer), None);
+        assert_eq!(km.player.action(key("esc")), Some(PlayerAction::Back));
+        assert_eq!(km.player.first_key(PlayerAction::Minimize), None);
+        // An action keeps its other default keys.
+        let o = KeyOverrides::from([(Action::Delete, vec!["k".to_string()])]);
+        let km = KeyMap::new(&o, &PlayerKeyOverrides::new()).unwrap();
+        assert_eq!(km.action(key("k")), Some(Action::Delete));
+        assert_eq!(km.action(key("up")), Some(Action::Up));
+        // Quit must still keep a key.
+        let o = KeyOverrides::from([(Action::Delete, vec!["q".to_string(), "ctrl-c".to_string()])]);
+        assert!(KeyMap::new(&o, &PlayerKeyOverrides::new()).is_err());
+    }
+
+    #[test]
     fn player_keys_are_a_separate_table() {
         let km = KeyMap::default();
         // q quits the app in browse, and stops the video in the player.
@@ -607,7 +642,10 @@ mod tests {
         assert_eq!(km.player.action(key("j")), None);
         assert_eq!(km.player.action(key("esc")), Some(PlayerAction::Minimize));
 
-        let o = PlayerKeyOverrides::from([(PlayerAction::Mute, vec!["space".to_string()])]);
+        let o = PlayerKeyOverrides::from([
+            (PlayerAction::Mute, vec!["space".to_string()]),
+            (PlayerAction::TogglePause, vec!["space".to_string()]),
+        ]);
         let err = KeyMap::new(&KeyOverrides::new(), &o).unwrap_err();
         assert_eq!(err.to_string(), "[keys.player] key space is bound to both toggle_pause and mute");
         let o = PlayerKeyOverrides::from([(PlayerAction::SeekForwardLong, vec!["l".to_string()])]);

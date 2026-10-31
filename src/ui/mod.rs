@@ -81,18 +81,11 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect, no_dock: bool) {
         .status
         .clone()
         .map(|m| (m, false))
+        // Nothing else on screen shows the video, so it comes before lasting notes.
+        .or_else(|| app.player.as_ref().filter(|_| no_dock).map(player::status_message))
         .or_else(|| match app.screens.last() {
             Some(screen) => screens::status(screen),
             None => (app.tab == Tab::Search).then(|| search::status(&app.search)).flatten(),
-        })
-        .or_else(|| {
-            let p = app.player.as_ref().filter(|_| no_dock)?;
-            let time = match p.duration_ms {
-                Some(d) => format!(" {} / {}", player::clock(p.position_ms), player::clock(d)),
-                None if p.is_running() => format!(" {}", player::clock(p.position_ms)),
-                None => String::new(),
-            };
-            Some((format!("▶ {}{time}", p.title), false))
         })
         .or_else(|| app.graphics.message().map(|m| (m, false)));
     // A message that does not fit next to the hints gets the whole bar.
@@ -759,6 +752,17 @@ mod tests {
         let text = render(&app, 60, 16);
         assert!(text.lines().last().unwrap().contains("▶ Big Buck Bunny 1:05 / 10:35"), "{text}");
         assert!(!text.contains('▒'), "no video shows: {text}");
+        // A failure shows, in red.
+        let mut app = mini_app(60, 16, false);
+        let result = Err("private video".into());
+        app.update(Message::StreamsResolved { session: 1, now: 0, result });
+        let buf = buffer(&app, 60, 16);
+        let last: String = (0..60).map(|x| buf[(x, 15)].symbol()).collect();
+        assert!(last.contains("Cannot play Big Buck Bunny: private video"), "{last}");
+        assert_eq!(buf[(0, 15)].fg, Color::Red);
+        // Before the streams, it says so.
+        let text = render(&mini_app(60, 16, false), 60, 16);
+        assert!(text.contains("▶ Big Buck Bunny · finding the video streams…"), "{text}");
     }
 
     #[test]

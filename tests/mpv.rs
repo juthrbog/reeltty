@@ -451,14 +451,15 @@ mod player {
     }
 
     #[test]
-    fn skips_where_playback_resumes() {
+    fn late_segments_skip_where_playback_is() {
         let sink = Arc::new(VideoSink::new(Box::new(Screen::default())));
         let (send, rx) = channel();
         let player = Player::start(14, &streams(super::testsrc(10)), geometry(32, 18), sink, send, 5, OPTIONS).unwrap();
-        wait_for(&rx, |e| *e == PlayerEvent::FileLoaded);
-        // As the app does: the segments come when the file has loaded.
-        player.command(&PlayerCommand::Segments { segments: vec![sponsor(4000, 7000)], continues: false });
-        let events = events_until(&rx, |e| position(e).is_some_and(|ms| ms >= 7000));
+        // The segments come late, in the middle of one. lavfi reports 0.2 s
+        // after the start, and then mpv seeks back to it, so wait for 6 s.
+        wait_for(&rx, |e| position(e).is_some_and(|ms| ms >= 6000));
+        player.command(&PlayerCommand::Segments { segments: vec![sponsor(4000, 9000)], continues: false });
+        let events = events_until(&rx, |e| position(e).is_some_and(|ms| ms >= 9000));
         assert!(events.contains(&PlayerEvent::Skipped(Category::Sponsor)), "{events:?}");
         player.stop().join().unwrap();
     }

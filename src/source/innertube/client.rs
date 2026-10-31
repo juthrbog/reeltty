@@ -356,8 +356,6 @@ impl Source for InnerTube {
 
 #[cfg(test)]
 mod tests {
-    use tokio::net::TcpListener;
-
     use super::*;
     use crate::source::filters::SearchFilters;
     use crate::test_server::{Log, Request, reply, serve};

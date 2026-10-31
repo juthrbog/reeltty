@@ -17,6 +17,32 @@ On Arch Linux:
 sudo pacman -S mpv yt-dlp yt-dlp-ejs deno
 ```
 
+## Install
+
+Each [release](https://github.com/juthrbog/reeltty/releases) has Linux archives for x86_64 and aarch64, the source, a Homebrew formula, and a PKGBUILD. The archives need mpv 0.37 or later and glibc 2.39 or later.
+
+- **Homebrew** (Linux): `brew install juthrbog/tap/reeltty`. It builds reeltty from source and installs mpv, yt-dlp, and deno.
+- **Arch Linux**: download `PKGBUILD` from the release, then run `makepkg -si` in its folder.
+- **Archive**: unpack `reeltty_<version>_linux_<arch>.tar.gz` and put `reeltty` on your `PATH`.
+
+To check that an archive comes from this repository's release workflow:
+
+```sh
+gh attestation verify reeltty_0.1.0_linux_amd64.tar.gz --repo juthrbog/reeltty
+```
+
+Or check the checksums and their signature:
+
+```sh
+cosign verify-blob --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/juthrbog/reeltty/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+sha256sum --check --ignore-missing checksums.txt
+```
+
+See [docs/RELEASING.md](docs/RELEASING.md) for how releases are made.
+
 ## Build and run
 
 ```sh

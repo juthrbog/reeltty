@@ -443,7 +443,7 @@ mod player {
         let sink = Arc::new(VideoSink::new(Box::new(Screen::default())));
         let (send, rx) = channel();
         let player = Player::start(13, &streams(super::testsrc(10)), geometry(32, 18), sink, send, 0, OPTIONS).unwrap();
-        player.command(&PlayerCommand::Segments(vec![sponsor(1000, 4000)]));
+        player.command(&PlayerCommand::Segments { segments: vec![sponsor(1000, 4000)], continues: false });
         let events = events_until(&rx, |e| position(e).is_some_and(|ms| ms >= 4000));
         assert!(events.contains(&PlayerEvent::Skipped(Category::Sponsor)), "{events:?}");
         assert!(!events.iter().filter_map(position).any(|ms| (1500..3900).contains(&ms)), "{events:?}");
@@ -457,7 +457,7 @@ mod player {
         let player = Player::start(14, &streams(super::testsrc(10)), geometry(32, 18), sink, send, 5, OPTIONS).unwrap();
         wait_for(&rx, |e| *e == PlayerEvent::FileLoaded);
         // As the app does: the segments come when the file has loaded.
-        player.command(&PlayerCommand::Segments(vec![sponsor(4000, 7000)]));
+        player.command(&PlayerCommand::Segments { segments: vec![sponsor(4000, 7000)], continues: false });
         let events = events_until(&rx, |e| position(e).is_some_and(|ms| ms >= 7000));
         assert!(events.contains(&PlayerEvent::Skipped(Category::Sponsor)), "{events:?}");
         player.stop().join().unwrap();
@@ -469,14 +469,14 @@ mod player {
         let (send, rx) = channel();
         let player = Player::start(15, &streams(super::testsrc(10)), geometry(32, 18), sink, send, 0, OPTIONS).unwrap();
         let segments = vec![sponsor(3000, 9000)];
-        player.command(&PlayerCommand::Segments(segments.clone()));
+        player.command(&PlayerCommand::Segments { segments: segments.clone(), continues: false });
         wait_for(&rx, |e| *e == PlayerEvent::FileLoaded);
         player.command(&PlayerCommand::SeekTo { secs: 4 });
         let mut events = events_until(&rx, |e| position(e).is_some_and(|ms| ms >= 5000));
         let other = "av://lavfi:testsrc=size=160x120:rate=30:duration=10";
         player.command(&PlayerCommand::SwitchVideo { url: other.into(), secs: 5 });
         events.extend(events_until(&rx, |e| *e == PlayerEvent::FileLoaded));
-        player.command(&PlayerCommand::Segments(segments));
+        player.command(&PlayerCommand::Segments { segments, continues: false });
         events.extend(events_until(&rx, |e| position(e).is_some_and(|ms| ms >= 6000)));
         assert!(!events.contains(&PlayerEvent::Skipped(Category::Sponsor)), "{events:?}");
         player.stop().join().unwrap();

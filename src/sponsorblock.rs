@@ -24,6 +24,9 @@ const MERGE_GAP_MS: u64 = 200;
 /// A position this close to a segment end is past it. After a skip, mpv
 /// can land a little before the end.
 const END_SLACK_MS: u64 = 50;
+/// A reload starts at a whole second, and the app knows the position only
+/// once a second, so it can start this much before where the user was.
+const LANDING_MS: u64 = 2500;
 
 /// The kinds of segments that can be skipped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -232,11 +235,17 @@ impl Client {
 /// Decides when to skip, from the positions that mpv reports.
 ///
 /// Playing into a segment skips it, also after a seek back to before it. A
-/// seek that lands in a segment does not: the user chose to watch it. Before
-/// the first position (at the start, or when the segments change), a
-/// position in a segment skips it, so an intro at 0 and a resume inside a
-/// segment skip.
+/// seek that lands in a segment does not: the user chose to watch it.
+///
+/// A reload at the same place (a quality change, or a new player after an
+/// HTTP 403 error) also counts as a seek. It starts at a whole second, up to
+/// about 2 s before where the user was, so a segment that starts just after
+/// the landing does not skip either.
+///
+/// When the first segments come, a position in a segment skips it, so an
+/// intro at 0 and a resume inside a segment skip.
 #[derive(Debug, Default)]
+#[expect(clippy::struct_excessive_bools, reason = "independent facts about mpv's state")]
 pub struct Skipper {
     segments: Vec<Segment>,
     /// The last position, in milliseconds.
@@ -245,14 +254,36 @@ pub struct Skipper {
     jumped: bool,
     /// A seek runs. Positions until it ends can be from either side of it.
     seeking: bool,
+    /// The next position after a seek ends is where a reload landed.
+    landing: bool,
+    /// mpv loaded a file before, so the next one is a reload.
+    loaded: bool,
+    /// The start of a segment that a reload landed in or just before. It
+    /// plays until the next seek.
+    watching: Option<u64>,
+    /// Segments came once. Later ones keep the position: only their segments change.
+    had_segments: bool,
+    /// This player goes on from another one, so the first segments do not
+    /// skip where playback is.
+    continues: bool,
 }
 
 impl Skipper {
     /// Sets the segments. The same segments again change nothing: the app
     /// sends them again for each file, such as after a quality change.
-    pub fn set(&mut self, segments: Vec<Segment>) {
-        if segments != self.segments {
-            *self = Self { segments, ..Self::default() };
+    pub fn set(&mut self, segments: Vec<Segment>, continues: bool) {
+        if segments == self.segments {
+            return;
+        }
+        self.segments = segments;
+        if std::mem::replace(&mut self.had_segments, true) {
+            return;
+        }
+        self.continues = continues;
+        match (continues, self.prev) {
+            (true, Some(ms)) => self.watching = self.landed_in(ms),
+            (true, None) => self.landing = true,
+            (false, _) => self.prev = None,
         }
     }
 
@@ -260,6 +291,7 @@ impl Skipper {
     pub fn on_seek(&mut self) {
         self.jumped = true;
         self.seeking = true;
+        self.watching = None;
     }
 
     /// mpv plays again after a seek or a new file.
@@ -270,6 +302,7 @@ impl Skipper {
     /// mpv loaded a new file. It starts where it was told to, like a seek.
     pub fn on_file_loaded(&mut self) {
         self.on_seek();
+        self.landing = std::mem::replace(&mut self.loaded, true) || self.continues;
     }
 
     /// The segment to skip at position `ms`, if any.
@@ -278,13 +311,24 @@ impl Skipper {
         let jumped = self.jumped;
         if !self.seeking {
             self.jumped = false;
+            if std::mem::take(&mut self.landing) {
+                self.watching = self.landed_in(ms);
+            }
         }
         let segment = self.segments.iter().find(|s| s.start_ms <= ms && ms + END_SLACK_MS < s.end_ms)?;
-        match prev {
-            None => Some(segment),
-            Some(prev) if !jumped && prev < segment.start_ms => Some(segment),
-            Some(_) => None,
+        if self.watching == Some(segment.start_ms) {
+            return None;
         }
+        match prev {
+            None if !self.continues => Some(segment),
+            Some(prev) if !jumped && prev < segment.start_ms => Some(segment),
+            _ => None,
+        }
+    }
+
+    /// The start of the segment that a reload landing at `ms` belongs to.
+    fn landed_in(&self, ms: u64) -> Option<u64> {
+        self.segments.iter().find(|s| s.start_ms <= ms + LANDING_MS && ms < s.end_ms).map(|s| s.start_ms)
     }
 }
 
@@ -361,7 +405,7 @@ mod tests {
 
     fn skipper(segments: &[Segment]) -> Skipper {
         let mut s = Skipper::default();
-        s.set(segments.to_vec());
+        s.set(segments.to_vec(), false);
         s
     }
 
@@ -408,7 +452,7 @@ mod tests {
         // A quality change loads the file again at the same place, and the
         // app sends the same segments again.
         s.on_file_loaded();
-        s.set(vec![seg(Category::Sponsor, 10_000, 20_000)]);
+        s.set(vec![seg(Category::Sponsor, 10_000, 20_000)], false);
         assert_eq!(skips(&mut s, 0), None, "mpv can report 0 first");
         s.on_restart();
         assert_eq!(skips(&mut s, 12_100), None);
@@ -419,8 +463,71 @@ mod tests {
         // The segments come after playback started, or it resumed inside one.
         let mut s = Skipper::default();
         assert_eq!(skips(&mut s, 12_000), None);
-        s.set(vec![seg(Category::Sponsor, 10_000, 20_000)]);
+        s.set(vec![seg(Category::Sponsor, 10_000, 20_000)], false);
         assert_eq!(skips(&mut s, 12_030), Some(20_000));
+    }
+
+    #[test]
+    fn a_reload_just_before_a_watched_segment_does_not_skip_it() {
+        let mut s = skipper(&[seg(Category::Sponsor, 10_300, 20_000)]);
+        s.on_file_loaded();
+        s.on_restart();
+        assert_eq!(skips(&mut s, 1000), None);
+        s.on_seek();
+        s.on_restart();
+        assert_eq!(skips(&mut s, 10_400), None);
+        // A quality change at 10.6 s starts the new file at 10 s.
+        s.on_file_loaded();
+        s.on_restart();
+        assert_eq!(skips(&mut s, 10_000), None);
+        assert_eq!(skips(&mut s, 10_310), None);
+        // A seek back to before it, then playing into it, skips again.
+        s.on_seek();
+        s.on_restart();
+        assert_eq!(skips(&mut s, 9000), None);
+        assert_eq!(skips(&mut s, 10_320), Some(20_000));
+    }
+
+    #[test]
+    fn the_first_file_is_not_a_reload() {
+        let mut s = skipper(&[seg(Category::Sponsor, 1000, 4000)]);
+        s.on_file_loaded();
+        assert_eq!(skips(&mut s, 0), None);
+        s.on_restart();
+        assert_eq!(skips(&mut s, 33), None);
+        assert_eq!(skips(&mut s, 1010), Some(4000));
+    }
+
+    #[test]
+    fn changed_segments_keep_the_position() {
+        let mut s = skipper(&[seg(Category::Sponsor, 10_000, 20_000), seg(Category::Outro, 90_000, 100_000)]);
+        assert_eq!(skips(&mut s, 1000), None);
+        s.on_seek();
+        s.on_restart();
+        assert_eq!(skips(&mut s, 12_000), None);
+        // mpv's exact length moves the end of the outro.
+        s.set(vec![seg(Category::Sponsor, 10_000, 20_000), seg(Category::Outro, 90_000, 100_200)], false);
+        assert_eq!(skips(&mut s, 12_030), None, "the user still watches it");
+        assert_eq!(skips(&mut s, 90_010), Some(100_200));
+    }
+
+    #[test]
+    fn a_new_player_that_goes_on_does_not_skip_where_it_starts() {
+        // After an HTTP 403 error, at 12 s, in a segment the user watched.
+        let mut s = Skipper::default();
+        s.on_file_loaded();
+        s.on_restart();
+        assert_eq!(skips(&mut s, 12_000), None);
+        s.set(vec![seg(Category::Sponsor, 10_000, 20_000), seg(Category::Sponsor, 30_000, 40_000)], true);
+        assert_eq!(skips(&mut s, 12_030), None);
+        assert_eq!(skips(&mut s, 30_010), Some(40_000));
+        // The segments come before the first position.
+        let mut s = Skipper::default();
+        s.set(vec![seg(Category::Sponsor, 10_000, 20_000)], true);
+        s.on_file_loaded();
+        s.on_restart();
+        assert_eq!(skips(&mut s, 12_000), None);
+        assert_eq!(skips(&mut s, 12_030), None);
     }
 
     #[tokio::test]

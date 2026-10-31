@@ -94,6 +94,9 @@ pub fn to_app(tx: UnboundedSender<Message>, session: u64) -> EventSender {
     })
 }
 
+/// Segments from `PlayerCommand::Segments` for the event thread to take.
+type NewSegments = Mutex<Option<(Vec<Segment>, bool)>>;
+
 /// What the render thread reads from the main thread.
 struct Shared {
     quit: AtomicBool,
@@ -110,7 +113,7 @@ pub struct Player {
     shared: Arc<Shared>,
     events_quit: Arc<AtomicBool>,
     /// New segments to skip, for the event thread to take.
-    segments: Arc<Mutex<Option<Vec<Segment>>>>,
+    segments: Arc<NewSegments>,
     threads: Vec<JoinHandle<()>>,
 }
 
@@ -221,8 +224,8 @@ impl Player {
                 self.shared.signal.notify();
                 Ok(())
             }
-            PlayerCommand::Segments(segments) => {
-                *self.segments.lock().unwrap_or_else(PoisonError::into_inner) = Some(segments.clone());
+            PlayerCommand::Segments { segments, continues } => {
+                *self.segments.lock().unwrap_or_else(PoisonError::into_inner) = Some((segments.clone(), *continues));
                 Ok(())
             }
             PlayerCommand::Start { .. } | PlayerCommand::Stop => Ok(()),
@@ -364,13 +367,7 @@ impl Errors {
     }
 }
 
-fn event_loop(
-    mut events: Events,
-    quit: &AtomicBool,
-    mpv: &Mpv,
-    segments: &Mutex<Option<Vec<Segment>>>,
-    send: &EventSender,
-) {
+fn event_loop(mut events: Events, quit: &AtomicBool, mpv: &Mpv, segments: &NewSegments, send: &EventSender) {
     let mut errors = Errors::default();
     let mut second = None;
     let mut skipper = Skipper::default();
@@ -422,9 +419,9 @@ fn event_loop(
 }
 
 /// Seeks past a segment if position `ms` is in one that must be skipped.
-fn skip(skipper: &mut Skipper, segments: &Mutex<Option<Vec<Segment>>>, mpv: &Mpv, ms: u64, send: &EventSender) {
-    if let Some(new) = segments.lock().unwrap_or_else(PoisonError::into_inner).take() {
-        skipper.set(new);
+fn skip(skipper: &mut Skipper, segments: &NewSegments, mpv: &Mpv, ms: u64, send: &EventSender) {
+    if let Some((new, continues)) = segments.lock().unwrap_or_else(PoisonError::into_inner).take() {
+        skipper.set(new, continues);
     }
     let Some(segment) = skipper.on_position(ms) else { return };
     // `exact`: a seek to a keyframe before the end would skip again.

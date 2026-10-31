@@ -116,8 +116,9 @@ mpv also draws the captions into the software frame, so captions need no separat
 SponsorBlock segments come from the privacy endpoint `/api/skipSegments/<hash prefix>`. The request names the first 4 hex characters of the SHA-256 hash of the video ID, and the answer has the segments of about 100 videos. The app keeps the segments as they came. When mpv has the file, the app filters them with yt-dlp's rules (drop segments from an upload of another length, clamp near the ends, merge near segments) and sends them to the player. The event thread sees every `time-pos` change, so it does the skips with `seek <end> absolute+exact`. The app sees the position only once a second. The rules:
 
 - Playing into a segment skips it, also after a seek back to before it.
-- A seek that lands in a segment does not skip it: the user chose to watch it. A quality change loads the file again at the same place and counts as a seek.
-- Before the first position, a position in a segment skips it. This covers an intro at 0, a resume inside a segment, and segments that come after playback started.
+- A seek that lands in a segment does not skip it: the user chose to watch it. A reload at the same place (a quality change, or a new player after an HTTP 403 error) counts as a seek. A reload starts at a whole second, up to about 2 s before where the user was, so a segment that starts just after the landing does not skip either.
+- New segments for the same video (mpv's exact length can change them) keep the position state.
+- When the first segments come, a position in a segment skips it. This covers an intro at 0, a resume inside a segment, and segments that come after playback started.
 - If SponsorBlock does not answer in 5 seconds, or fails, the video plays without skips.
 
 ### Terminal detection

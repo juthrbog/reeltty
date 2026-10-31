@@ -95,7 +95,7 @@ Comments show in a pane of the video details screen (`C`). They load only when t
 - YouTube can send a comment again (the pinned one in Newest) or repeat whole pages. The app drops comments it showed already, and a page of repeats only ends the list.
 - A page for an older list (before a new order or a refresh) is dropped by its generation number.
 - Unicode direction controls (U+202A to U+202E, U+2066 to U+2069) are removed from comments, descriptions, and names, because they can show text in a misleading order. Control characters are already dropped by ratatui.
-- Timestamps in comments are shown as links, but cannot be followed yet. Following links in descriptions and comments can come later.
+- Links in descriptions and comments: `n` and `N` select one, and `enter` follows it. A web link runs `xdg-open` (`open` on macOS) with its output thrown away, and only `http` and `https` links open, because the text comes from strangers. A time in the video that plays seeks in it; another video plays, from its time if the link has one.
 
 Streams always come from yt-dlp:
 

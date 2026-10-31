@@ -539,6 +539,35 @@ mod tests {
     }
 
     #[test]
+    fn the_selected_link_is_reversed_and_scrolled_into_view() {
+        use crate::app::screens::VideoScreen;
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.update(Message::Input(Input::Resize { width: 40, height: 10 }));
+        app.open(Target::Video { id: "v".into(), title: "t".into() });
+        let mut text = (1..=20).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        text.push('\n');
+        text.push_str("see x.com");
+        let start = text.chars().count() - 5;
+        let mut details = crate::app::tests::details("v", None);
+        details.description =
+            Description { text, links: vec![Link { start, len: 5, target: LinkTarget::Url("https://x.com".into()) }] };
+        app.update(Message::VideoLoaded { request: 1, result: Ok(details) });
+        render(&app, 40, 10);
+        press(&mut app, "n");
+        let buf = buffer(&app, 40, 10);
+        let screen = render(&app, 40, 10);
+        assert!(screen.contains("see x.com"), "{screen}");
+        let row =
+            (0..10).find(|&y| (0..40).map(|x| buf[(x, y)].symbol()).collect::<String>().contains("see x.com")).unwrap();
+        let x = (0..40).find(|&x| buf[(x, row)].symbol() == "x").unwrap();
+        assert!(buf[(x, row)].modifier.contains(Modifier::REVERSED));
+        assert!(!buf[(x - 2, row)].modifier.contains(Modifier::REVERSED));
+        let Some(crate::app::screens::Screen::Video(VideoScreen { link, .. })) = app.screens.last() else { panic!() };
+        assert_eq!(*link, Some(0));
+        assert!(screen.lines().last().unwrap().contains("enter: open https://x.com"), "{screen}");
+    }
+
+    #[test]
     fn video_details_screen() {
         let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
         app.open(Target::Video { id: "aircAruvnKk".into(), title: "But what is a neural network?".into() });
@@ -585,10 +614,10 @@ mod tests {
         let Some(crate::app::screens::Screen::Video(s)) = app.screens.last() else { panic!("no video screen") };
         let max = s.max_scroll.get();
         assert!(max > 0 && max < 20, "max {max}");
-        assert_eq!(s.scroll, max);
+        assert_eq!(s.scroll.get(), max);
         press(&mut app, "k");
         let Some(crate::app::screens::Screen::Video(s)) = app.screens.last() else { panic!("no video screen") };
-        assert_eq!(s.scroll, max - 1);
+        assert_eq!(s.scroll.get(), max - 1);
     }
 
     #[test]

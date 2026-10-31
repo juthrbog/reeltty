@@ -18,7 +18,8 @@ use std::sync::Arc;
 use crate::keymap::{Action, KeyMap, KeyPress};
 use crate::source::filters::SearchQuery;
 use crate::source::model::{
-    ChannelPage, ChannelRef, CommentPage, Item, ItemPage, PlaylistPage, SearchPage, Video, VideoDetails,
+    ChannelPage, ChannelRef, CommentPage, Description, Item, ItemPage, LinkTarget, PlaylistPage, SearchPage, Video,
+    VideoDetails,
 };
 use crate::source::streams::Streams;
 use crate::sponsorblock::Segment;
@@ -29,7 +30,7 @@ use comments::{CommentRow, CommentsFrom, CommentsLoad, CommentsSlot, CommentsSta
 use feed::FeedState;
 use list::ItemList;
 use player::{PlayerCommand, PlayerEvent, PlayerState};
-use screens::{ChannelScreen, PlaylistScreen, Screen, Target, VideoPane, VideoScreen};
+use screens::{ChannelScreen, PlaylistScreen, Screen, Target, VideoPane, VideoScreen, step_link};
 use search::{KeyResult, SearchState};
 use thumbnails::{THUMBNAIL_ROWS, Thumbnails};
 
@@ -71,6 +72,8 @@ pub enum Message {
     },
     /// A change to the local database failed.
     StoreFailed(String),
+    /// The browser did not open a link.
+    OpenFailed(String),
     /// The reply to `Effect::LoadThumbnail`.
     ThumbnailLoaded {
         url: String,
@@ -228,6 +231,8 @@ pub enum Effect {
         id: String,
     },
     Player(PlayerCommand),
+    /// Open an `http` or `https` URL in the browser.
+    OpenUrl(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -529,6 +534,10 @@ impl App {
                 self.status = Some(format!("Could not save: {e}"));
                 Vec::new()
             }
+            Message::OpenFailed(e) => {
+                self.status = Some(format!("Could not open the link: {e}"));
+                Vec::new()
+            }
             Message::ThumbnailLoaded { url, slot, result } => {
                 self.thumbnails.loaded(&url, slot, result);
                 Vec::new()
@@ -688,13 +697,18 @@ impl App {
             Action::Quit => return vec![Effect::Quit],
             Action::Help => self.show_help = true,
             Action::Back => {
-                // The comments go back to the details first.
-                if let Some(Screen::Video(s)) = self.screens.last_mut()
-                    && s.pane == VideoPane::Comments
-                {
-                    s.pane = VideoPane::Details;
-                } else {
-                    self.screens.pop();
+                // A selected link goes first, then the comments go back to the details.
+                match self.screens.last_mut() {
+                    Some(Screen::Video(s)) if s.pane == VideoPane::Details && s.link.is_some() => s.link = None,
+                    Some(Screen::Video(s)) if s.pane == VideoPane::Comments => {
+                        match s.comments.as_mut().filter(|c| c.link.is_some()) {
+                            Some(c) => c.link = None,
+                            None => s.pane = VideoPane::Details,
+                        }
+                    }
+                    _ => {
+                        self.screens.pop();
+                    }
                 }
             }
             Action::Search => return self.start_search_input(),
@@ -736,13 +750,24 @@ impl App {
             Screen::Video(s) => {
                 let max = s.max_scroll.get();
                 let half = u16::try_from(rows).unwrap_or(u16::MAX).max(1);
+                let scroll = s.scroll.get();
                 match action {
-                    Action::Up => s.scroll = s.scroll.min(max).saturating_sub(1),
-                    Action::Down => s.scroll = s.scroll.saturating_add(1).min(max),
-                    Action::HalfPageUp => s.scroll = s.scroll.min(max).saturating_sub(half),
-                    Action::HalfPageDown => s.scroll = s.scroll.saturating_add(half).min(max),
-                    Action::Top => s.scroll = 0,
-                    Action::Bottom if max != u16::MAX => s.scroll = max,
+                    Action::Up => s.scroll.set(scroll.min(max).saturating_sub(1)),
+                    Action::Down => s.scroll.set(scroll.saturating_add(1).min(max)),
+                    Action::HalfPageUp => s.scroll.set(scroll.min(max).saturating_sub(half)),
+                    Action::HalfPageDown => s.scroll.set(scroll.saturating_add(half).min(max)),
+                    Action::Top => s.scroll.set(0),
+                    Action::Bottom if max != u16::MAX => s.scroll.set(max),
+                    Action::NextLink | Action::PrevLink => {
+                        let len = s.details.as_ref().map_or(0, |d| d.description.links.len());
+                        s.link = step_link(s.link, len, action == Action::NextLink);
+                        s.reveal.set(true);
+                    }
+                    Action::Open if s.link.is_some() => {
+                        let Some(d) = &s.details else { return Vec::new() };
+                        let (text, index) = (d.description.clone(), s.link.unwrap_or(0));
+                        return self.follow_link(&text, index);
+                    }
                     Action::Channel | Action::Toggle => {
                         let channel = s.details.as_ref().and_then(|d| d.channel.clone());
                         let Some(c) = channel else { return Vec::new() };
@@ -768,6 +793,27 @@ impl App {
                 }
                 Vec::new()
             }
+        }
+    }
+
+    /// Follows link `index` of `text`, from a description or a comment: a web
+    /// link opens in the browser, a video plays (a link to the video that
+    /// plays seeks in it), and a channel opens.
+    fn follow_link(&mut self, text: &Description, index: usize) -> Vec<Effect> {
+        let Some(link) = text.links.get(index) else { return Vec::new() };
+        let label = text.text.chars().skip(link.start).take(link.len).collect::<String>().trim().to_string();
+        match link.target.clone() {
+            LinkTarget::Url(url) => {
+                // Text from strangers: no `file:` or other schemes.
+                if !(url.starts_with("https://") || url.starts_with("http://")) {
+                    self.status = Some(format!("Only web links open: {url}"));
+                    return Vec::new();
+                }
+                self.status = Some(format!("Opened {url} in the browser."));
+                vec![Effect::OpenUrl(url)]
+            }
+            LinkTarget::Video { id, start_secs } => self.play_link(id, label, start_secs),
+            LinkTarget::Channel { id } => self.open(Target::Channel { id, name: label }),
         }
     }
 
@@ -809,6 +855,7 @@ impl App {
                 s.title.clone_from(&d.title);
                 s.details = Some(d);
                 s.error = None;
+                s.link = None;
             }
             Err(e) => s.error = Some(e),
         }
@@ -849,6 +896,15 @@ impl App {
         let Some(c) = s.comments.as_mut() else { return Vec::new() };
         let generation = c.generation;
         let load = match action {
+            Action::NextLink | Action::PrevLink => {
+                c.step_link(action == Action::NextLink);
+                None
+            }
+            Action::Open if c.link.is_some() => {
+                let Some(comment) = c.selected_comment() else { return Vec::new() };
+                let (text, index) = (comment.text.clone(), c.link.unwrap_or(0));
+                return self.follow_link(&text, index);
+            }
             Action::Open => c.open(),
             Action::Sort => {
                 let Some(next) = c.next_sort() else { return Vec::new() };
@@ -948,8 +1004,10 @@ impl App {
                     details: None,
                     loading: true,
                     error: None,
-                    scroll: 0,
+                    scroll: std::cell::Cell::new(0),
                     max_scroll: std::cell::Cell::new(u16::MAX),
+                    link: None,
+                    reveal: std::cell::Cell::new(false),
                     pane: VideoPane::Details,
                     comments: None,
                 }),
@@ -1235,7 +1293,7 @@ fn saved_playlist(s: &PlaylistScreen) -> SavedPlaylist {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::source::filters::{ResultType, SearchFilters, Sort};
     use crate::source::model::{Video, VideoKind};
@@ -1737,7 +1795,7 @@ mod tests {
         key(&mut a, "j");
         key(&mut a, "k");
         let Some(Screen::Video(s)) = a.screens.last() else { panic!() };
-        assert_eq!(s.scroll, 1);
+        assert_eq!(s.scroll.get(), 1);
     }
 
     pub(crate) fn details(id: &str, comments: Option<&str>) -> VideoDetails {
@@ -1913,6 +1971,135 @@ mod tests {
             result: Err("down".into()),
         });
         assert_eq!(comments_state(&a).error.as_deref(), Some("down"));
+    }
+
+    /// Details with a description of four links: a web page, a time in this
+    /// video, another video, and a channel. And a `file:` link.
+    fn linked(id: &str) -> VideoDetails {
+        use crate::source::model::Link;
+        let link = |start, len, target| Link { start, len, target };
+        let mut d = details(id, None);
+        d.description = Description {
+            text: "web 1:05 other @chan file".into(),
+            links: vec![
+                link(0, 3, LinkTarget::Url("https://example.com/a".into())),
+                link(4, 4, LinkTarget::Video { id: id.into(), start_secs: Some(65) }),
+                link(9, 5, LinkTarget::Video { id: "other".into(), start_secs: None }),
+                link(15, 5, LinkTarget::Channel { id: "UCchan".into() }),
+                link(21, 4, LinkTarget::Url("file:///etc/passwd".into())),
+            ],
+        };
+        d
+    }
+
+    fn selected_link(a: &App) -> Option<usize> {
+        let Some(Screen::Video(s)) = a.screens.last() else { panic!("no video screen") };
+        s.link
+    }
+
+    #[test]
+    fn n_selects_links_and_enter_follows_them() {
+        let mut a = app();
+        a.open(Target::Video { id: "v".into(), title: "t".into() });
+        a.update(Message::VideoLoaded { request: 1, result: Ok(linked("v")) });
+        // Nothing selected: enter plays the video.
+        assert!(matches!(key(&mut a, "enter").as_slice(), [Effect::ResolveStreams { .. }, ..]));
+        a.player = None;
+        // n goes forward, N back, and both go round.
+        key(&mut a, "n");
+        assert_eq!(selected_link(&a), Some(0));
+        key(&mut a, "N");
+        assert_eq!(selected_link(&a), Some(4));
+        key(&mut a, "n");
+        assert_eq!(key(&mut a, "enter"), [Effect::OpenUrl("https://example.com/a".into())]);
+        assert_eq!(a.status.as_deref(), Some("Opened https://example.com/a in the browser."));
+        // Other schemes do not open.
+        key(&mut a, "N");
+        assert!(key(&mut a, "enter").is_empty());
+        assert!(a.status.as_deref().unwrap().starts_with("Only web links open"));
+        // A channel link opens the channel, named by the link text.
+        key(&mut a, "N");
+        assert_eq!(selected_link(&a), Some(3));
+        let effects = key(&mut a, "enter");
+        assert!(matches!(effects.as_slice(), [Effect::LoadChannel { id, .. }] if id == "UCchan"), "{effects:?}");
+        assert!(matches!(a.screens.last(), Some(Screen::Channel(s)) if s.name == "@chan"));
+        // esc clears the link before it closes the screen.
+        a.screens.pop();
+        key(&mut a, "esc");
+        assert_eq!(selected_link(&a), None);
+        assert_eq!(a.screens.len(), 1);
+        key(&mut a, "esc");
+        assert!(a.screens.is_empty());
+    }
+
+    #[test]
+    fn video_links_play_from_their_time_or_seek() {
+        let mut a = app();
+        a.open(Target::Video { id: "v".into(), title: "t".into() });
+        a.update(Message::VideoLoaded { request: 1, result: Ok(linked("v")) });
+        // Another video plays from the start.
+        key(&mut a, "n");
+        key(&mut a, "n");
+        key(&mut a, "n");
+        let effects = key(&mut a, "enter");
+        assert!(effects.iter().any(|e| matches!(e, Effect::ResolveStreams { id, .. } if id == "other")), "{effects:?}");
+        assert_eq!(a.player.as_ref().unwrap().title, "other");
+        // A time in this video plays it from there.
+        a.player = None;
+        key(&mut a, "N");
+        key(&mut a, "enter");
+        let p = a.player.as_ref().unwrap();
+        assert_eq!((p.id.as_str(), p.position_ms), ("v", 65_000));
+        assert_eq!(a.status.as_deref(), Some("Playing from 1:05."));
+        // While it plays, the same link seeks.
+        a.update(Message::StreamsResolved { session: a.session, now: 0, result: Ok(stream_of_v()) });
+        a.update(Message::Player { session: a.session, event: PlayerEvent::FileLoaded });
+        // The full player has the keys now, so shrink it to see the screen.
+        key(&mut a, "esc");
+        assert_eq!(key(&mut a, "enter"), [Effect::Player(PlayerCommand::SeekTo { secs: 65 })]);
+    }
+
+    fn stream_of_v() -> Box<Streams> {
+        Box::new(Streams {
+            video_url: "https://v".into(),
+            audio_url: None,
+            headers: Vec::new(),
+            available_at: None,
+            expires_at: None,
+            format: crate::source::streams::FormatInfo::default(),
+            chapters: Vec::new(),
+            channel: None,
+            duration_secs: None,
+            live: false,
+            qualities: Vec::new(),
+            captions: Vec::new(),
+        })
+    }
+
+    #[test]
+    fn links_in_the_selected_comment() {
+        let mut a = app();
+        a.open(Target::Video { id: "v".into(), title: "t".into() });
+        let (generation, ..) = loads(&key(&mut a, "C"))[0].clone();
+        let mut page = comment_page(&["a", "b"], None);
+        page.comments[0].text = linked("v").description;
+        a.update(Message::CommentsLoaded { request: 1, generation, slot: CommentsSlot::First, result: Ok(page) });
+        key(&mut a, "n");
+        assert_eq!(comments_state(&a).link, Some(0));
+        assert_eq!(key(&mut a, "enter"), [Effect::OpenUrl("https://example.com/a".into())]);
+        // esc clears the link, and stays in the comments.
+        key(&mut a, "esc");
+        assert_eq!(comments_state(&a).link, None);
+        assert_eq!(pane(&a), VideoPane::Comments);
+        // Without a link, enter opens the replies again. Moving clears the link.
+        key(&mut a, "n");
+        key(&mut a, "j");
+        assert_eq!(comments_state(&a).link, None);
+        let got = loads(&key(&mut a, "enter"));
+        assert_eq!(got[0].1, CommentsSlot::Replies { parent: "b".into() });
+        // A comment without links selects nothing.
+        key(&mut a, "n");
+        assert_eq!(comments_state(&a).link, None);
     }
 
     #[test]

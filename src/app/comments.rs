@@ -5,6 +5,7 @@ use std::cell::Cell;
 use std::collections::HashSet;
 
 use super::list::{Loading, PRELOAD_ROWS};
+use super::screens::step_link;
 use crate::keymap::Action;
 use crate::source::model::{Comment, CommentPage, CommentSort};
 
@@ -66,6 +67,8 @@ pub struct CommentsLoad {
 pub struct CommentsState {
     pub rows: Vec<CommentRow>,
     pub selected: usize,
+    /// The selected link in the text of the selected comment, for `enter`.
+    pub link: Option<usize>,
     /// The first visible row. Drawing sets it, because only drawing knows
     /// how high each row is.
     pub top: Cell<usize>,
@@ -97,6 +100,20 @@ impl CommentsState {
         self.rows.get(self.selected)
     }
 
+    /// The selected comment, if the selected row is one.
+    pub fn selected_comment(&self) -> Option<&Comment> {
+        match self.selected_row()? {
+            CommentRow::Comment { comment, .. } => Some(comment),
+            CommentRow::MoreReplies { .. } => None,
+        }
+    }
+
+    /// Selects the next or the previous link in the selected comment.
+    pub fn step_link(&mut self, forward: bool) {
+        let len = self.selected_comment().map_or(0, |c| c.text.links.len());
+        self.link = step_link(self.link, len, forward);
+    }
+
     /// The order that shows now.
     pub fn sort(&self) -> Option<&CommentSort> {
         self.sorts.iter().find(|s| s.selected)
@@ -111,6 +128,7 @@ impl CommentsState {
                 self.rows.clear();
                 self.seen.clear();
                 self.selected = 0;
+                self.link = None;
                 self.top.set(0);
                 self.count_text = page.count_text.or(self.count_text.take());
                 if !page.sorts.is_empty() {
@@ -214,6 +232,7 @@ impl CommentsState {
     pub fn navigate(&mut self, action: Action, page: usize) -> Option<Option<CommentsLoad>> {
         let last = self.rows.len().saturating_sub(1);
         let half = (page / 2).max(1);
+        let before = self.selected;
         self.selected = match action {
             Action::Up => self.selected.saturating_sub(1),
             Action::Down => (self.selected + 1).min(last),
@@ -223,6 +242,9 @@ impl CommentsState {
             Action::HalfPageDown => (self.selected + half).min(last),
             _ => return None,
         };
+        if self.selected != before {
+            self.link = None;
+        }
         Some(self.load_more())
     }
 
@@ -248,6 +270,7 @@ impl CommentsState {
 
     /// Hides the replies of the comment at `at`. They load again on the next `Open`.
     fn collapse(&mut self, at: usize) {
+        self.link = None;
         let end = self.thread_end(at);
         for row in self.rows.drain(at + 1..end) {
             if let CommentRow::Comment { comment, .. } = row {
@@ -282,6 +305,7 @@ impl CommentsState {
         self.rows.clear();
         self.seen.clear();
         self.selected = 0;
+        self.link = None;
         self.top.set(0);
     }
 }

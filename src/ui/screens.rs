@@ -13,7 +13,7 @@ use crate::app::player::clock;
 use crate::app::screens::{ChannelScreen, PlaylistScreen, Screen, VideoPane, VideoScreen};
 use crate::app::{App, SCREEN_HEADER_ROWS};
 use crate::keymap::Action;
-use crate::source::model::{Comment, Description, Item, VideoDetails};
+use crate::source::model::{Comment, Description, Item, LinkTarget, VideoDetails};
 
 /// A comment that is not selected shows at most this many lines of text.
 const COMMENT_LINES: u16 = 6;
@@ -35,6 +35,10 @@ pub fn status(screen: &Screen) -> Option<(String, bool)> {
         Screen::Playlist(s) => &s.list,
         Screen::Video(s) if s.pane == VideoPane::Comments => return s.comments.as_deref().and_then(comments_status),
         Screen::Video(s) => {
+            let link = s.link.and_then(|i| s.details.as_ref()?.description.links.get(i));
+            if let Some(link) = link {
+                return Some((link_status(&link.target, &s.id), false));
+            }
             return match (&s.error, s.loading) {
                 (Some(e), _) => Some((format!("Could not load the video: {e}"), true)),
                 (None, true) => Some(("Loading...".into(), false)),
@@ -50,9 +54,31 @@ pub fn status(screen: &Screen) -> Option<(String, bool)> {
     }
 }
 
+/// What `enter` does with a selected link.
+fn link_status(target: &LinkTarget, video_id: &str) -> String {
+    match target {
+        LinkTarget::Url(url) => format!("enter: open {url}"),
+        LinkTarget::Video { id, start_secs: Some(secs) } if id == video_id => {
+            format!("enter: play from {}", duration(*secs))
+        }
+        LinkTarget::Video { id, start_secs: Some(secs) } => format!("enter: play video {id} from {}", duration(*secs)),
+        LinkTarget::Video { id, start_secs: None } => format!("enter: play video {id}"),
+        LinkTarget::Channel { .. } => "enter: open the channel".into(),
+    }
+}
+
 fn comments_status(c: &CommentsState) -> Option<(String, bool)> {
     if let Some(e) = &c.error {
         return Some((format!("Could not load the comments: {e}"), true));
+    }
+    let link = c.link.and_then(|i| c.selected_comment()?.text.links.get(i));
+    // The video of a comment link is not known here, so timestamps say the time only.
+    if let Some(link) = link {
+        let text = match &link.target {
+            LinkTarget::Video { start_secs: Some(secs), .. } => format!("enter: play from {}", duration(*secs)),
+            target => link_status(target, ""),
+        };
+        return Some((text, false));
     }
     let text = match c.loading {
         Loading::FirstPage => "Loading comments...",
@@ -138,21 +164,39 @@ fn draw_video(app: &App, s: &VideoScreen, f: &mut Frame, area: Rect) {
         return draw_comments(app, s, c, f, area);
     }
     let block = Block::bordered().title(format!("Video: {}", s.title));
-    let text = match (&s.details, &s.error) {
-        (Some(d), _) => video_lines(app, d),
-        (None, Some(e)) => vec![Line::from(format!("Could not load the video: {e}")).red()],
-        (None, None) => vec![Line::from("Loading...").dim()],
-    };
     let inner = block.inner(area);
+    let (text, link_line) = match (&s.details, &s.error) {
+        (Some(d), _) => {
+            let (lines, description_start) = video_lines(app, d, s.link);
+            // The wrapped line where the selected link starts.
+            let link_line = s.link.and_then(|i| d.description.links.get(i)).map(|l| {
+                let newlines = d.description.text.chars().take(l.start).filter(|&c| c == '\n').count();
+                let before = Paragraph::new(lines[..description_start + newlines].to_vec()).wrap(Wrap { trim: false });
+                u16::try_from(before.line_count(inner.width)).unwrap_or(u16::MAX)
+            });
+            (lines, link_line)
+        }
+        (None, Some(e)) => (vec![Line::from(format!("Could not load the video: {e}")).red()], None),
+        (None, None) => (vec![Line::from("Loading...").dim()], None),
+    };
     let paragraph = Paragraph::new(text).wrap(Wrap { trim: false });
     let lines = u16::try_from(paragraph.line_count(inner.width)).unwrap_or(u16::MAX);
     let max = lines.saturating_sub(inner.height);
     s.max_scroll.set(max);
+    // `n` or `N` selected a link: show it, a third from the top.
+    if let Some(line) = link_line.filter(|_| s.reveal.replace(false)) {
+        let scroll = s.scroll.get();
+        if line < scroll || line >= scroll.saturating_add(inner.height) {
+            s.scroll.set(line.saturating_sub(inner.height / 3).min(max));
+        }
+    }
     f.render_widget(block, area);
-    f.render_widget(paragraph.scroll((s.scroll.min(max), 0)), inner);
+    f.render_widget(paragraph.scroll((s.scroll.get().min(max), 0)), inner);
 }
 
-fn video_lines(app: &App, d: &VideoDetails) -> Vec<Line<'static>> {
+/// The lines of the details, with the selected link marked, and the index
+/// of the first line of the description.
+fn video_lines(app: &App, d: &VideoDetails, link: Option<usize>) -> (Vec<Line<'static>>, usize) {
     let mut lines = vec![Line::from(d.title.clone()).bold()];
 
     let mut channel = Vec::new();
@@ -176,12 +220,23 @@ fn video_lines(app: &App, d: &VideoDetails) -> Vec<Line<'static>> {
     facts.extend(d.likes_text.as_ref().map(|l| format!("{l} likes")));
     facts.extend(d.duration_secs.map(duration));
     lines.push(Line::from(facts.join(" · ")).dim());
+    let mut hints = Vec::new();
     if let Some(key) = app.keymap.first_key(Action::Comments).filter(|_| !d.live) {
         let count = d.comments_count_text.as_ref().map(|c| format!(" ({c})")).unwrap_or_default();
-        lines.push(Line::from(vec![
-            Span::from(format!("Comments{count}: press ")).dim(),
-            Span::from(key.to_string()).bold(),
-        ]));
+        hints.push((format!("Comments{count}: press "), key));
+    }
+    if let Some(key) = app.keymap.first_key(Action::NextLink).filter(|_| !d.description.links.is_empty()) {
+        hints.push(("Links: press ".to_string(), key));
+    }
+    if !hints.is_empty() {
+        let mut spans = Vec::new();
+        for (i, (text, key)) in hints.into_iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::from(" · ").dim());
+            }
+            spans.extend([Span::from(text).dim(), Span::from(key.to_string()).bold()]);
+        }
+        lines.push(Line::from(spans));
     }
 
     if !d.chapters.is_empty() {
@@ -196,8 +251,9 @@ fn video_lines(app: &App, d: &VideoDetails) -> Vec<Line<'static>> {
     }
 
     lines.push(Line::default());
-    lines.extend(description_lines(&d.description));
-    lines
+    let description_start = lines.len();
+    lines.extend(description_lines(&d.description, link));
+    (lines, description_start)
 }
 
 /// The comments of a video, with the selected one in full and marked with a
@@ -208,10 +264,11 @@ fn draw_comments(app: &App, screen: &VideoScreen, list: &CommentsState, f: &mut 
     title.extend(count);
     title.extend(list.sort().map(|o| o.label.clone()));
     let mut block = Block::bordered().title(title.join(" · "));
-    let hints: Vec<String> = [(Action::Open, "replies"), (Action::Sort, "order"), (Action::Comments, "details")]
-        .into_iter()
-        .filter_map(|(a, label)| app.keymap.first_key(a).map(|k| format!("{k} {label}")))
-        .collect();
+    let hints: Vec<String> =
+        [(Action::Open, "replies"), (Action::NextLink, "link"), (Action::Sort, "order"), (Action::Comments, "details")]
+            .into_iter()
+            .filter_map(|(a, label)| app.keymap.first_key(a).map(|k| format!("{k} {label}")))
+            .collect();
     if !hints.is_empty() {
         block = block.title_bottom(Line::from(format!(" {} ", hints.join(" · "))).dim());
     }
@@ -291,7 +348,7 @@ fn row_view(c: &CommentsState, row: &CommentRow, selected: bool, width: u16) -> 
         CommentRow::Comment { comment, expanded } => (comment, *expanded),
     };
     let reply = comment.reply_level > 0;
-    let text = description_lines(&comment.text);
+    let text = description_lines(&comment.text, if selected { c.link } else { None });
     let text_width = width.saturating_sub(2 + if reply { REPLY_INDENT } else { 0 }).max(1);
     let wrapped = u16::try_from(Paragraph::new(text.clone()).wrap(Wrap { trim: false }).line_count(text_width))
         .unwrap_or(u16::MAX);
@@ -350,24 +407,30 @@ fn first_visible(rows: &[RowView], selected: usize, top: usize, height: u16) -> 
     top
 }
 
-/// The description, one `Line` for each text line, with links in color.
-fn description_lines(d: &Description) -> Vec<Line<'static>> {
+/// The description, one `Line` for each text line, with links in color. The
+/// link `selected` is reversed.
+fn description_lines(d: &Description, selected: Option<usize>) -> Vec<Line<'static>> {
     let link_style = Style::new().cyan().add_modifier(Modifier::UNDERLINED);
-    let mut is_link = vec![false; d.text.chars().count()];
-    for l in &d.links {
-        for flag in is_link.iter_mut().skip(l.start).take(l.len) {
-            *flag = true;
+    let style = |link: Option<usize>| match link {
+        Some(i) if Some(i) == selected => link_style.add_modifier(Modifier::REVERSED),
+        Some(_) => link_style,
+        None => Style::new(),
+    };
+    // The link of each char.
+    let mut owner = vec![None; d.text.chars().count()];
+    for (i, l) in d.links.iter().enumerate() {
+        for slot in owner.iter_mut().skip(l.start).take(l.len) {
+            *slot = Some(i);
         }
     }
     let mut lines = Vec::new();
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut run = String::new();
-    let mut run_link = false;
-    for (c, link) in d.text.chars().zip(is_link) {
+    let mut run_link = None;
+    for (c, link) in d.text.chars().zip(owner) {
         if c == '\n' || link != run_link {
             if !run.is_empty() {
-                let text = std::mem::take(&mut run);
-                spans.push(if run_link { Span::styled(text, link_style) } else { Span::from(text) });
+                spans.push(Span::styled(std::mem::take(&mut run), style(run_link)));
             }
             run_link = link;
         }
@@ -378,7 +441,7 @@ fn description_lines(d: &Description) -> Vec<Line<'static>> {
         }
     }
     if !run.is_empty() {
-        spans.push(if run_link { Span::styled(run, link_style) } else { Span::from(run) });
+        spans.push(Span::styled(run, style(run_link)));
     }
     if !spans.is_empty() {
         lines.push(Line::from(spans));
@@ -543,7 +606,7 @@ mod tests {
             text: "Hi ✓ see x.com\nnext".into(),
             links: vec![Link { start: 9, len: 5, target: LinkTarget::Url("https://x.com".into()) }],
         };
-        let lines = description_lines(&d);
+        let lines = description_lines(&d, None);
         assert_eq!(lines.len(), 2);
         let first: Vec<(&str, bool)> = lines[0]
             .spans
@@ -560,7 +623,7 @@ mod tests {
             text: "ab".into(),
             links: vec![Link { start: 1, len: 50, target: LinkTarget::Channel { id: "UC".into() } }],
         };
-        assert_eq!(description_lines(&d).len(), 1);
+        assert_eq!(description_lines(&d, None).len(), 1);
     }
 
     #[test]

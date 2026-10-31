@@ -206,6 +206,27 @@ fn watch_signals(tx: UnboundedSender<Message>) {
     });
 }
 
+/// Opens `url` in the browser with `xdg-open` (`open` on macOS). Its output
+/// would break the screen, so it goes nowhere.
+fn open_url(tx: UnboundedSender<Message>, url: &str) {
+    use std::process::{Command, Stdio};
+
+    let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let child = Command::new(program).arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    match child {
+        Ok(mut child) => {
+            std::thread::spawn(move || {
+                if child.wait().is_ok_and(|status| !status.success()) {
+                    let _ = tx.send(Message::OpenFailed(format!("{program} failed")));
+                }
+            });
+        }
+        Err(e) => {
+            let _ = tx.send(Message::OpenFailed(format!("cannot run {program}: {e}")));
+        }
+    }
+}
+
 /// Runs `load` in a task, and sends the message that `reply` makes of its result.
 fn fetch<T>(
     tx: &UnboundedSender<Message>,
@@ -303,6 +324,7 @@ fn handle(
         Effect::UnsavePlaylist { playlist_id } => writer.write(move |store| store.unsave_playlist(&playlist_id)),
         Effect::SaveWatch(e) => writer.write(move |store| store.record_watch(&e)),
         Effect::LoadFeed { channels, force } => load_feed(tx.clone(), Arc::clone(source), &channels, force),
+        Effect::OpenUrl(url) => open_url(tx.clone(), &url),
         Effect::SaveFeed { channel_id, fetched_at, videos } => {
             writer.write(move |store| store.save_channel_feed(&channel_id, fetched_at, &videos));
         }

@@ -10,6 +10,7 @@ on:
     paths:
       - ".github/release.yml"
       - ".github/workflows/release.yml"
+      - "scripts/archive.sh"
       - "scripts/formula.sh"
       - "scripts/pkgbuild.sh"
   workflow_dispatch:
@@ -107,19 +108,11 @@ jobs:
           RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=reeltty --remap-path-prefix=/home/runner/.cargo=cargo
         run: cargo build --release --locked
 
-      # The same commit gives the same archive: the files get the commit
-      # time, a fixed owner, and a fixed order.
+      # task release:dry-run packs the same way.
       - name: Package
         env:
           TARGET: ${{ matrix.target }}
-        run: |
-          platform="${TARGET/-/_}"
-          mkdir -p stage release
-          cp target/release/reeltty README.md LICENSE-MIT LICENSE-APACHE stage/
-          tar --sort=name --owner=0 --group=0 --numeric-owner \
-            --mtime="@$(git log -1 --format=%ct)" \
-            -C stage -cf - reeltty README.md LICENSE-MIT LICENSE-APACHE \
-            | gzip -n > "release/reeltty_${VERSION}_${platform}.tar.gz"
+        run: scripts/archive.sh "$VERSION" "${TARGET/-/_}" release
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

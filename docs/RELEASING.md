@@ -7,13 +7,13 @@ A tag that starts with `v` publishes a release. `.github/workflows/release.yml` 
 1. Change `version` in `Cargo.toml` to the new version, in a pull request, and merge it. The tag and `Cargo.toml` must name the same version, or the release stops.
 2. Make sure that CI passes on `main`.
 3. Switch to `main`, and pull.
-4. Run the release script with the new version:
+4. Run the release task with the new version ([Task](https://taskfile.dev); the program is `go-task` on Arch Linux):
 
    ```sh
-   scripts/release.sh v0.1.0
+   task release -- v0.1.0
    ```
 
-   The script stops if the version does not look like `v1.2.3` or `v1.2.3-rc.1`, if `Cargo.toml` has another version, if the branch is not `main`, if the tree has changes, if `main` is not the same as `origin/main`, or if the tag exists. Then it pushes the tag.
+   The task stops if the version does not look like `v1.2.3` or `v1.2.3-rc.1`, if `Cargo.toml` has another version, if the branch is not `main`, if the tree has changes, if `main` is not the same as `origin/main`, or if the tag exists. Then it pushes the tag.
 5. Watch the Release workflow on the Actions tab of the repository.
 
 A version with a hyphen, such as `v0.2.0-rc.1`, makes a prerelease. A prerelease does not change the Homebrew formula.
@@ -73,14 +73,10 @@ A pull request that changes `.github/release.yml`, `.github/workflows/release.ym
 
 - `homebrew` installs the formula with Linuxbrew from the source archive of the run, in a local tap, and runs `brew test`.
 
-To check the PKGBUILD on Arch Linux:
+On your computer:
 
-```sh
-git archive --format=tar --prefix=reeltty-0.1.0/ HEAD | gzip -n > reeltty_0.1.0_source.tar.gz
-scripts/pkgbuild.sh 0.1.0 reeltty_0.1.0_source.tar.gz /tmp/reeltty-pkg
-cp reeltty_0.1.0_source.tar.gz /tmp/reeltty-pkg/reeltty-0.1.0.tar.gz
-cd /tmp/reeltty-pkg && makepkg -f && makepkg --printsrcinfo | diff - .SRCINFO
-```
+- `task release:dry-run` builds the archive of your machine with `scripts/archive.sh`, as CI does, and writes the source archive, the formula and the PKGBUILD into `dist/`. It checks the formula with `ruby -c` and the PKGBUILD with `bash -n`. It does not sign.
+- `task release:pkgbuild` (Arch Linux) builds the package of this commit with `makepkg` in `dist/pkg`, which runs the tests, and checks that `.SRCINFO` is what `makepkg --printsrcinfo` writes.
 
 ## The Homebrew deploy key
 

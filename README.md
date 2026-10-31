@@ -145,12 +145,13 @@ Local state (subscriptions, the feed, saved playlists, and the watch history) is
 
 ## Development
 
+The tasks in `Taskfile.yml` run the same checks as CI ([Task](https://taskfile.dev); the program is `go-task` on Arch Linux). `task --list` shows them all.
+
 ```sh
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-cargo deny check
-cargo audit
+task check   # fmt, clippy, shellcheck, tests, cargo deny, cargo audit
+task test    # the tests only (the libmpv tests need mpv)
+task fmt     # format the code
+task run -- doctor
 ```
 
 UI tests use [insta](https://insta.rs) snapshots. After a UI change, run `cargo insta review`.

@@ -5,6 +5,7 @@
 //! by starting a task that later sends another `Message`. `update` never
 //! blocks and never does I/O.
 
+pub mod feed;
 pub mod list;
 pub mod player;
 pub mod screens;
@@ -17,9 +18,10 @@ use crate::keymap::{Action, KeyMap, KeyPress};
 use crate::source::filters::SearchQuery;
 use crate::source::model::{ChannelPage, ChannelRef, Item, ItemPage, PlaylistPage, SearchPage, Video, VideoDetails};
 use crate::source::streams::Streams;
-use crate::store::{HISTORY_LIMIT, HistoryEntry, SavedPlaylist, Subscription};
+use crate::store::{FeedVideo, HISTORY_LIMIT, HistoryEntry, SavedPlaylist, Subscription};
 use crate::terminal::detect::Graphics;
 use crate::thumbnails::{Picture, Slot};
+use feed::FeedState;
 use list::ItemList;
 use player::{PlayerCommand, PlayerEvent, PlayerState};
 use screens::{ChannelScreen, PlaylistScreen, Screen, Target, VideoScreen};
@@ -77,6 +79,16 @@ pub enum Message {
     Player {
         session: u64,
         event: PlayerEvent,
+    },
+    /// The reply to `Effect::LoadFeed`: how many channels will load.
+    FeedLoading {
+        count: usize,
+    },
+    /// One channel of `Effect::LoadFeed`. `fetched_at` is Unix seconds.
+    FeedChannelLoaded {
+        channel_id: String,
+        fetched_at: i64,
+        result: Result<Vec<Video>, String>,
     },
     /// The reply to `Effect::LoadRelated`.
     RelatedLoaded {
@@ -138,6 +150,22 @@ pub enum Effect {
     UnsavePlaylist {
         playlist_id: String,
     },
+    /// Load the videos tab of the channels that were not loaded in the last
+    /// 30 minutes, or of all with `force`. Each channel comes with the time it
+    /// was loaded, if it was.
+    LoadFeed {
+        channels: Vec<(String, Option<i64>)>,
+        force: bool,
+    },
+    /// Replace the feed videos of a channel in the database.
+    SaveFeed {
+        channel_id: String,
+        fetched_at: i64,
+        videos: Vec<FeedVideo>,
+    },
+    ForgetFeed {
+        channel_id: String,
+    },
     /// Add a watch to the history, or replace the last watch of the video.
     SaveWatch(HistoryEntry),
     ForgetWatch {
@@ -175,6 +203,7 @@ pub enum Effect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Search,
+    Feed,
     Subscriptions,
     Playlists,
     Queue,
@@ -182,11 +211,13 @@ pub enum Tab {
 }
 
 impl Tab {
-    pub const ALL: [Self; 5] = [Self::Search, Self::Subscriptions, Self::Playlists, Self::Queue, Self::History];
+    pub const ALL: [Self; 6] =
+        [Self::Search, Self::Feed, Self::Subscriptions, Self::Playlists, Self::Queue, Self::History];
 
     pub const fn title(self) -> &'static str {
         match self {
             Self::Search => "Search",
+            Self::Feed => "Feed",
             Self::Subscriptions => "Subscriptions",
             Self::Playlists => "Playlists",
             Self::Queue => "Queue",
@@ -247,6 +278,8 @@ impl Selection {
 const CHROME_ROWS: u16 = 4;
 /// Rows above the list on the Search tab (the query line).
 pub const SEARCH_HEADER_ROWS: u16 = 1;
+/// Rows above the list on the Feed tab (the status line).
+pub const FEED_HEADER_ROWS: u16 = 1;
 /// Rows above the list on a channel or playlist screen.
 pub const SCREEN_HEADER_ROWS: u16 = 2;
 /// Each list item takes this many rows without thumbnails.
@@ -265,6 +298,8 @@ pub struct App {
     pub subscriptions_selection: Selection,
     pub saved_playlists: Vec<SavedPlaylist>,
     pub saved_selection: Selection,
+    /// The subscriptions feed.
+    pub feed: FeedState,
     /// Watched videos, newest first.
     pub history: Vec<HistoryEntry>,
     pub history_selection: Selection,
@@ -311,6 +346,7 @@ impl App {
             subscriptions_selection: Selection::default(),
             saved_playlists: Vec::new(),
             saved_selection: Selection::default(),
+            feed: FeedState::default(),
             history: Vec::new(),
             history_selection: Selection::default(),
             status: None,
@@ -366,6 +402,9 @@ impl App {
                 Some(Screen::Channel(s)) => (s.list.items.as_slice(), s.list.selection, self.rows(SCREEN_HEADER_ROWS)),
                 Some(Screen::Playlist(s)) => (s.list.items.as_slice(), s.list.selection, self.rows(SCREEN_HEADER_ROWS)),
                 None if self.tab == Tab::Search => (self.search.results.as_slice(), self.search.selection, self.page()),
+                None if self.tab == Tab::Feed => {
+                    (self.feed.items.as_slice(), self.feed.selection, self.rows(FEED_HEADER_ROWS))
+                }
                 Some(Screen::Video(_)) | None => (&[][..], Selection::default(), 0),
             };
             effects.extend(self.thumbnails.want(items.iter().skip(selection.offset).take(rows * 2)));
@@ -469,6 +508,10 @@ impl App {
             Message::Tick { session, now } => self.on_tick(session, now),
             Message::Player { session, event } => self.on_player_event(session, event),
             Message::RelatedLoaded { session, result } => self.on_related(session, result),
+            Message::FeedLoading { count } => self.on_feed_loading(count),
+            Message::FeedChannelLoaded { channel_id, fetched_at, result } => {
+                self.on_feed_channel(channel_id, fetched_at, result)
+            }
         }
     }
 
@@ -502,6 +545,8 @@ impl App {
         self.saved_selection.clamp(self.saved_playlists.len(), plain);
         self.queue_selection.clamp(self.queue.len(), plain);
         self.history_selection.clamp(self.history.len(), plain);
+        let feed = self.rows(FEED_HEADER_ROWS);
+        self.feed.selection.clamp(self.feed.items.len(), feed);
         for screen in &mut self.screens {
             if let Some(list) = screen.list_mut() {
                 list.selection.clamp(list.items.len(), header);
@@ -549,6 +594,11 @@ impl App {
                 if (captured || !global)
                     && let KeyResult::Used(effects) = self.search.on_key(key, action, self.page())
                 {
+                    return effects;
+                }
+            }
+            Tab::Feed => {
+                if let Some(effects) = self.on_feed_key(action) {
                     return effects;
                 }
             }
@@ -789,14 +839,98 @@ impl App {
         if let Some(i) = self.subscriptions.iter().position(|s| s.channel_id == channel_id) {
             let s = self.subscriptions.remove(i);
             self.status = Some(format!("Unsubscribed from {}.", s.name));
-            return vec![Effect::Unsubscribe { channel_id }];
+            self.feed.forget_channel(&channel_id);
+            self.rebuild_feed();
+            return vec![Effect::Unsubscribe { channel_id: channel_id.clone() }, Effect::ForgetFeed { channel_id }];
         }
         // The runtime sets the time when it saves.
         let s = Subscription { channel_id, name, handle, subscribed_at: 0 };
         self.status = Some(format!("Subscribed to {}.", s.name));
         let at = self.subscriptions.partition_point(|x| x.name.to_lowercase() <= s.name.to_lowercase());
         self.subscriptions.insert(at, s.clone());
-        vec![Effect::Subscribe(s)]
+        let load = Effect::LoadFeed { channels: vec![(s.channel_id.clone(), None)], force: true };
+        vec![Effect::Subscribe(s), load]
+    }
+
+    /// Effects to run once, when the app starts: the feed loads the channels
+    /// that were not loaded in the last 30 minutes.
+    pub fn start(&mut self) -> Vec<Effect> {
+        self.rebuild_feed();
+        self.load_feed(false)
+    }
+
+    fn load_feed(&self, force: bool) -> Vec<Effect> {
+        if self.subscriptions.is_empty() {
+            return Vec::new();
+        }
+        let channels = self
+            .subscriptions
+            .iter()
+            .map(|s| (s.channel_id.clone(), self.feed.fetched.get(&s.channel_id).copied()))
+            .collect();
+        vec![Effect::LoadFeed { channels, force }]
+    }
+
+    /// `count` more channels load now.
+    fn on_feed_loading(&mut self, count: usize) -> Vec<Effect> {
+        self.feed.loading += count;
+        self.feed.error = None;
+        Vec::new()
+    }
+
+    fn on_feed_channel(
+        &mut self,
+        channel_id: String,
+        fetched_at: i64,
+        result: Result<Vec<Video>, String>,
+    ) -> Vec<Effect> {
+        self.feed.loading = self.feed.loading.saturating_sub(1);
+        // The user unsubscribed while it loaded.
+        let Some(sub) = self.subscriptions.iter().find(|s| s.channel_id == channel_id) else { return Vec::new() };
+        let channel = ChannelRef { id: Some(channel_id.clone()), name: sub.name.clone(), handle: sub.handle.clone() };
+        match result.map(|videos| self.feed.set_channel(&channel, fetched_at, videos)) {
+            Ok(Some(videos)) => {
+                self.rebuild_feed();
+                vec![Effect::SaveFeed { channel_id, fetched_at, videos }]
+            }
+            Ok(None) => {
+                self.feed.error = Some(format!("{}: no dates for its videos", channel.name));
+                Vec::new()
+            }
+            Err(e) => {
+                self.feed.error = Some(format!("{}: {e}", channel.name));
+                Vec::new()
+            }
+        }
+    }
+
+    /// Builds the feed list again, for the subscribed channels.
+    fn rebuild_feed(&mut self) {
+        let rows = self.rows(FEED_HEADER_ROWS);
+        let subscribed: Vec<&str> = self.subscriptions.iter().map(|s| s.channel_id.as_str()).collect();
+        self.feed.rebuild(&subscribed, rows);
+    }
+
+    fn on_feed_key(&mut self, action: Option<Action>) -> Option<Vec<Effect>> {
+        let action = action?;
+        let rows = self.rows(FEED_HEADER_ROWS);
+        if self.feed.selection.apply(action, self.feed.items.len(), rows) {
+            return Some(Vec::new());
+        }
+        if action == Action::Refresh {
+            if self.feed.loading > 0 {
+                self.status = Some("The feed is loading already.".into());
+                return Some(Vec::new());
+            }
+            return Some(self.load_feed(true));
+        }
+        let item = self.feed.items.get(self.feed.selection.index)?.clone();
+        match action {
+            Action::Open | Action::Details | Action::Channel | Action::Toggle | Action::Enqueue => {
+                Some(self.on_item(&item, action))
+            }
+            _ => None,
+        }
     }
 
     fn toggle_saved(&mut self, p: SavedPlaylist) -> Vec<Effect> {
@@ -1066,7 +1200,7 @@ mod tests {
         assert_eq!(a.tab, Tab::History);
         key(&mut a, "tab");
         key(&mut a, "tab");
-        assert_eq!(a.tab, Tab::Subscriptions);
+        assert_eq!(a.tab, Tab::Feed);
     }
 
     #[test]
@@ -1359,11 +1493,13 @@ mod tests {
         a.open(Target::Channel { id: "UC1".into(), name: "Chan".into() });
         a.update(Message::ChannelLoaded { request: 1, result: Ok(channel_page(Vec::new(), false)) });
         let effects = key(&mut a, "s");
-        assert!(
-            matches!(effects.as_slice(), [Effect::Subscribe(s)] if s.channel_id == "UC1" && s.handle.as_deref() == Some("@real"))
-        );
+        assert!(matches!(effects.as_slice(), [Effect::Subscribe(s), Effect::LoadFeed { channels, force: true }]
+                if s.channel_id == "UC1" && s.handle.as_deref() == Some("@real") && channels == &[("UC1".to_string(), None)]));
         assert!(a.is_subscribed("UC1"));
-        assert_eq!(key(&mut a, "s"), vec![Effect::Unsubscribe { channel_id: "UC1".into() }]);
+        assert_eq!(
+            key(&mut a, "s"),
+            vec![Effect::Unsubscribe { channel_id: "UC1".into() }, Effect::ForgetFeed { channel_id: "UC1".into() }]
+        );
         assert!(!a.is_subscribed("UC1"));
     }
 
@@ -1372,10 +1508,13 @@ mod tests {
         let mut a = app();
         a.subscriptions =
             vec![Subscription { channel_id: "UC1".into(), name: "A".into(), handle: None, subscribed_at: 1 }];
-        key(&mut a, "tab");
+        a.tab = Tab::Subscriptions;
         assert_eq!(key(&mut a, "enter"), vec![Effect::LoadChannel { request: 1, id: "UC1".into() }]);
         key(&mut a, "esc");
-        assert_eq!(key(&mut a, "s"), vec![Effect::Unsubscribe { channel_id: "UC1".into() }]);
+        assert_eq!(
+            key(&mut a, "s"),
+            vec![Effect::Unsubscribe { channel_id: "UC1".into() }, Effect::ForgetFeed { channel_id: "UC1".into() }]
+        );
         assert!(a.subscriptions.is_empty());
         assert_eq!(key(&mut a, "enter"), vec![], "an empty list opens nothing");
     }
@@ -1395,9 +1534,7 @@ mod tests {
         results(&mut a, vec![playlist]);
         let effects = key(&mut a, "s");
         assert!(matches!(effects.as_slice(), [Effect::SavePlaylist(p)] if p.playlist_id == "PL1"));
-        key(&mut a, "tab");
-        key(&mut a, "tab");
-        assert_eq!(a.tab, Tab::Playlists);
+        a.tab = Tab::Playlists;
         assert_eq!(key(&mut a, "enter"), vec![Effect::LoadPlaylist { request: 1, id: "PL1".into() }]);
     }
 
@@ -1469,9 +1606,7 @@ mod tests {
         key(&mut a, "a");
         // The Queue tab.
         key(&mut a, "tab");
-        key(&mut a, "tab");
-        key(&mut a, "tab");
-        assert_eq!(a.tab, Tab::Queue);
+        a.tab = Tab::Queue;
         assert_eq!(a.queue.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(), ["v1", "v2"]);
         key(&mut a, "j");
         let effects = key(&mut a, "enter");
@@ -1551,5 +1686,94 @@ mod tests {
         assert_eq!(a.history[a.history_selection.index].video_id, "b");
         a.remember_watch(&entry("b"));
         assert_eq!(a.history_selection.index, 0);
+    }
+
+    fn feed_video(id: &str, ago: &str) -> Video {
+        match video(id) {
+            Item::Video(mut v) => {
+                v.published_text = Some(ago.into());
+                v
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn the_feed_loads_at_start_and_on_refresh() {
+        let mut a = app();
+        assert!(a.start().is_empty(), "no subscriptions, nothing to load");
+        a.subscriptions = ["UC1", "UC2"]
+            .iter()
+            .map(|id| Subscription { channel_id: (*id).into(), name: (*id).into(), handle: None, subscribed_at: 1 })
+            .collect();
+        a.feed.fetched.insert("UC1".into(), 500);
+        let effects = a.start();
+        let want = vec![("UC1".to_string(), Some(500)), ("UC2".to_string(), None)];
+        assert_eq!(effects, [Effect::LoadFeed { channels: want.clone(), force: false }]);
+
+        a.update(Message::FeedLoading { count: 2 });
+        let effects = a.update(Message::FeedChannelLoaded {
+            channel_id: "UC2".into(),
+            fetched_at: 1_000_000,
+            result: Ok(vec![feed_video("b1", "1 hour ago"), feed_video("b2", "2 days ago")]),
+        });
+        assert!(
+            matches!(effects.as_slice(), [Effect::SaveFeed { channel_id, videos, .. }] if channel_id == "UC2" && videos.len() == 2)
+        );
+        a.update(Message::FeedChannelLoaded {
+            channel_id: "UC1".into(),
+            fetched_at: 1_000_000,
+            result: Err("HTTP 500".into()),
+        });
+        assert_eq!(a.feed.loading, 0);
+        assert_eq!(a.feed.error.as_deref(), Some("UC1: HTTP 500"));
+
+        a.tab = Tab::Feed;
+        assert_eq!(a.feed.items.len(), 2);
+        let mut fetched = want;
+        fetched[1].1 = Some(1_000_000);
+        assert_eq!(key(&mut a, "r"), [Effect::LoadFeed { channels: fetched, force: true }]);
+        // Enter plays, and the list moves with the browse keys.
+        key(&mut a, "j");
+        assert!(
+            matches!(key(&mut a, "enter").as_slice(), [Effect::ResolveStreams { id, .. }, Effect::LoadRelated { .. }] if id == "b2")
+        );
+    }
+
+    #[test]
+    fn unsubscribing_takes_the_channel_out_of_the_feed() {
+        let mut a = app();
+        a.subscriptions =
+            vec![Subscription { channel_id: "UC1".into(), name: "A".into(), handle: None, subscribed_at: 1 }];
+        a.update(Message::FeedChannelLoaded {
+            channel_id: "UC1".into(),
+            fetched_at: 1_000_000,
+            result: Ok(vec![feed_video("a1", "1 hour ago")]),
+        });
+        assert_eq!(a.feed.items.len(), 1);
+        a.tab = Tab::Subscriptions;
+        key(&mut a, "s");
+        assert!(a.feed.items.is_empty());
+    }
+
+    #[test]
+    fn late_replies_and_refresh_while_loading() {
+        let mut a = app();
+        a.subscriptions =
+            vec![Subscription { channel_id: "UC1".into(), name: "A".into(), handle: None, subscribed_at: 1 }];
+        a.tab = Tab::Feed;
+        a.update(Message::FeedLoading { count: 1 });
+        assert!(key(&mut a, "r").is_empty());
+        assert_eq!(a.status.as_deref(), Some("The feed is loading already."));
+        // Unsubscribed while it loaded: the reply is dropped.
+        a.subscriptions.clear();
+        let effects = a.update(Message::FeedChannelLoaded {
+            channel_id: "UC1".into(),
+            fetched_at: 1_000_000,
+            result: Ok(vec![feed_video("a1", "1 hour ago")]),
+        });
+        assert!(effects.is_empty());
+        assert!(a.feed.fetched.is_empty());
+        assert_eq!(a.feed.loading, 0);
     }
 }

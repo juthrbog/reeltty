@@ -35,6 +35,8 @@ To import your YouTube subscriptions, export them with [Google Takeout](https://
 
 You can also give the path of `subscriptions.csv`. Channels you follow already stay as they are, and the list stays on your computer.
 
+The Feed tab shows the newest videos of the channels you follow, newest first. reeltty loads each channel at most every 30 minutes, four at a time, and keeps the feed on your computer, so it shows at once when reeltty starts. Press `r` on the Feed tab to load all channels again. Shorts, live streams, and members-only videos are hidden.
+
 To play a video, select it and press `enter`. `i` shows its details. `a` adds a video to the queue, or takes it out. The Queue tab shows the queue, and `enter` there plays a video from it.
 
 The History tab shows the videos you played, newest first, and how far you got. A video you stopped in the middle plays again from where you stopped. `d` deletes an entry from the history (or from the queue in the Queue tab). In the player, the keys are the same as mpv's:
@@ -75,6 +77,11 @@ thumbnails = true
 # When a video ends, play the next one from the queue or the related videos.
 autoplay = true
 
+# Show Shorts and live streams in the subscriptions feed.
+[feed]
+shorts = false
+live = false
+
 # Captions: the language, and if they are on when a video starts.
 # Captions made by a person come first, then automatic ones.
 [captions]
@@ -92,7 +99,7 @@ seek_forward_long = ["up", "l"]
 
 The actions in `[keys.browse]` are `quit`, `up`, `down`, `top`, `bottom`, `half_page_up`, `half_page_down`, `open`, `back`, `search`, `filters`, `next_tab`, `prev_tab`, `refresh`, `details`, `channel`, `toggle`, `enqueue`, `delete`, and `help`. The actions in `[keys.player]` are `back`, `toggle_pause`, `seek_forward`, `seek_back`, `seek_forward_long`, `seek_back_long`, `volume_up`, `volume_down`, `mute`, `speed_up`, `speed_down`, `speed_reset`, `next_chapter`, `prev_chapter`, `captions`, `quality`, `next_video`, and `prev_video`. Keys are written as `j`, `G`, `ctrl-d`, `alt-x`, `space`, `enter`, `esc`, `tab`, `shift-tab`, `backspace`, `up`, `down`, `left`, `right`, `pgup`, `pgdn`, `home`, `end`, or `f1` to `f12`.
 
-Local state (subscriptions, saved playlists, and the watch history) is in `~/.local/share/reeltty/reeltty.db`. Thumbnails are cached in `~/.cache/reeltty/thumbnails`, up to 100 MB. The log is in `~/.local/state/reeltty/reeltty.log`. Set `REELTTY_LOG=debug` for more detail.
+Local state (subscriptions, the feed, saved playlists, and the watch history) is in `~/.local/share/reeltty/reeltty.db`. Thumbnails are cached in `~/.cache/reeltty/thumbnails`, up to 100 MB. The log is in `~/.local/state/reeltty/reeltty.log`. Set `REELTTY_LOG=debug` for more detail.
 
 ## Development
 

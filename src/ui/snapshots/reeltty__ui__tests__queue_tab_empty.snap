@@ -2,7 +2,7 @@
 source: src/ui/mod.rs
 expression: "render(&app, 60, 8)"
 ---
- Search   Subscriptions   Playlists   Queue   History       
+ Search   Feed   Subscriptions   Playlists   Queue   History
 ┌Queue (0)─────────────────────────────────────────────────┐
 │The queue is empty. Press a on a video to add it. Videos  │
 │in the queue play after the one that plays now.           │

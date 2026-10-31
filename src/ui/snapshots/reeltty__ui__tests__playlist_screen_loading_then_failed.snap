@@ -2,7 +2,7 @@
 source: src/ui/mod.rs
 expression: "format!(\"{loading}{}\", render(&app, 70, 8))"
 ---
- Search   Subscriptions   Playlists   Queue   History                 
+ Search   Feed   Subscriptions   Playlists   Queue   History          
 ┌Playlist: Crust of Rust─────────────────────────────────────────────┐
 │                                                                    │
 │                                                                    │
@@ -10,7 +10,7 @@ expression: "format!(\"{loading}{}\", render(&app, 70, 8))"
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 Loading...                        ? help  / search  esc back  q quit  
- Search   Subscriptions   Playlists   Queue   History                 
+ Search   Feed   Subscriptions   Playlists   Queue   History          
 ┌Playlist: Crust of Rust─────────────────────────────────────────────┐
 │                                                                    │
 │                                                                    │

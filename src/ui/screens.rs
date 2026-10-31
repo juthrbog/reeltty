@@ -234,6 +234,40 @@ pub fn draw_subscriptions(app: &App, f: &mut Frame, area: Rect) {
     items::draw_rows(rows, app.subscriptions_selection, f, inner);
 }
 
+pub fn draw_feed(app: &App, f: &mut Frame, area: Rect) {
+    let feed = &app.feed;
+    let block = Block::bordered().title(format!("Feed ({})", crate::takeout::channels(app.subscriptions.len())));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    if app.subscriptions.is_empty() {
+        let key = app.keymap.first_key(crate::keymap::Action::Toggle).map(|k| k.to_string()).unwrap_or_default();
+        let text = format!(
+            "No subscriptions yet. Press {key} on a channel to subscribe, or import your YouTube subscriptions \
+             with reeltty import (see the README)."
+        );
+        f.render_widget(Paragraph::new(text).dim().wrap(Wrap { trim: true }), inner);
+        return;
+    }
+    let [status, list] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
+    let refresh = app.keymap.first_key(crate::keymap::Action::Refresh).map(|k| k.to_string()).unwrap_or_default();
+    let line = match (&feed.error, feed.loading) {
+        (_, n) if n > 0 => Line::from(format!("Loading {}…", crate::takeout::channels(n))).dim(),
+        (Some(e), _) => Line::from(format!("Could not load {e}")).red(),
+        (None, _) => {
+            let n = feed.items.len();
+            let videos = if n == 1 { "1 video".to_string() } else { format!("{n} videos") };
+            Line::from(format!("{videos}. Press {refresh} to load all channels again.")).dim()
+        }
+    };
+    f.render_widget(line, status);
+    if feed.items.is_empty() {
+        let text = if feed.loading > 0 { "Loading the feed…" } else { "No videos yet." };
+        f.render_widget(Paragraph::new(text).dim(), list);
+        return;
+    }
+    items::draw_list(&feed.items, feed.selection, &app.thumbnails, f, list);
+}
+
 pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
     let block = Block::bordered().title(format!("History ({})", app.history.len()));
     let inner = block.inner(area);

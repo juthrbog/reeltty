@@ -652,10 +652,11 @@ mod tests {
 
     #[tokio::test]
     async fn maps_a_refused_connection() {
-        // Bind a port, then close it, so nothing listens there.
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("http://{}", listener.local_addr().unwrap());
-        drop(listener);
+        // A socket that is bound but does not listen keeps the port, so no
+        // other test can take it, and refuses connections.
+        let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let url = format!("http://{}", socket.local_addr().unwrap());
         let tube = InnerTube::with_base_url(url).unwrap();
         let err = tube.call("search", search_fields("x", None)).await.unwrap_err();
         assert!(matches!(&err, SourceError::Network(m) if !m.is_empty()), "{err:?}");

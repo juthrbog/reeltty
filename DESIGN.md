@@ -136,7 +136,11 @@ At build time, `clang` is necessary if the fallback engine (ffmpeg-next) is used
 
 ## Milestones
 
+M0 to M3 are done, so all v1 features are in. The next work is v1.1.
+
 ### M0: playback spike
+
+Done in PR #6. The spike passed.
 
 Build a throwaway program that tests the full hard path:
 
@@ -152,13 +156,19 @@ If it fails at 960x540 but passes at 640x360, make the decision again. If it fai
 
 ### M1: browse and search
 
+Done in PRs #7, #8, #10, and #11.
+
 The app shell (Elm loop, `Frontend` trait, key map, configuration, SQLite), the InnerTube source, search with filters, channel pages, video details, playlists, thumbnails, and `reeltty doctor`.
 
 ### M2: playback
 
+Done in PRs #12, #13, and #14.
+
 The player screen from the M0 spike, made production quality. yt-dlp stream resolution with the ad-wait countdown, the player controls, captions, the queue, autoplay, and related videos.
 
 ### M3: feed and history
+
+Done in PRs #15, #16, and #17.
 
 The Takeout import, the subscriptions feed, watch history, and resume.
 

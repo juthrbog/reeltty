@@ -69,7 +69,7 @@ On the details screen, `C` shows the comments, and `C` again shows the details. 
 
 In a description or the selected comment, `n` and `N` select the next or previous link, and `enter` follows it: a web link opens in your browser (with `xdg-open`, or `open` on macOS; only `http` and `https` links), a time like 1:05 plays the video from there (or seeks, if it plays already), another video plays, and a channel opens. `esc` clears the selection, and without a selected link `enter` works as before.
 
-The History tab shows the videos you played, newest first, and how far you got. A video you stopped in the middle plays again from where you stopped. `d` deletes an entry from the history (or from the queue in the Queue tab). In the player, the keys are the same as mpv's:
+The History tab shows the videos you played, newest first, and how far you got. In the other lists, a video you played says "watched", or where you stopped, such as "stopped at 4:12". A video you stopped in the middle plays again from where you stopped. `d` deletes an entry from the history (or from the queue in the Queue tab). In the player, the keys are the same as mpv's:
 
 | Key | Action |
 |---|---|

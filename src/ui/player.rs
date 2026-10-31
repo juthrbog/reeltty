@@ -61,7 +61,7 @@ fn draw_up_next(app: &App, up: &UpNext, f: &mut Frame, area: Rect) {
     let items: Vec<ListItem> = up
         .videos
         .iter()
-        .map(|v| ListItem::new(super::items::rows(&Item::Video(v.clone()), text_width, false)))
+        .map(|v| ListItem::new(super::items::rows(&Item::Video(v.clone()), None, text_width, false)))
         .collect();
     let list = List::new(items).highlight_style(Style::new().add_modifier(Modifier::REVERSED));
     f.render_stateful_widget(list, inner, &mut ListState::default().with_selected(Some(up.selection)));

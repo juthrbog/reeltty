@@ -1,5 +1,7 @@
 //! Drawing items in lists: two rows for each video, channel, or playlist.
 
+use std::collections::HashMap;
+
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -9,15 +11,25 @@ use ratatui::widgets::{List, ListItem, ListState};
 use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 
 use crate::app::Selection;
+use crate::app::player::clock;
 use crate::app::thumbnails::Thumbnails;
 use crate::source::model::{Channel, ChannelRef, Item, Playlist, PlaylistKind, Video, VideoKind};
+use crate::store::HistoryEntry;
 use crate::terminal::kitty;
 
 /// The text column must keep at least this many cells, or thumbnails are not drawn.
 const MIN_TEXT_WIDTH: u16 = 20;
 
-/// Draws `items` with the selected one highlighted, and with thumbnails if they are on.
-pub fn draw_list(items: &[Item], selection: Selection, thumbnails: &Thumbnails, f: &mut Frame, area: Rect) {
+/// Draws `items` with the selected one highlighted, and with thumbnails if they
+/// are on. Videos in `history` show as watched.
+pub fn draw_list(
+    items: &[Item],
+    selection: Selection,
+    thumbnails: &Thumbnails,
+    history: &[HistoryEntry],
+    f: &mut Frame,
+    area: Rect,
+) {
     let slot = thumbnails.slot();
     let three = thumbnails.enabled;
     let show = three && area.width >= slot.cols + 1 + MIN_TEXT_WIDTH && area.height >= slot.rows;
@@ -28,7 +40,14 @@ pub fn draw_list(items: &[Item], selection: Selection, thumbnails: &Thumbnails, 
     } else {
         (None, area)
     };
-    let rows_of = |item: &Item| rows(item, usize::from(text.width), three);
+    let watched: HashMap<&str, &HistoryEntry> = history.iter().map(|e| (e.video_id.as_str(), e)).collect();
+    let rows_of = |item: &Item| {
+        let entry = match item {
+            Item::Video(v) => watched.get(v.id.as_str()).copied(),
+            Item::Channel(_) | Item::Playlist(_) => None,
+        };
+        rows(item, entry, usize::from(text.width), three)
+    };
     let offset = draw_rows(items.iter().map(rows_of).collect(), selection, f, text);
     let Some(pictures) = pictures else { return };
     for (n, item) in items.iter().skip(offset).enumerate() {
@@ -81,11 +100,12 @@ pub fn draw_image(buf: &mut Buffer, area: Rect, id: u32) {
     }
 }
 
-/// The lines for one result: the title, then the details. `three` puts the
-/// details on two lines, beside a thumbnail.
-pub fn rows(item: &Item, width: usize, three: bool) -> Vec<Line<'static>> {
+/// The lines for one result: the title, then the details. `watched` is the
+/// history entry of a video. `three` puts the details on two lines, beside a
+/// thumbnail.
+pub fn rows(item: &Item, watched: Option<&HistoryEntry>, width: usize, three: bool) -> Vec<Line<'static>> {
     let (title, mut first, mut second) = match item {
-        Item::Video(v) => video_rows(v),
+        Item::Video(v) => video_rows(v, watched),
         Item::Channel(c) => channel_rows(c),
         Item::Playlist(p) => playlist_rows(p),
     };
@@ -105,7 +125,7 @@ pub fn rows(item: &Item, width: usize, three: bool) -> Vec<Line<'static>> {
 /// The title line and two groups of details: who made it, then the rest.
 type Rows = (Line<'static>, Vec<String>, Vec<String>);
 
-fn video_rows(v: &Video) -> Rows {
+fn video_rows(v: &Video, watched: Option<&HistoryEntry>) -> Rows {
     let mut title = Vec::new();
     match v.kind {
         VideoKind::Live => title.push(Span::from("LIVE ").red().bold()),
@@ -118,11 +138,22 @@ fn video_rows(v: &Video) -> Rows {
     title.push(Span::from(v.title.clone()).bold());
     let by = if v.channels.is_empty() { Vec::new() } else { vec![channel_names(&v.channels)] };
     let mut rest = Vec::new();
+    // First, so that a narrow list does not cut it off.
+    rest.extend(watched.map(watched_text));
     rest.extend(v.duration_text.clone());
     rest.extend(v.views_text.clone());
     rest.extend(v.published_text.clone());
     rest.extend(v.badges.iter().cloned());
     (Line::from(title), by, rest)
+}
+
+/// How much of a video the user watched, for lists.
+fn watched_text(e: &HistoryEntry) -> String {
+    match (e.finished, e.position_secs) {
+        (true, _) => "watched".to_string(),
+        (false, 0) => "played".to_string(),
+        (false, secs) => format!("stopped at {}", clock(secs)),
+    }
 }
 
 fn channel_rows(c: &Channel) -> Rows {

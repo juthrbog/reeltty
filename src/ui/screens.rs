@@ -153,7 +153,7 @@ fn draw_items(app: &App, list: &ItemList, empty: &str, f: &mut Frame, area: Rect
         f.render_widget(text, area);
         return;
     }
-    items::draw_list(&list.items, list.selection, &app.thumbnails, f, area);
+    items::draw_list(&list.items, list.selection, &app.thumbnails, &app.history, f, area);
 }
 
 fn draw_video(app: &App, s: &VideoScreen, f: &mut Frame, area: Rect) {
@@ -512,7 +512,7 @@ pub fn draw_feed(app: &App, f: &mut Frame, area: Rect) {
         f.render_widget(Paragraph::new(text).dim(), list);
         return;
     }
-    items::draw_list(&feed.items, feed.selection, &app.thumbnails, f, list);
+    items::draw_list(&feed.items, feed.selection, &app.thumbnails, &app.history, f, list);
 }
 
 pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
@@ -573,7 +573,7 @@ pub fn draw_queue(app: &App, f: &mut Frame, area: Rect) {
         return;
     }
     let width = usize::from(inner.width);
-    let rows = app.queue.iter().map(|v| items::rows(&Item::Video(v.clone()), width, false)).collect();
+    let rows = app.queue.iter().map(|v| items::rows(&Item::Video(v.clone()), None, width, false)).collect();
     items::draw_rows(rows, app.queue_selection, f, inner);
 }
 

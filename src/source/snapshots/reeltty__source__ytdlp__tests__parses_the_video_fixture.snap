@@ -137,4 +137,6 @@ VideoDetails {
         },
     ],
     related: [],
+    comments: None,
+    comments_count_text: None,
 }

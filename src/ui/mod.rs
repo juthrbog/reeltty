@@ -463,6 +463,8 @@ mod tests {
             ],
             thumbnails: Vec::new(),
             related: Vec::new(),
+            comments: None,
+            comments_count_text: None,
         };
         app.update(Message::VideoLoaded { request: 1, result: Ok(details) });
         insta::assert_snapshot!(render(&app, 70, 18));

@@ -9,7 +9,8 @@ use serde_json::{Map, Value, json};
 use tokio::sync::OnceCell;
 
 use crate::source::{
-    ChannelPage, ItemPage, PlaylistPage, Result, SearchPage, SearchQuery, Source, SourceError, VideoDetails,
+    ChannelPage, CommentPage, ItemPage, PlaylistPage, Result, SearchPage, SearchQuery, Source, SourceError,
+    VideoDetails,
 };
 
 use super::{params, parse};
@@ -351,6 +352,24 @@ impl Source for InnerTube {
 
     fn video<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<VideoDetails>> {
         Box::pin(self.video_with(id, parse::video_details))
+    }
+
+    fn comments<'a>(&'a self, video_id: &'a str) -> BoxFuture<'a, Result<CommentPage>> {
+        Box::pin(async move {
+            let next = self.call("next", video_fields(video_id)).await?;
+            let Some(token) = parse::comments_token(&next) else {
+                let note = parse::comments_message(&next).unwrap_or_else(|| "Comments are not available.".into());
+                return Ok(CommentPage { note: Some(note), ..CommentPage::default() });
+            };
+            self.comments_more(video_id, &token).await
+        })
+    }
+
+    fn comments_more<'a>(&'a self, video_id: &'a str, continuation: &'a str) -> BoxFuture<'a, Result<CommentPage>> {
+        Box::pin(async move {
+            let response = self.call("next", continuation_fields(continuation)).await?;
+            parse::comment_page(&response, video_id)
+        })
     }
 }
 
@@ -755,6 +774,49 @@ mod tests {
         assert!(matches!(err, SourceError::Http { status: 503, .. }), "{err:?}");
     }
 
+    #[tokio::test]
+    async fn comments_call_next_then_the_token() {
+        let next = json!({"contents": {"twoColumnWatchNextResults": {"results": {"results": {"contents": [
+            {"itemSectionRenderer": {"sectionIdentifier": "comment-item-section", "contents": [
+                {"continuationItemRenderer": {"continuationEndpoint": {"continuationCommand": {"token": "first"}}}}
+            ]}}
+        ]}}}}});
+        let page =
+            json!({"onResponseReceivedEndpoints": [{"appendContinuationItemsAction": {"continuationItems": []}}]});
+        let (url, log) = serve(move |r| {
+            if r.json().get("continuation").is_some() {
+                reply(200, page.to_string())
+            } else {
+                reply(200, next.to_string())
+            }
+        })
+        .await;
+        let tube = InnerTube::with_base_url(url).unwrap();
+        let got = tube.comments("jNQXAC9IVRw").await.unwrap();
+        assert_eq!(got, CommentPage::default());
+        let posts = posts(&log);
+        assert!(posts.iter().all(|r| r.target == "/youtubei/v1/next?prettyPrint=false"));
+        assert_eq!(posts.len(), 2);
+        assert_eq!(posts[0].json()["videoId"], "jNQXAC9IVRw");
+        assert_eq!(posts[1].json()["continuation"], "first");
+        assert!(posts[1].json().get("videoId").is_none());
+    }
+
+    #[tokio::test]
+    async fn comments_without_a_section_make_one_call() {
+        let next = json!({"contents": {"twoColumnWatchNextResults": {"results": {"results": {"contents": [
+            {"itemSectionRenderer": {"sectionIdentifier": "comment-item-section", "contents": [
+                {"messageRenderer": {"text": {"runs": [{"text": "Comments are turned off. "}, {"text": "Learn more"}]}}}
+            ]}}
+        ]}}}}});
+        let (tube, log) = api(next.to_string()).await;
+        let got = tube.comments("x").await.unwrap();
+        assert_eq!(got.note.as_deref(), Some("Comments are turned off. Learn more"));
+        assert_eq!(posts(&log).len(), 1);
+        let (tube, _) = api("{}").await;
+        assert_eq!(tube.comments("x").await.unwrap().note.as_deref(), Some("Comments are not available."));
+    }
+
     #[test]
     fn is_send_and_sync() {
         fn check<T: Send + Sync>() {}
@@ -782,5 +844,25 @@ mod tests {
         let token = page.continuation.expect("a continuation token");
         let more = tube.search_more(&token).await.unwrap();
         assert!(!more.items.is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "uses the network"]
+    async fn live_comments() {
+        let id = "jNQXAC9IVRw";
+        let tube = InnerTube::new().unwrap();
+        let page = tube.comments(id).await.unwrap();
+        assert!(page.comments.len() >= 10, "{page:?}");
+        assert!(page.count_text.is_some());
+        assert_eq!(page.sorts.iter().map(|s| s.label.as_str()).collect::<Vec<_>>(), ["Top", "Newest"]);
+        let next = tube.comments_more(id, page.continuation.as_ref().unwrap()).await.unwrap();
+        assert!(!next.comments.is_empty());
+        let newest = tube.comments_more(id, &page.sorts[1].continuation).await.unwrap();
+        assert!(newest.sorts[1].selected);
+        let token = page.comments.iter().find_map(|c| c.replies.clone()).unwrap();
+        let replies = tube.comments_more(id, &token).await.unwrap();
+        assert!(!replies.comments.is_empty());
+        assert!(replies.comments.iter().all(|c| c.reply_level == 1));
+        assert!(replies.continuation.is_some(), "more replies");
     }
 }

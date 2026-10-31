@@ -58,6 +58,7 @@ chapters: 12
   917 Recap
   987 Some final words
   1023 ReLU vs Sigmoid
+comments: true Some("9.4K")
 related: 19
   IHZwWFHWa-w Gradient descent, how neural networks learn | Deep Learning Chapter 2
   wjZofJX0v4M Transformers, the tech behind LLMs | Deep Learning Chapter 5

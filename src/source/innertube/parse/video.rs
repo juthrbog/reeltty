@@ -6,7 +6,7 @@ use super::text::{array, channel_ref, clean, str_at, text, text_at, thumbnails};
 use crate::source::model::{ChannelRef, Chapter, Description, Item, Link, LinkTarget, Video, VideoDetails, VideoKind};
 use crate::source::{Result, SourceError};
 
-const CONTENTS: &str = "/contents/twoColumnWatchNextResults/results/results/contents";
+pub(super) const CONTENTS: &str = "/contents/twoColumnWatchNextResults/results/results/contents";
 const RELATED: &str = "/contents/twoColumnWatchNextResults/secondaryResults/secondaryResults/results";
 const PLAYER_BAR: &str = "/playerOverlays/playerOverlayRenderer/decoratedPlayerBarRenderer/decoratedPlayerBarRenderer/playerBar/multiMarkersPlayerBarRenderer/markersMap";
 const LIKE_BUTTON: &str = "/likeButtonViewModel/likeButtonViewModel/toggleButtonViewModel/toggleButtonViewModel/defaultButtonViewModel/buttonViewModel/title";
@@ -56,6 +56,8 @@ pub fn details(next: &Value, player: Option<&Value>) -> Result<VideoDetails> {
         chapters: chapters(next),
         thumbnails: thumbnails(pd, "/thumbnail/thumbnails"),
         related: related(next),
+        comments: super::comments::token(next),
+        comments_count_text: super::comments::count_text(next),
         id,
     })
 }
@@ -106,7 +108,7 @@ fn player_views(pd: &Value) -> Option<String> {
 }
 
 /// `attributedDescription`. `None` when it has no text.
-fn description(d: &Value, video_id: &str) -> Option<Description> {
+pub(super) fn description(d: &Value, video_id: &str) -> Option<Description> {
     // Not cleaned or trimmed: the link offsets count from the raw text.
     let content = str_at(d, "/content")?;
     let bounds = utf16_bounds(content);
@@ -318,6 +320,7 @@ mod tests {
         for c in &d.chapters {
             writeln!(out, "  {} {}", c.start_secs, c.title).unwrap();
         }
+        writeln!(out, "comments: {} {:?}", d.comments.is_some(), d.comments_count_text).unwrap();
         writeln!(out, "related: {}", d.related.len()).unwrap();
         for v in d.related.iter().take(3) {
             writeln!(out, "  {} {}", v.id, v.title).unwrap();

@@ -1,0 +1,280 @@
+{
+ "onResponseReceivedEndpoints": [
+  {
+   "appendContinuationItemsAction": {
+    "continuationItems": [
+     {
+      "commentThreadRenderer": {
+       "replies": {
+        "commentRepliesRenderer": {
+         "contents": [
+          {
+           "continuationItemRenderer": {
+            "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+            "continuationEndpoint": {
+             "continuationCommand": {
+              "token": "Eg0SC2pOUVhBQzlJVlJ3GAYygwEaUBIaVWd6TWdsd01DeEEwNnhrMGV6MTRBYUFCQWciAggAKhhVQzRRb2JVNlNURkIwUDcxUE12T0dONUEyC2pOUVhBQzlJVlJ3QAFICoIBAggBQi9jb21tZW50LXJlcGxpZXMtaXRlbS1VZ3pNZ2x3TUN4QTA2eGswZXoxNEFhQUJBZw%3D%3D",
+              "request": "CONTINUATION_REQUEST_TYPE_WATCH_NEXT"
+             }
+            }
+           }
+          }
+         ],
+         "viewReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "913 replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "EXPAND"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "hideReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "913 replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "COLLAPSE"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "targetId": "comment-replies-item-UgzMglwMCxA06xk0ez14AaABAg"
+        }
+       },
+       "renderingPriority": "RENDERING_PRIORITY_UNKNOWN",
+       "isModeratedElqComment": false,
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "EhpVZ3pNZ2x3TUN4QTA2eGswZXoxNEFhQUJBZyAoKAE%3D",
+         "sharedKey": "EgAgKygB",
+         "toolbarStateKey": "EhpVZ3pNZ2x3TUN4QTA2eGswZXoxNEFhQUJBZyAsKAE%3D",
+         "toolbarSurfaceKey": "Eh1VZ3pNZ2x3TUN4QTA2eGswZXoxNEFhQUJBZy8xMiBGKAE%3D",
+         "commentId": "UgzMglwMCxA06xk0ez14AaABAg",
+         "commentSurfaceKey": "Eh1VZ3pNZ2x3TUN4QTA2eGswZXoxNEFhQUJBZy8xMiBPKAE%3D",
+         "sharedSurfaceKey": "EhVWSUVXSU5HX0NPTlRFWFRfV0FUQ0gg9AIoAQ%3D%3D",
+         "inlineRepliesKey": "empty_inline_replies"
+        }
+       }
+      }
+     },
+     {
+      "commentThreadRenderer": {
+       "replies": {
+        "commentRepliesRenderer": {
+         "contents": [
+          {
+           "continuationItemRenderer": {
+            "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+            "continuationEndpoint": {
+             "continuationCommand": {
+              "token": "Eg0SC2pOUVhBQzlJVlJ3GAYygwEaUBIaVWd6bXZ6d05CTEdiWk5hNjJ2aDRBYUFCQWciAggAKhhVQzRRb2JVNlNURkIwUDcxUE12T0dONUEyC2pOUVhBQzlJVlJ3QAFICoIBAggBQi9jb21tZW50LXJlcGxpZXMtaXRlbS1VZ3ptdnp3TkJMR2JaTmE2MnZoNEFhQUJBZw%3D%3D",
+              "request": "CONTINUATION_REQUEST_TYPE_WATCH_NEXT"
+             }
+            }
+           }
+          }
+         ],
+         "viewReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "158 replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "EXPAND"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "hideReplies": {
+          "buttonRenderer": {
+           "text": {
+            "runs": [
+             {
+              "text": "158 replies"
+             }
+            ]
+           },
+           "icon": {
+            "iconType": "COLLAPSE"
+           },
+           "iconPosition": "BUTTON_ICON_POSITION_TYPE_LEFT_OF_TEXT"
+          }
+         },
+         "targetId": "comment-replies-item-UgzmvzwNBLGbZNa62vh4AaABAg"
+        }
+       },
+       "renderingPriority": "RENDERING_PRIORITY_UNKNOWN",
+       "isModeratedElqComment": false,
+       "commentViewModel": {
+        "commentViewModel": {
+         "commentKey": "EhpVZ3ptdnp3TkJMR2JaTmE2MnZoNEFhQUJBZyAoKAE%3D",
+         "sharedKey": "EgAgKygB",
+         "toolbarStateKey": "EhpVZ3ptdnp3TkJMR2JaTmE2MnZoNEFhQUJBZyAsKAE%3D",
+         "toolbarSurfaceKey": "Eh1VZ3ptdnp3TkJMR2JaTmE2MnZoNEFhQUJBZy8xMiBGKAE%3D",
+         "commentId": "UgzmvzwNBLGbZNa62vh4AaABAg",
+         "commentSurfaceKey": "Eh1VZ3ptdnp3TkJMR2JaTmE2MnZoNEFhQUJBZy8xMiBPKAE%3D",
+         "sharedSurfaceKey": "EhVWSUVXSU5HX0NPTlRFWFRfV0FUQ0gg9AIoAQ%3D%3D",
+         "inlineRepliesKey": "empty_inline_replies"
+        }
+       }
+      }
+     },
+     {
+      "continuationItemRenderer": {
+       "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+       "continuationEndpoint": {
+        "continuationCommand": {
+         "token": "Eg0SC2pOUVhBQzlJVlJ3GAYyngQK9ANnZXRfcmFua2VkX3N0cmVhbXMtLUNvNENDSUFFRlJlMzBUZ2Fnd0lLX2dFSTJGOFFnQVFZQnlMekFUT0JNZ2RvQWpHbmxnWUljM05yUEJCTUtkMksxU0dyQThpOG5GT2lGSkZWM0tmclRHblpJVjNua1FOUFZpMmFFb2NhYVBzZnItaGN2SUVyY3h4Vzh6eml5REdQS0pEaUVZWTN2T3BYZGtwS1NFaVVTVXlTbk5sYWd2WUNMOWN6emRaa0pjQmpROEtCT2d2ZHhqYTFpOEw4Y3dzMWd4NndDbzZFelE4RVJnamt3eUpCSm5mZ2paV2xSTUx3ajFMRWZLVkdnTG9wYUpqUGZ5OHhFcTViTTlsTmdmVzd2T0dzNVBIZ2c1cF9KeUhFN2ZQY0Fhb0NqcktJMHlFZmlXVnI3NGdsaG1YQmFKbVhZaWhqREFoYUZjOGRERWdQR3JQYkJ5cUZBZjlCaG9ra2tPVGFhOXpRS0ZLNEtvbUNoRHhxSE5pWEFSQW9FZ1VJaUNBWUFCSUZDS2dnR0FBU0JRaUdJQmdBRWdVSWlTQVlBQklGQ01BZ0dBQVNCd2lGSUJBS0dBRVNCUWk3SUJnQUVnY0loQ0FRSGhnQkVnY0loeUFRQVJnQUVnVUl3eUFZQUJJRkNKOGdHQUJRQUZnQiIRIgtqTlFYQUM5SVZSdzAAeAEoKEIQY29tbWVudHMtc2VjdGlvbg%3D%3D",
+         "request": "CONTINUATION_REQUEST_TYPE_WATCH_NEXT"
+        }
+       }
+      }
+     }
+    ],
+    "targetId": "comments-section"
+   }
+  }
+ ],
+ "frameworkUpdates": {
+  "entityBatchUpdate": {
+   "mutations": [
+    {
+     "entityKey": "EhpVZ3pNZ2x3TUN4QTA2eGswZXoxNEFhQUJBZyAoKAE%3D",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "EhpVZ3pNZ2x3TUN4QTA2eGswZXoxNEFhQUJBZyAoKAE%3D",
+       "properties": {
+        "commentId": "UgzMglwMCxA06xk0ez14AaABAg",
+        "content": {
+         "content": "Good luck trynna find 5+ year comment"
+        },
+        "publishedTime": "6 years ago (edited)",
+        "replyLevel": 0,
+        "authorButtonA11y": "@Ramen_Noodlezzz",
+        "toolbarStateKey": "EhpVZ3pNZ2x3TUN4QTA2eGswZXoxNEFhQUJBZyAsKAE%3D"
+       },
+       "author": {
+        "channelId": "UCDqHn7RCljb55PFaEmpHQiQ",
+        "displayName": "@Ramen_Noodlezzz",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/bKSu-olpxxLxzPkL-IYu92Xjhs14wUhIEYHcPHj4JBdhY6PT-AOyPbaAe9cTP-RaVf67O6F4xA=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCurrentUser": false,
+        "isCreator": false,
+        "channelCommand": {
+         "innertubeCommand": {
+          "browseEndpoint": {
+           "browseId": "UCDqHn7RCljb55PFaEmpHQiQ",
+           "canonicalBaseUrl": "/@Ramen_Noodlezzz"
+          }
+         }
+        },
+        "isArtist": false
+       },
+       "toolbar": {
+        "likeCountLiked": "89K",
+        "likeCountNotliked": "89K",
+        "replyCount": "913",
+        "likeButtonA11y": "Like this comment along with 89K other people",
+        "likeCountA11y": "89K likes",
+        "replyCountA11y": "913 replies",
+        "likeInactiveTooltip": "Like",
+        "likeActiveTooltip": "Unlike",
+        "dislikeInactiveTooltip": "Dislike",
+        "dislikeActiveTooltip": "Remove dislike",
+        "heartActiveTooltip": "❤ by @jawed"
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "EhpVZ3pNZ2x3TUN4QTA2eGswZXoxNEFhQUJBZyAsKAE%3D",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "EhpVZ3pNZ2x3TUN4QTA2eGswZXoxNEFhQUJBZyAsKAE%3D",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "EhpVZ3ptdnp3TkJMR2JaTmE2MnZoNEFhQUJBZyAoKAE%3D",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "EhpVZ3ptdnp3TkJMR2JaTmE2MnZoNEFhQUJBZyAoKAE%3D",
+       "properties": {
+        "commentId": "UgzmvzwNBLGbZNa62vh4AaABAg",
+        "content": {
+         "content": "This actually got recommended to me September 2026 lmao"
+        },
+        "publishedTime": "1 month ago",
+        "replyLevel": 0,
+        "authorButtonA11y": "@f.s.hardy79",
+        "toolbarStateKey": "EhpVZ3ptdnp3TkJMR2JaTmE2MnZoNEFhQUJBZyAsKAE%3D"
+       },
+       "author": {
+        "channelId": "UComLrkeBts22k2ISeAR-O0A",
+        "displayName": "@f.s.hardy79",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/eT-gbISgT4O75OXYQn-FUKbMuOa5BE7cuuIhjixGmlLOSyKVo8r0RyVxplcYLI7g1U4cr0XB=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCurrentUser": false,
+        "isCreator": false,
+        "channelCommand": {
+         "innertubeCommand": {
+          "browseEndpoint": {
+           "browseId": "UComLrkeBts22k2ISeAR-O0A",
+           "canonicalBaseUrl": "/@f.s.hardy79"
+          }
+         }
+        },
+        "isArtist": false
+       },
+       "toolbar": {
+        "likeCountLiked": "5K",
+        "likeCountNotliked": "5K",
+        "replyCount": "158",
+        "likeButtonA11y": "Like this comment along with 5K other people",
+        "likeCountA11y": "5K likes",
+        "replyCountA11y": "158 replies",
+        "likeInactiveTooltip": "Like",
+        "likeActiveTooltip": "Unlike",
+        "dislikeInactiveTooltip": "Dislike",
+        "dislikeActiveTooltip": "Remove dislike",
+        "heartActiveTooltip": "❤ by @jawed"
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "EhpVZ3ptdnp3TkJMR2JaTmE2MnZoNEFhQUJBZyAsKAE%3D",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "EhpVZ3ptdnp3TkJMR2JaTmE2MnZoNEFhQUJBZyAsKAE%3D",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    }
+   ]
+  }
+ }
+}

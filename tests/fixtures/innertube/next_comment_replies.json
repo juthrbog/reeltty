@@ -1,0 +1,300 @@
+{
+ "onResponseReceivedEndpoints": [
+  {
+   "appendContinuationItemsAction": {
+    "continuationItems": [
+     {
+      "commentViewModel": {
+       "commentKey": "EjFVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1OHlOMS1IRGFLICgoAQ%3D%3D",
+       "sharedKey": "EgAgKygB",
+       "toolbarStateKey": "EjFVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1OHlOMS1IRGFLICwoAQ%3D%3D",
+       "toolbarSurfaceKey": "EjRVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1OHlOMS1IRGFLLzEyIEYoAQ%3D%3D",
+       "commentId": "UgzuC3zzpRZkjc5Qzsd4AaABAg.958xaQsh63D958yN1-HDaK",
+       "commentSurfaceKey": "EjRVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1OHlOMS1IRGFLLzEyIE8oAQ%3D%3D",
+       "sharedSurfaceKey": "EhVWSUVXSU5HX0NPTlRFWFRfV0FUQ0gg9AIoAQ%3D%3D",
+       "inlineRepliesKey": "empty_inline_replies"
+      }
+     },
+     {
+      "commentViewModel": {
+       "commentKey": "EjFVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1QlJVb1gwMGpvICgoAQ%3D%3D",
+       "sharedKey": "EgAgKygB",
+       "toolbarStateKey": "EjFVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1QlJVb1gwMGpvICwoAQ%3D%3D",
+       "toolbarSurfaceKey": "EjRVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1QlJVb1gwMGpvLzEyIEYoAQ%3D%3D",
+       "commentId": "UgzuC3zzpRZkjc5Qzsd4AaABAg.958xaQsh63D95BRUoX00jo",
+       "commentSurfaceKey": "EjRVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1QlJVb1gwMGpvLzEyIE8oAQ%3D%3D",
+       "sharedSurfaceKey": "EhVWSUVXSU5HX0NPTlRFWFRfV0FUQ0gg9AIoAQ%3D%3D",
+       "inlineRepliesKey": "empty_inline_replies"
+      }
+     },
+     {
+      "continuationItemRenderer": {
+       "button": {
+        "buttonRenderer": {
+         "text": {
+          "runs": [
+           {
+            "text": "Show more replies"
+           }
+          ]
+         },
+         "icon": {
+          "iconType": "SUBDIRECTORY_ARROW_RIGHT"
+         },
+         "command": {
+          "continuationCommand": {
+           "token": "Eg0SC2pOUVhBQzlJVlJ3GAYy2AEKUWdldF9jb21tZW50X3dpdGhfcmVwbGllc19zdHJlYW0tLUNnZ0lnQVFWRjdmUk9CSUZDS0FnR0FFaURRb0xDSk9CdXZJRkVNaWFtQ3BRQUZnQhpQEhpVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZyICCAAqGFVDNFFvYlU2U1RGQjBQNzFQTXZPR041QTILak5RWEFDOUlWUndAAEgyggECCAEoCkIvY29tbWVudC1yZXBsaWVzLWl0ZW0tVWd6dUMzenpwUlpramM1UXpzZDRBYUFCQWc%3D",
+           "request": "CONTINUATION_REQUEST_TYPE_WATCH_NEXT"
+          }
+         }
+        }
+       }
+      }
+     }
+    ],
+    "targetId": "comment-replies-item-UgzuC3zzpRZkjc5Qzsd4AaABAg"
+   }
+  }
+ ],
+ "frameworkUpdates": {
+  "entityBatchUpdate": {
+   "mutations": [
+    {
+     "entityKey": "EjFVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1OHlOMS1IRGFLICgoAQ%3D%3D",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "EjFVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1OHlOMS1IRGFLICgoAQ%3D%3D",
+       "properties": {
+        "commentId": "UgzuC3zzpRZkjc5Qzsd4AaABAg.958xaQsh63D958yN1-HDaK",
+        "content": {
+         "content": "San Diego Zoo That’s so awesome! I’m so glad the first YouTube video featured cute animals in it! 😊🐘",
+         "attachmentRuns": [
+          {
+           "startIndex": 98,
+           "length": 2,
+           "element": {
+            "type": {
+             "imageType": {
+              "image": {
+               "sources": [
+                {
+                 "url": "https://www.youtube.com/s/gaming/emoji/7ff574f2/emoji_u1f60a.png",
+                 "width": 16,
+                 "height": 16
+                }
+               ]
+              },
+              "playbackState": "IMAGE_PLAYBACK_STATE_STOPPED"
+             }
+            },
+            "properties": {
+             "layoutProperties": {
+              "height": {
+               "value": 16,
+               "unit": "DIMENSION_UNIT_POINT"
+              },
+              "width": {
+               "value": 16,
+               "unit": "DIMENSION_UNIT_POINT"
+              },
+              "margin": {
+               "left": {
+                "value": 2,
+                "unit": "DIMENSION_UNIT_POINT"
+               },
+               "right": {
+                "value": 2,
+                "unit": "DIMENSION_UNIT_POINT"
+               }
+              }
+             },
+             "accessibilityProperties": {
+              "label": "😊"
+             }
+            }
+           },
+           "alignment": "ALIGNMENT_VERTICAL_CENTER"
+          },
+          {
+           "startIndex": 100,
+           "length": 2,
+           "element": {
+            "type": {
+             "imageType": {
+              "image": {
+               "sources": [
+                {
+                 "url": "https://www.youtube.com/s/gaming/emoji/7ff574f2/emoji_u1f418.png",
+                 "width": 16,
+                 "height": 16
+                }
+               ]
+              },
+              "playbackState": "IMAGE_PLAYBACK_STATE_STOPPED"
+             }
+            },
+            "properties": {
+             "layoutProperties": {
+              "height": {
+               "value": 16,
+               "unit": "DIMENSION_UNIT_POINT"
+              },
+              "width": {
+               "value": 16,
+               "unit": "DIMENSION_UNIT_POINT"
+              },
+              "margin": {
+               "left": {
+                "value": 2,
+                "unit": "DIMENSION_UNIT_POINT"
+               },
+               "right": {
+                "value": 2,
+                "unit": "DIMENSION_UNIT_POINT"
+               }
+              }
+             },
+             "accessibilityProperties": {
+              "label": "🐘"
+             }
+            }
+           },
+           "alignment": "ALIGNMENT_VERTICAL_CENTER"
+          }
+         ]
+        },
+        "publishedTime": "6 years ago (edited)",
+        "replyLevel": 1,
+        "authorButtonA11y": "@TheGreekPianist",
+        "toolbarStateKey": "EjFVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1OHlOMS1IRGFLICwoAQ%3D%3D"
+       },
+       "author": {
+        "channelId": "UC8h3BHk1Pk1_-VH9PRIxtgg",
+        "displayName": "@TheGreekPianist",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/_1g5ojtlLhI7DNw4LVNHLdcKlc3epv6-liZsICtcWvLg0CiJvI2LGm-qSIJiJsaX-qCR0ycQ=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCurrentUser": false,
+        "isCreator": false,
+        "channelCommand": {
+         "innertubeCommand": {
+          "browseEndpoint": {
+           "browseId": "UC8h3BHk1Pk1_-VH9PRIxtgg",
+           "canonicalBaseUrl": "/@TheGreekPianist"
+          }
+         }
+        },
+        "isArtist": false
+       },
+       "toolbar": {
+        "likeCountLiked": "206K",
+        "likeCountNotliked": "206K",
+        "replyCount": "",
+        "likeButtonA11y": "Like this reply along with 206K other people",
+        "likeCountA11y": "206K likes",
+        "replyCountA11y": "8 replies",
+        "likeInactiveTooltip": "Like",
+        "likeActiveTooltip": "Unlike",
+        "dislikeInactiveTooltip": "Dislike",
+        "dislikeActiveTooltip": "Remove dislike",
+        "heartActiveTooltip": "❤ by @jawed"
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "EjFVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1OHlOMS1IRGFLICwoAQ%3D%3D",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "EjFVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1OHlOMS1IRGFLICwoAQ%3D%3D",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    },
+    {
+     "entityKey": "EjFVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1QlJVb1gwMGpvICgoAQ%3D%3D",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "commentEntityPayload": {
+       "key": "EjFVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1QlJVb1gwMGpvICgoAQ%3D%3D",
+       "properties": {
+        "commentId": "UgzuC3zzpRZkjc5Qzsd4AaABAg.958xaQsh63D95BRUoX00jo",
+        "content": {
+         "content": " @Quetzal_  lol what",
+         "commandRuns": [
+          {
+           "startIndex": 0,
+           "length": 11,
+           "onTap": {
+            "innertubeCommand": {
+             "browseEndpoint": {
+              "browseId": "UCQ8wThbBI5aZ0MF2ZfvT2Uw",
+              "canonicalBaseUrl": "/channel/UCQ8wThbBI5aZ0MF2ZfvT2Uw"
+             }
+            }
+           }
+          }
+         ],
+         "styleRuns": [
+          {
+           "startIndex": 0,
+           "length": 11,
+           "weightLabel": "FONT_WEIGHT_NORMAL"
+          }
+         ]
+        },
+        "publishedTime": "6 years ago",
+        "replyLevel": 1,
+        "authorButtonA11y": "@professormiloyt",
+        "toolbarStateKey": "EjFVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1QlJVb1gwMGpvICwoAQ%3D%3D"
+       },
+       "author": {
+        "channelId": "UCix1KKidvZC_wU0yt4Nx5ng",
+        "displayName": "@professormiloyt",
+        "avatarThumbnailUrl": "https://yt3.ggpht.com/ytc/AIdro_kQdqxEx3E_co3brDcc4gHBe5FYxRxvI4DrHcD3Ydaosm8=s88-c-k-c0x00ffffff-no-rj",
+        "isVerified": false,
+        "isCurrentUser": false,
+        "isCreator": false,
+        "channelCommand": {
+         "innertubeCommand": {
+          "browseEndpoint": {
+           "browseId": "UCix1KKidvZC_wU0yt4Nx5ng",
+           "canonicalBaseUrl": "/@professormiloyt"
+          }
+         }
+        },
+        "isArtist": false
+       },
+       "toolbar": {
+        "likeCountLiked": "17K",
+        "likeCountNotliked": "17K",
+        "replyCount": "",
+        "likeButtonA11y": "Like this reply along with 17K other people",
+        "likeCountA11y": "17K likes",
+        "replyCountA11y": "0 replies",
+        "likeInactiveTooltip": "Like",
+        "likeActiveTooltip": "Unlike",
+        "dislikeInactiveTooltip": "Dislike",
+        "dislikeActiveTooltip": "Remove dislike",
+        "heartActiveTooltip": "❤ by @jawed"
+       }
+      }
+     }
+    },
+    {
+     "entityKey": "EjFVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1QlJVb1gwMGpvICwoAQ%3D%3D",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "engagementToolbarStateEntityPayload": {
+       "key": "EjFVZ3p1QzN6enBSWmtqYzVRenNkNEFhQUJBZy45NTh4YVFzaDYzRDk1QlJVb1gwMGpvICwoAQ%3D%3D",
+       "likeState": "TOOLBAR_LIKE_STATE_INDIFFERENT",
+       "heartState": "TOOLBAR_HEART_STATE_UNHEARTED"
+      }
+     }
+    }
+   ]
+  }
+ }
+}

@@ -579,6 +579,20 @@ impl App {
         Some(Effect::SaveWatch(entry))
     }
 
+    /// The real title of the video. A video from a link starts with the link
+    /// text or "Video <id>". The history gets the title again if it has the
+    /// video already.
+    pub(super) fn on_video_title(&mut self, session: u64, title: String) -> Vec<Effect> {
+        let Some(p) = self.player_of(session) else { return Vec::new() };
+        if title.is_empty() || p.title == title {
+            return Vec::new();
+        }
+        p.title = title;
+        // After the end, the history has the video as finished already.
+        let finished = p.phase == Phase::Ended;
+        self.save_watch(finished).into_iter().collect()
+    }
+
     pub(super) fn on_related(&mut self, session: u64, result: Result<Vec<Video>, String>) -> Vec<Effect> {
         let Some(p) = self.player_of(session) else { return Vec::new() };
         match result {
@@ -2080,6 +2094,30 @@ mod tests {
         let effects = key(&mut a, "C");
         assert!(matches!(effects.as_slice(), [Effect::LoadComments { .. }]), "{effects:?}");
         assert_eq!(key(&mut a, "space"), [Effect::Player(PlayerCommand::TogglePause)]);
+    }
+
+    #[test]
+    fn the_real_title_replaces_the_link_text() {
+        let mut a = app();
+        a.play_link("v1".into(), "Video v1".into(), Some(30));
+        // Before mpv loads it, only the player changes.
+        assert!(a.update(Message::VideoTitle { session: 1, title: "Real title".into() }).is_empty());
+        assert_eq!(a.player.as_ref().unwrap().title, "Real title");
+        a.update(Message::StreamsResolved { session: 1, now: 100, result: Ok(streams(None)) });
+        a.update(Message::Player { session: 1, event: PlayerEvent::FileLoaded });
+        assert_eq!(a.history[0].title, "Real title");
+        // Once it is in the history, the history gets the new title too.
+        let effects = a.update(Message::VideoTitle { session: 1, title: "Renamed".into() });
+        assert!(matches!(effects.as_slice(), [Effect::SaveWatch(e)] if e.title == "Renamed"), "{effects:?}");
+        // The same title, an empty one, or an old session change nothing.
+        assert!(a.update(Message::VideoTitle { session: 1, title: "Renamed".into() }).is_empty());
+        assert!(a.update(Message::VideoTitle { session: 1, title: String::new() }).is_empty());
+        assert!(a.update(Message::VideoTitle { session: 0, title: "Old".into() }).is_empty());
+        assert_eq!(a.player.as_ref().unwrap().title, "Renamed");
+        // After the end, it stays finished.
+        a.update(Message::Player { session: 1, event: PlayerEvent::Ended });
+        let effects = a.update(Message::VideoTitle { session: 1, title: "Last".into() });
+        assert!(matches!(effects.as_slice(), [Effect::SaveWatch(e)] if e.finished && e.title == "Last"), "{effects:?}");
     }
 
     #[test]

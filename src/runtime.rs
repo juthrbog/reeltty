@@ -353,8 +353,11 @@ fn handle(
         Effect::LoadRelated { session, id } => {
             let (tx, source) = (tx.clone(), Arc::clone(source));
             tokio::spawn(async move {
-                let result = source.video(&id).await.map(|d| d.related).map_err(|e| e.to_string());
-                let _ = tx.send(Message::RelatedLoaded { session, result });
+                let details = source.video(&id).await.map_err(|e| e.to_string());
+                if let Ok(d) = &details {
+                    let _ = tx.send(Message::VideoTitle { session, title: d.title.clone() });
+                }
+                let _ = tx.send(Message::RelatedLoaded { session, result: details.map(|d| d.related) });
             });
         }
         // Not pending work: it must not stop the stream search.

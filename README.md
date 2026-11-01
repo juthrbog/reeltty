@@ -97,8 +97,7 @@ In the quality menu, move with the browse keys (`j`, `k`), choose with `enter`, 
 
 Some videos, such as videos made for kids, make you wait a few seconds before they start. YouTube makes guests wait as long as the ads would play, and reeltty shows a countdown. Most videos start at once.
 
-The video size follows the size of the picture: a small window gets a small stream. By default it goes up to 1080p. Set `max_quality` to go higher or lower. Larger sizes use more CPU, mostly to scale the picture and for the terminal to draw it.
-
+The video size follows the size of the picture: a small window gets a small stream. By default it goes up to 1080p. Set `max_quality` to go higher or lower. Larger sizes use more CPU, mostly to scale the picture and for the terminal to draw it. Above 1080p, a laptop can play at less than 60 frames a second. On one 16-core laptop, a 60 fps video played at about 40–60 fps at 1440p, and at about 32 fps with `"best"`.
 ## Configuration
 
 The configuration file is `~/.config/reeltty/config.toml`. All settings are optional.

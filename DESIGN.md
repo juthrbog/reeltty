@@ -36,7 +36,7 @@ This document records the design decisions from the design session on 2026-10-26
 | Q10 | Playback engine | libmpv core with the software render API, plus a custom Kitty graphics frame writer. reeltty has its own small bindings to libmpv's C API, not `libmpv2-sys` (LGPL-2.1, see Q11). The ffmpeg-next and cpal design is the fallback. |
 | Q11 | License | MIT or Apache-2.0. No GPL crates. rustypipe is a behavior reference only. |
 | Q12, Q21, Q23 | Where video works | Ghostty 1.3.1+ and kitty 0.49+, run directly. Elsewhere, browsing works and playback shows a clear message. |
-| Q13 | Formats | H.264 first, then VP9, never AV1. Opus or AAC audio, never IAMF. Maximum of 720p or the pixel size of the pane, whichever is smaller. yt-dlp selects the player clients. |
+| Q13 | Formats | H.264 or VP9, never AV1, and SDR only. H.264 at each size where YouTube has it (up to 1080p), VP9 above. Opus or AAC audio, never IAMF. The size follows the picture, up to `max_quality`: 1080p by default ("auto"), up to 2160p with "best". Larger sizes cost more CPU, mostly to scale the picture and for the terminal to draw it. yt-dlp asks the `visionos` client first, which has no pre-roll wait for guests (see "Playback"). Changed on 2026-10-31 from a 720p maximum. |
 | Q14 | yt-dlp source | yt-dlp from `PATH` or a path in the configuration file. A `reeltty doctor` check at startup. A self-managed copy of yt-dlp can come later. |
 | Q15 | Subscriptions feed | Only InnerTube channel tabs, no RSS. Four requests at a time, a 30-minute cache for each channel, refresh on demand. Shorts and live streams are hidden by default. |
 | Q16, Q17, Q18 | Name | reeltty. Folder `~/workspace/github.com/juthrbog/reeltty`. |
@@ -99,9 +99,9 @@ Comments show in a pane of the video details screen (`C`). They load only when t
 
 Streams always come from yt-dlp:
 
-1. Run `yt-dlp -J -f <selector> <url>` once for each video.
+1. Run `yt-dlp -J --extractor-args youtube:player_client=visionos,tv_samsung,web -f <selector> -S res:<size>,vcodec:avc1 <url>` once for each video. yt-dlp keeps the first client's copy of each format. As a guest, `visionos` gets no pre-roll ads, so its URLs work at once. `tv_samsung` and `web` are the fallback, for example for videos made for kids, which `visionos` cannot play.
 2. Read `requested_formats[].url`, `http_headers`, and `available_at`.
-3. If `available_at` is in the future, show a countdown and wait. A request before that time gets HTTP 403. The wait is the length of the pre-roll ads and can be tens of seconds.
+3. If `available_at` is in the future, show a countdown and wait. A request before that time gets HTTP 403. The wait is the length of the pre-roll ads and can be tens of seconds. With `visionos` first, most videos have no wait.
 4. Give the video URL and the audio URL to libmpv.
 
 Stream URLs expire after about 6 hours and are tied to the IP address. reeltty does not cache them: it resolves the streams again each time a video plays. If mpv gets an HTTP 403 during playback, reeltty resolves them once more and goes on from the same place. Guest use has a limit of about 300 videos per hour, so reeltty does not prefetch many videos.

@@ -101,6 +101,7 @@ fn run_tui(paths: &Paths) -> Result<()> {
         app.subscriptions = subscriptions;
         app.captions_language.clone_from(&config.captions.language);
         app.captions_on = config.captions.on;
+        app.max_quality = config.max_quality.height();
         app.autoplay = config.autoplay.0;
         let sponsorblock = start_sponsorblock(config.sponsorblock.skipped());
         app.sponsorblock = sponsorblock.is_some();

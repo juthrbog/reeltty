@@ -355,6 +355,8 @@ pub struct App {
     pub captions_language: String,
     /// Show captions when a video starts.
     pub captions_on: bool,
+    /// The largest video height, from `max_quality` in the configuration.
+    pub max_quality: u32,
     /// Videos to play next, in order.
     pub queue: Vec<Video>,
     pub queue_selection: Selection,
@@ -399,6 +401,7 @@ impl App {
             player: None,
             captions_language: "en".into(),
             captions_on: false,
+            max_quality: 1080,
             queue: Vec::new(),
             queue_selection: Selection::default(),
             autoplay: true,

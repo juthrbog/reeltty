@@ -11,42 +11,60 @@ use serde::Deserialize;
 use super::model::{ChannelRef, Chapter};
 use super::{Result, SourceError};
 
-/// The quality menu offers sizes up to this many pixels on the short side.
-/// Larger ones would be scaled down to 720p anyway (DESIGN.md Q13).
-pub const MAX_QUALITY: u32 = 720;
+/// The sizes that YouTube offers, in pixels on the short side.
+pub const RUNGS: [u32; 8] = [144, 240, 360, 480, 720, 1080, 1440, 2160];
 
-/// The format selector for DESIGN.md Q13: H.264 first, then VP9, never AV1.
-/// Opus or stereo AAC audio, never IAMF. The last choice, one muxed format,
-/// is for live streams. The size comes from `sort`, not from the selector.
-pub fn selector() -> String {
-    let avc = "bv[vcodec^=avc1][protocol=https]";
-    let vp9 = "bv[vcodec~='^vp0?9'][protocol=https]";
+/// The format selector for DESIGN.md Q13: H.264 or VP9, never AV1, and never
+/// HDR. Opus or stereo AAC audio, never IAMF. The last two choices are for
+/// live streams, which YouTube gives as separate HLS video and audio, or as
+/// one muxed HLS stream. The size, and H.264 before VP9 at the same
+/// size, come from `sort`, not from the selector. YouTube has H.264 only up
+/// to 1080p, so larger sizes are VP9.
+pub fn selector(max: u32) -> String {
+    let video = "bv[vcodec~='^(avc1|vp0?9)'][dynamic_range=SDR][protocol=https]";
+    // `sort` limits the short side. A very wide video can have a stream that
+    // is short enough but much wider than `max` allows, so first try the
+    // streams that fit in a 16:9 picture of `max` either way up.
+    let long = max_long(max);
+    let fitting = format!("{video}[width<=?{long}][height<=?{long}]");
     let opus = "ba[acodec=opus][protocol=https]";
     let aac = "ba[acodec^=mp4a][protocol=https]";
     let stereo_aac = "ba[acodec^=mp4a][audio_channels<=2][protocol=https]";
     [
-        format!("{avc}+{opus}"),
-        format!("{avc}+{stereo_aac}"),
-        format!("{avc}+{aac}"),
-        format!("{vp9}+{opus}"),
-        format!("{vp9}+{aac}"),
+        format!("{fitting}+{opus}"),
+        format!("{fitting}+{stereo_aac}"),
+        format!("{fitting}+{aac}"),
+        format!("{video}+{opus}"),
+        format!("{video}+{stereo_aac}"),
+        format!("{video}+{aac}"),
+        "bv[vcodec^=avc1][protocol^=m3u8]+ba[protocol^=m3u8]".to_string(),
         "b[vcodec^=avc1][acodec~='^(opus|mp4a)']".to_string(),
     ]
     .join("/")
 }
 
-/// The format sort: the largest size up to `max` pixels on the short side,
-/// or the smallest above it. The short side, so that vertical videos are not
-/// given a smaller size than wide ones.
-pub fn sort(max: u32) -> String {
-    format!("res:{max}")
+/// The long side of a 16:9 picture that is `max` pixels on the short side.
+pub fn max_long(max: u32) -> u32 {
+    max.saturating_mul(16) / 9
 }
 
-/// The heights that YouTube offers. A pane is given the next one up, so a
-/// 700 px pane gets 720p and mpv scales it down.
-pub fn rung(pixels: u32) -> u32 {
-    const RUNGS: [u32; 5] = [144, 240, 360, 480, 720];
-    RUNGS.into_iter().find(|r| *r >= pixels).unwrap_or(720)
+/// The format sort: the largest size up to `max` pixels on the short side,
+/// or the smallest above it, and H.264 before VP9 at the same size. The
+/// short side, so that vertical videos are not given a smaller size than
+/// wide ones.
+pub fn sort(max: u32) -> String {
+    format!("res:{max},vcodec:avc1")
+}
+
+/// The size to ask for: the next one up from `pixels`, so a 700 px picture
+/// gets 720p and mpv scales it down, but never more than `max`.
+pub fn rung(pixels: u32, max: u32) -> u32 {
+    RUNGS.into_iter().find(|r| *r >= pixels).unwrap_or(RUNGS[RUNGS.len() - 1]).min(max)
+}
+
+/// `pixels` rounded down to a size that YouTube offers, but at least the smallest.
+pub fn rung_below(pixels: u32) -> u32 {
+    RUNGS.into_iter().rev().find(|r| *r <= pixels).unwrap_or(RUNGS[0])
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,8 +86,8 @@ pub struct Streams {
     pub duration_secs: Option<u32>,
     /// Live now, so it has no fixed length and no place to resume.
     pub live: bool,
-    /// The other sizes of the video stream, smallest first. Empty when the
-    /// video and audio come in one stream, as for live streams.
+    /// The other sizes of the video stream, smallest first. Empty for live
+    /// streams, which come over HLS.
     pub qualities: Vec<Quality>,
     /// Captions in the `WebVTT` format, in the order YouTube gives them.
     pub captions: Vec<Caption>,
@@ -80,7 +98,12 @@ pub struct Streams {
 pub struct Quality {
     /// Pixels on the short side, as in "720p".
     pub res: u32,
+    /// Pixels on the long side.
+    pub long: u32,
     pub url: String,
+    /// Unix time when the URL works. Formats from different YouTube clients
+    /// have different ads waits.
+    pub available_at: Option<u64>,
 }
 
 /// One caption track.
@@ -140,6 +163,8 @@ struct Info {
     vcodec: Option<String>,
     acodec: Option<String>,
     protocol: Option<String>,
+    /// `SDR`, or an HDR kind such as `HDR10`.
+    dynamic_range: Option<String>,
     channel: Option<String>,
     channel_id: Option<String>,
     /// A handle such as `@name`.
@@ -177,26 +202,30 @@ impl Info {
     }
 }
 
-/// One video-only stream for each size, H.264 before VP9, as the selector chooses.
+/// One video-only SDR stream for each size, H.264 before VP9, as the
+/// selector chooses. The player leaves out the sizes above its maximum.
 fn qualities(formats: &[Info]) -> Vec<Quality> {
-    let mut by_res: BTreeMap<u32, (bool, String)> = BTreeMap::new();
+    let mut by_res: BTreeMap<u32, (bool, Quality)> = BTreeMap::new();
     for f in formats {
         let (Some(w), Some(h), Some(url)) = (f.width, f.height, &f.url) else { continue };
         let codec = f.vcodec.as_deref().unwrap_or_default();
         let (avc, vp9) = (codec.starts_with("avc1"), codec == "vp9" || codec.starts_with("vp09"));
+        // yt-dlp marks every video format without a range as SDR.
+        let sdr = f.dynamic_range.as_deref().is_none_or(|r| r == "SDR");
         let res = w.min(h);
-        if !(avc || vp9) || f.has_audio() || f.protocol.as_deref() != Some("https") || res > MAX_QUALITY {
+        if !(avc || vp9) || !sdr || f.has_audio() || f.protocol.as_deref() != Some("https") {
             continue;
         }
         // Keep the last H.264 stream of a size: yt-dlp lists the better ones last.
         match by_res.get(&res) {
             Some((true, _)) if !avc => {}
             _ => {
-                by_res.insert(res, (avc, url.clone()));
+                let available_at = unix_time(f.available_at);
+                by_res.insert(res, (avc, Quality { res, long: w.max(h), url: url.clone(), available_at }));
             }
         }
     }
-    by_res.into_iter().map(|(res, (_, url))| Quality { res, url }).collect()
+    by_res.into_values().map(|(_, q)| q).collect()
 }
 
 fn captions(manual: Option<BTreeMap<String, Vec<Track>>>, auto: Option<BTreeMap<String, Vec<Track>>>) -> Vec<Caption> {
@@ -207,6 +236,12 @@ fn captions(manual: Option<BTreeMap<String, Vec<Track>>>, auto: Option<BTreeMap<
         })
     };
     tracks(manual, false).chain(tracks(auto, true)).collect()
+}
+
+/// A Unix time from yt-dlp, which can write it as a float, rounded up.
+fn unix_time(t: Option<f64>) -> Option<u64> {
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "Unix times")]
+    t.filter(|t| t.is_finite() && *t >= 0.0).map(|t| t.ceil() as u64)
 }
 
 pub fn parse_streams(json: &[u8]) -> Result<Streams> {
@@ -222,14 +257,7 @@ pub fn parse_streams(json: &[u8]) -> Result<Streams> {
     let video_url = video.url.clone().ok_or_else(|| SourceError::Parse("yt-dlp gave no video URL".into()))?;
     let audio_url = audio.and_then(|a| a.url.clone());
     let all = [Some(&info), Some(video), audio];
-    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "Unix times")]
-    let available_at = all
-        .iter()
-        .flatten()
-        .filter_map(|f| f.available_at)
-        .filter(|t| t.is_finite() && *t >= 0.0)
-        .map(|t| t.ceil() as u64)
-        .max();
+    let available_at = all.iter().flatten().filter_map(|f| unix_time(f.available_at)).max();
     let expires_at = [Some(&video_url), audio_url.as_ref()].into_iter().flatten().filter_map(|u| expire(u)).min();
     let headers = video.http_headers.clone().or_else(|| info.http_headers.clone()).unwrap_or_default();
     let codec = |f: Option<&Info>, pick: fn(&Info) -> Option<&String>| {
@@ -297,26 +325,45 @@ mod tests {
 
     #[test]
     fn selector_prefers_h264_and_names_every_codec() {
-        let s = selector();
+        let s = selector(1080);
         let choices: Vec<&str> = s.split('/').collect();
-        assert_eq!(choices.len(), 6);
-        assert_eq!(choices[0], "bv[vcodec^=avc1][protocol=https]+ba[acodec=opus][protocol=https]");
-        assert!(choices[3].starts_with("bv[vcodec~='^vp0?9']"));
+        assert_eq!(choices.len(), 8);
+        assert_eq!(
+            choices[0],
+            "bv[vcodec~='^(avc1|vp0?9)'][dynamic_range=SDR][protocol=https][width<=?1920][height<=?1920]\
+             +ba[acodec=opus][protocol=https]"
+        );
+        assert!(choices[..3].iter().all(|c| c.contains("[width<=?1920][height<=?1920]+")));
+        assert!(choices[3..6].iter().all(|c| !c.contains("width")));
         // Only the last choice is a muxed format, so a small muxed one never
         // wins over separate video and audio.
-        assert!(choices[..5].iter().all(|c| c.starts_with("bv[")));
-        assert_eq!(choices[5], "b[vcodec^=avc1][acodec~='^(opus|mp4a)']");
+        assert!(choices[..6].iter().all(|c| c.starts_with("bv[") && c.contains("[dynamic_range=SDR]")));
+        assert_eq!(choices[6], "bv[vcodec^=avc1][protocol^=m3u8]+ba[protocol^=m3u8]");
+        assert_eq!(choices[7], "b[vcodec^=avc1][acodec~='^(opus|mp4a)']");
+        assert!(selector(2160).contains("[width<=?3840]"));
         assert!(!s.contains("av01"));
-        assert_eq!(sort(480), "res:480");
+        assert_eq!(sort(480), "res:480,vcodec:avc1");
     }
 
     #[test]
     fn rungs_round_up() {
-        assert_eq!(rung(100), 144);
-        assert_eq!(rung(360), 360);
-        assert_eq!(rung(361), 480);
-        assert_eq!(rung(700), 720);
-        assert_eq!(rung(2000), 720);
+        assert_eq!(rung(100, 1080), 144);
+        assert_eq!(rung(360, 1080), 360);
+        assert_eq!(rung(361, 1080), 480);
+        assert_eq!(rung(700, 1080), 720);
+        assert_eq!(rung(1000, 1080), 1080);
+        assert_eq!(rung(1300, 1080), 1080);
+        assert_eq!(rung(1300, 2160), 1440);
+        assert_eq!(rung(5000, 2160), 2160);
+        assert_eq!(rung(700, 480), 480);
+    }
+
+    #[test]
+    fn rungs_round_down() {
+        assert_eq!(rung_below(0), 144);
+        assert_eq!(rung_below(720), 720);
+        assert_eq!(rung_below(1000), 720);
+        assert_eq!(rung_below(9999), 2160);
     }
 
     #[test]
@@ -341,16 +388,45 @@ mod tests {
         assert_eq!(s.duration_secs, Some(1120));
         let chapters: Vec<(u32, &str)> = s.chapters.iter().map(|c| (c.start_secs, c.title.as_str())).collect();
         assert_eq!(chapters, [(0, "Introduction example"), (67, "Series preview"), (162, "What are neurons?")]);
-        // H.264 where there is one, VP9 for the other sizes. No 1080p, and no muxed format 18.
+        // H.264 where there is one, VP9 for the other sizes. No muxed format 18.
         let q: Vec<(u32, &str)> = s.qualities.iter().map(|q| (q.res, q.url.as_str())).collect();
-        assert_eq!(q.len(), 5);
-        assert_eq!(q.iter().map(|q| q.0).collect::<Vec<_>>(), [144, 240, 360, 480, 720]);
+        assert_eq!(q.len(), 6);
+        assert_eq!(q.iter().map(|q| q.0).collect::<Vec<_>>(), [144, 240, 360, 480, 720, 1080]);
         assert!(q[1].1.contains("itag=242"), "VP9 when there is no H.264");
         assert!(q[2].1.contains("itag=134"));
         assert!(q[4].1.contains("itag=298"), "the last, best H.264 stream of a size");
         let langs: Vec<(&str, bool)> = s.captions.iter().map(|c| (c.lang.as_str(), c.auto)).collect();
         assert_eq!(langs, [("de", false), ("en", false), ("en-orig", true), ("fr", true)]);
         assert!(s.captions.iter().all(|c| c.url.contains("fmt=vtt")));
+    }
+
+    #[test]
+    fn qualities_go_up_to_vp9_2160p_without_hdr() {
+        let f = |id: &str, h: u32, vcodec: &str, range: Option<&str>, protocol: &str| {
+            serde_json::json!({
+                "format_id": id, "url": format!("https://x/{id}"), "width": h * 16 / 9, "height": h,
+                "vcodec": vcodec, "acodec": "none", "protocol": protocol, "dynamic_range": range,
+            })
+        };
+        let formats: Vec<Info> = serde_json::from_value(serde_json::json!([
+            f("137", 1080, "avc1.640028", Some("SDR"), "https"),
+            f("248", 1080, "vp9", Some("SDR"), "https"),
+            f("271", 1440, "vp9", Some("SDR"), "https"),
+            f("336", 1440, "vp09.02.51.10", Some("HDR10"), "https"),
+            f("313", 2160, "vp9", None, "https"),
+            f("401", 2160, "av01.0.12M.08", Some("SDR"), "https"),
+            f("616", 1080, "vp09.00.40.08", Some("SDR"), "m3u8_native"),
+        ]))
+        .unwrap();
+        let q: Vec<(u32, u32, String)> = qualities(&formats).into_iter().map(|q| (q.res, q.long, q.url)).collect();
+        assert_eq!(
+            q,
+            [
+                (1080, 1920, "https://x/137".into()),
+                (1440, 2560, "https://x/271".into()),
+                (2160, 3840, "https://x/313".into())
+            ]
+        );
     }
 
     fn caption(lang: &str, auto: bool) -> Caption {

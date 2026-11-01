@@ -41,6 +41,8 @@ pub struct Config {
     pub thumbnails: Thumbnails,
     /// When a video ends, play the next one.
     pub autoplay: Autoplay,
+    /// The largest video size to play.
+    pub max_quality: MaxQuality,
     pub captions: Captions,
     pub feed: Feed,
     pub sponsorblock: SponsorBlock,
@@ -114,6 +116,50 @@ impl Default for Thumbnails {
     }
 }
 
+/// The largest video size to play: `"auto"` (up to 1080p), `"best"` (up to
+/// 2160p), or a height such as `1440`. The size also follows the picture,
+/// so a small window gets a small stream. Larger sizes use more CPU.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(try_from = "RawMaxQuality")]
+pub enum MaxQuality {
+    #[default]
+    Auto,
+    Best,
+    /// A height in pixels on the short side.
+    Height(u32),
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawMaxQuality {
+    Name(String),
+    Height(u32),
+}
+
+impl TryFrom<RawMaxQuality> for MaxQuality {
+    type Error = String;
+
+    fn try_from(raw: RawMaxQuality) -> std::result::Result<Self, String> {
+        match raw {
+            RawMaxQuality::Name(n) if n == "auto" => Ok(Self::Auto),
+            RawMaxQuality::Name(n) if n == "best" => Ok(Self::Best),
+            RawMaxQuality::Name(n) => Err(format!("max_quality must be \"auto\", \"best\", or a height, not \"{n}\"")),
+            RawMaxQuality::Height(h) => Ok(Self::Height(h)),
+        }
+    }
+}
+
+impl MaxQuality {
+    /// The largest height, as a size that YouTube offers.
+    pub fn height(self) -> u32 {
+        match self {
+            Self::Auto => 1080,
+            Self::Best => crate::source::streams::RUNGS[crate::source::streams::RUNGS.len() - 1],
+            Self::Height(h) => crate::source::streams::rung_below(h),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Keys {
@@ -184,6 +230,20 @@ mod tests {
         assert_eq!(c.yt_dlp_program(), PathBuf::from("/home/me/.local/bin/yt-dlp"));
         let km = c.keymap().unwrap();
         assert_eq!(km.action("n".parse::<KeyPress>().unwrap()), Some(Action::Down));
+    }
+
+    #[test]
+    fn reads_the_max_quality() {
+        let height = |text: &str| Config::parse(text).unwrap().max_quality.height();
+        assert_eq!(height(""), 1080);
+        assert_eq!(height("max_quality = \"auto\""), 1080);
+        assert_eq!(height("max_quality = \"best\""), 2160);
+        assert_eq!(height("max_quality = 1440"), 1440);
+        assert_eq!(height("max_quality = 1000"), 720);
+        assert_eq!(height("max_quality = 100"), 144);
+        let err = Config::parse("max_quality = \"4k\"").unwrap_err();
+        assert!(format!("{err:#}").contains("\"auto\", \"best\", or a height"), "{err:#}");
+        assert!(Config::parse("max_quality = -1").is_err());
     }
 
     #[test]

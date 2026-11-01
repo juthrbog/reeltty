@@ -11,15 +11,15 @@
 use super::{App, Effect, Tab};
 use crate::keymap::{Action, KeyPress, PlayerAction};
 use crate::source::model::{ChannelRef, Chapter, Video, VideoDetails, VideoKind};
-use crate::source::streams::{Caption, Quality, Streams, pick_caption, rung};
+use crate::source::streams::{Caption, Quality, Streams, max_long, pick_caption, rung};
 use crate::sponsorblock::{self, Category, Segment};
 use crate::store::HistoryEntry;
 use crate::terminal::kitty::MAX_CELLS;
 
 /// Rows under the video for the progress bar and the status line.
 pub const STATUS_ROWS: u16 = 2;
-/// Videos are rendered at most this large (DESIGN.md Q13).
-const MAX_RENDER: (u32, u32) = (1280, 720);
+/// The mini-player is always small, so its picture needs no other limit.
+const MINI_MAX: u32 = 2160;
 /// Most terminals report no pixel size in tests and some setups.
 const DEFAULT_CELL: (u16, u16) = (10, 20);
 /// The aspect ratio until the stream gives the real one.
@@ -66,15 +66,17 @@ pub struct Geometry {
 
 impl Geometry {
     /// Fits a video with the `aspect` ratio into a screen of `cols` x `rows`
-    /// cells of `cell` pixels, above the status rows, and centers it.
-    pub fn fit(cols: u16, rows: u16, cell: (u16, u16), aspect: (u32, u32)) -> Self {
-        Self::fit_area(cols, rows.saturating_sub(STATUS_ROWS), cell, aspect)
+    /// cells of `cell` pixels, above the status rows, and centers it. The
+    /// picture is rendered at most `max` pixels high (DESIGN.md Q13).
+    pub fn fit(cols: u16, rows: u16, cell: (u16, u16), aspect: (u32, u32), max: u32) -> Self {
+        Self::fit_area(cols, rows.saturating_sub(STATUS_ROWS), cell, aspect, max)
     }
 
     /// Fits a video with the `aspect` ratio into an area of `cols` x `rows`
     /// cells of `cell` pixels, and centers it. `x` and `y` are from the top
-    /// left of the area.
-    pub fn fit_area(cols: u16, rows: u16, cell: (u16, u16), aspect: (u32, u32)) -> Self {
+    /// left of the area. The picture is rendered at most `max` pixels on its
+    /// short side, and at most as long as a 16:9 picture of that size.
+    pub fn fit_area(cols: u16, rows: u16, cell: (u16, u16), aspect: (u32, u32), max: u32) -> Self {
         let (cw, ch) = if cell.0 == 0 || cell.1 == 0 { DEFAULT_CELL } else { cell };
         let (cw, ch) = (u32::from(cw), u32::from(ch));
         let area_cols = u32::from(cols).clamp(1, u32::from(MAX_CELLS));
@@ -89,12 +91,13 @@ impl Geometry {
         };
         let gc = ((iw + cw / 2) / cw).clamp(1, area_cols);
         let gr = ((ih + ch / 2) / ch).clamp(1, area_rows);
-        // Render the size of the cells, but no larger than 720p.
+        // Render the size of the cells, but no larger than `max`.
         let (mut w, mut h) = (gc * cw, gr * ch);
-        let scale =
-            f64::min(1.0, f64::min(f64::from(MAX_RENDER.0) / f64::from(w), f64::from(MAX_RENDER.1) / f64::from(h)));
+        let (short, long) = (max.max(1), max_long(max.max(1)));
+        let (max_w, max_h) = if w >= h { (long, short) } else { (short, long) };
+        let scale = f64::min(1.0, f64::min(f64::from(max_w) / f64::from(w), f64::from(max_h) / f64::from(h)));
         if scale < 1.0 {
-            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "at most 1280 x 720")]
+            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "at most max_w x max_h")]
             {
                 w = (f64::from(w) * scale) as u32;
                 h = (f64::from(h) * scale) as u32;
@@ -144,21 +147,22 @@ pub fn mini_layout(width: u16, height: u16, cell: (u16, u16), aspect: (u32, u32)
     let cols = dock.cols;
     // A tall video takes at most half of the dock.
     let room = (dock.rows - MINI_INFO_ROWS - 2).min(dock.rows / 2);
-    let mut g = Geometry::fit_area(cols - 2, room, cell, aspect);
+    let mut g = Geometry::fit_area(cols - 2, room, cell, aspect, MINI_MAX);
     g.x += dock.x + 1;
     g.y = dock.y + dock.rows - MINI_INFO_ROWS - 1 - g.rows;
     Some((dock, g))
 }
 
-/// The video geometry of the full player, or of the mini-player.
-fn player_geometry(mini: bool, width: u16, height: u16, cell: (u16, u16), aspect: (u32, u32)) -> Geometry {
+/// The video geometry of the full player, at most `max` pixels high, or of
+/// the mini-player.
+fn player_geometry(mini: bool, width: u16, height: u16, cell: (u16, u16), aspect: (u32, u32), max: u32) -> Geometry {
     if !mini {
-        return Geometry::fit(width, height, cell, aspect);
+        return Geometry::fit(width, height, cell, aspect, max);
     }
     match mini_layout(width, height, cell, aspect) {
         Some((_, g)) => g,
         // Nothing shows it, so mpv renders a small picture.
-        None => Geometry::fit_area(HIDDEN_CELLS.0, HIDDEN_CELLS.1, cell, aspect),
+        None => Geometry::fit_area(HIDDEN_CELLS.0, HIDDEN_CELLS.1, cell, aspect, MINI_MAX),
     }
 }
 
@@ -495,7 +499,7 @@ impl App {
         self.forward.retain(|v| v.id != id);
         self.queue_selection.clamp(self.queue.len(), self.plain_rows());
         self.session += 1;
-        let geometry = player_geometry(mini, self.width, self.height, self.cell, DEFAULT_ASPECT);
+        let geometry = player_geometry(mini, self.width, self.height, self.cell, DEFAULT_ASPECT, self.max_quality);
         let state = PlayerState {
             session: self.session,
             id,
@@ -709,10 +713,21 @@ impl App {
         Vec::new()
     }
 
+    /// Asks for the stream size of the full player's picture, even in the
+    /// mini-player, which can grow to full size at any time. The short side,
+    /// as yt-dlp sorts by it. The first time, the shape of the video is not
+    /// known yet, so it is taken as 16:9. A second time (after a 403), it
+    /// asks for the size that played, so the picture does not change.
     fn resolve(&self, p: &PlayerState) -> Effect {
-        let (_, ch) = if self.cell.0 == 0 || self.cell.1 == 0 { DEFAULT_CELL } else { self.cell };
-        let pane = u32::from(self.height.saturating_sub(STATUS_ROWS)) * u32::from(ch);
-        Effect::ResolveStreams { session: p.session, id: p.id.clone(), max_height: rung(pane.min(MAX_RENDER.1)) }
+        let max = self.max_quality;
+        let max_height = p.quality.map_or_else(
+            || {
+                let g = Geometry::fit(self.width, self.height, self.cell, p.aspect, max);
+                rung(u32::from(g.width.min(g.height)), max)
+            },
+            |q| rung(q, max),
+        );
+        Effect::ResolveStreams { session: p.session, id: p.id.clone(), max_height }
     }
 
     /// The player for messages of `session`, if it is still the current one.
@@ -721,7 +736,7 @@ impl App {
     }
 
     pub(super) fn on_streams(&mut self, session: u64, now: u64, result: Result<Box<Streams>, String>) -> Vec<Effect> {
-        let (width, height, cell) = (self.width, self.height, self.cell);
+        let (width, height, cell, max) = (self.width, self.height, self.cell, self.max_quality);
         let (language, captions_on) = (self.captions_language.clone(), self.captions_on);
         let Some(p) = self.player_of(session) else { return Vec::new() };
         if p.phase != Phase::Resolving {
@@ -738,7 +753,7 @@ impl App {
         p.switch = None;
         if let (Some(w), Some(h)) = (streams.format.width, streams.format.height) {
             p.aspect = (w, h);
-            p.geometry = player_geometry(p.mini, width, height, cell, p.aspect);
+            p.geometry = player_geometry(p.mini, width, height, cell, p.aspect, max);
             p.quality = Some(w.min(h));
         }
         p.chapters.clone_from(&streams.chapters);
@@ -748,7 +763,16 @@ impl App {
         if p.watched_at == 0 {
             p.watched_at = i64::try_from(now).unwrap_or(i64::MAX);
         }
-        p.qualities.clone_from(&streams.qualities);
+        // Leave out the sizes above the maximum, and the ones that YouTube
+        // only gives after a longer ads wait than the playing streams have:
+        // a switch to them would fail with a 403.
+        let ready = streams.available_at.unwrap_or(now).max(now);
+        p.qualities = streams
+            .qualities
+            .iter()
+            .filter(|q| q.res <= max && q.long <= max_long(max) && q.available_at.is_none_or(|t| t <= ready))
+            .cloned()
+            .collect();
         p.captions.clone_from(&streams.captions);
         // The configuration turns captions on once. After a 403 retry, they
         // stay as the user left them.
@@ -1043,9 +1067,9 @@ impl App {
 
     /// Fits the video to a new screen or cell size, or to the other player size.
     pub(super) fn refit_player(&mut self) -> Vec<Effect> {
-        let (width, height, cell) = (self.width, self.height, self.cell);
+        let (width, height, cell, max) = (self.width, self.height, self.cell, self.max_quality);
         let Some(p) = &mut self.player else { return Vec::new() };
-        let geometry = player_geometry(p.mini, width, height, cell, p.aspect);
+        let geometry = player_geometry(p.mini, width, height, cell, p.aspect, max);
         if geometry == p.geometry {
             return Vec::new();
         }
@@ -1135,6 +1159,10 @@ mod tests {
         no_saves(a.update(Message::Input(Input::Key(s.parse().unwrap()))))
     }
 
+    fn quality(res: u32, url: &str) -> Quality {
+        Quality { res, long: res * 16 / 9, url: url.into(), available_at: None }
+    }
+
     fn streams(available_at: Option<u64>) -> Box<Streams> {
         Box::new(Streams {
             video_url: "https://v".into(),
@@ -1159,41 +1187,84 @@ mod tests {
     #[test]
     fn fits_16_9_into_a_screen() {
         // 80 x 22 cells of 10 x 20 px is 800 x 440 px. 16:9 at 800 px wide is 450 px high, too high.
-        let g = Geometry::fit(80, 24, (10, 20), (16, 9));
+        let g = Geometry::fit(80, 24, (10, 20), (16, 9), 720);
         assert_eq!((g.cols, g.rows), (78, 22));
         assert_eq!((g.x, g.y), (1, 0));
         assert_eq!((g.width, g.height), (768, 440));
         // A wide screen: the height limits it, and it is centered.
-        let g = Geometry::fit(200, 30, (10, 20), (16, 9));
+        let g = Geometry::fit(200, 30, (10, 20), (16, 9), 720);
         assert_eq!((g.cols, g.rows, g.x, g.y), (100, 28, 50, 0));
         // A portrait video.
-        let g = Geometry::fit(80, 24, (10, 20), (9, 16));
+        let g = Geometry::fit(80, 24, (10, 20), (9, 16), 720);
         assert_eq!((g.cols, g.rows), (25, 22));
         assert_eq!(g.x, 27);
     }
 
     #[test]
     fn renders_at_most_720p_in_whole_blocks() {
-        let g = Geometry::fit(250, 70, (10, 20), (16, 9));
+        let g = Geometry::fit(250, 70, (10, 20), (16, 9), 720);
         assert!(g.width <= 1280 && g.height <= 720, "{g:?}");
         assert_eq!(g.width % 16, 0);
         assert_eq!(g.height % 2, 0);
         // Unknown cell size and tiny screens still give a picture.
-        let g = Geometry::fit(1, 1, (0, 0), (0, 0));
+        let g = Geometry::fit(1, 1, (0, 0), (0, 0), 720);
         assert_eq!((g.cols, g.rows, g.width, g.height), (1, 1, 16, 20));
         // Kitty placeholders cannot address more cells than this, and the
         // picture is centered in the whole screen.
-        let g = Geometry::fit(1000, 400, (2, 4), (16, 9));
+        let g = Geometry::fit(1000, 400, (2, 4), (16, 9), 720);
         assert!(g.cols <= MAX_CELLS && g.rows <= MAX_CELLS, "{g:?}");
         assert_eq!(g.x, (1000 - g.cols) / 2);
         assert_eq!(g.y, (398 - g.rows) / 2);
     }
 
     #[test]
+    fn renders_up_to_the_maximum() {
+        // A full-screen 4K terminal: 384 x 108 cells of 10 x 20 px.
+        let g = Geometry::fit(384, 108, (10, 20), (16, 9), 1080);
+        // The width is rounded down to a multiple of 16.
+        assert!(g.height == 1080 && (1888..=1920).contains(&g.width), "{g:?}");
+        let g = Geometry::fit(384, 108, (10, 20), (16, 9), 2160);
+        assert!(g.height > 1440 && g.height <= 2160 && g.width <= 3840, "{g:?}");
+    }
+
+    #[test]
+    fn asks_for_the_size_of_the_picture_up_to_the_maximum() {
+        let mut a = App::new(KeyMap::default(), Graphics::KittyShm);
+        a.update(Message::Input(Input::Resize { width: 384, height: 108 }));
+        a.update(Message::Input(Input::CellSize { width: 10, height: 20 }));
+        let asked = |a: &mut App, id: &str| {
+            a.play(id.into(), "Title".into()).into_iter().find_map(|e| match e {
+                Effect::ResolveStreams { max_height, .. } => Some(max_height),
+                _ => None,
+            })
+        };
+        // The default stops at 1080p.
+        assert_eq!(asked(&mut a, "v1"), Some(1080));
+        // The picture is 2120 px high (106 rows), so the next size up is 2160p.
+        a.max_quality = 2160;
+        assert_eq!(asked(&mut a, "v2"), Some(2160));
+        // A narrow window gets a smaller stream: 120 columns give a 1200 x 675 picture.
+        a.update(Message::Input(Input::Resize { width: 120, height: 108 }));
+        assert_eq!(asked(&mut a, "v3"), Some(720));
+    }
+
+    #[test]
+    fn the_quality_menu_stops_at_the_maximum() {
+        let mut a = app();
+        a.max_quality = 720;
+        a.play("v1".into(), "Title".into());
+        let mut s = streams(None);
+        s.qualities = [480, 720, 1080, 2160].into_iter().map(|res| quality(res, &format!("https://{res}"))).collect();
+        a.update(Message::StreamsResolved { session: 1, now: 100, result: Ok(s) });
+        let sizes: Vec<u32> = a.player.as_ref().unwrap().qualities.iter().map(|q| q.res).collect();
+        assert_eq!(sizes, [480, 720]);
+    }
+
+    #[test]
     fn plays_after_the_streams_and_the_ads_wait() {
         let mut a = app();
         let effects = a.play("v1".into(), "Title".into());
-        // 22 rows of 20 px is 440 px, so 480p.
+        // The picture is 440 px high (22 rows of 20 px), so 480p.
         assert_eq!(
             effects,
             [
@@ -1244,12 +1315,12 @@ mod tests {
         a.play("v2".into(), "Title".into());
         a.update(Message::StreamsResolved { session: 2, now: 0, result: Ok(streams(None)) });
         let effects = a.update(Message::Player { session: 2, event: PlayerEvent::Failed("HTTP error 403".into()) });
-        // One more try with new URLs.
+        // One more try with new URLs, at the size that played (720p).
         assert_eq!(
             effects,
             [
                 Effect::Player(PlayerCommand::Stop),
-                Effect::ResolveStreams { session: 2, id: "v2".into(), max_height: 480 }
+                Effect::ResolveStreams { session: 2, id: "v2".into(), max_height: 720 }
             ]
         );
         a.update(Message::StreamsResolved { session: 2, now: 0, result: Ok(streams(None)) });
@@ -1320,7 +1391,7 @@ mod tests {
             .into_iter()
             .map(|(start_secs, title)| Chapter { title: title.into(), start_secs })
             .collect();
-        s.qualities = [360, 480, 720].into_iter().map(|res| Quality { res, url: format!("https://v/{res}") }).collect();
+        s.qualities = [360, 480, 720].into_iter().map(|res| quality(res, &format!("https://v/{res}"))).collect();
         s.captions = vec![
             Caption { lang: "de".into(), name: "German".into(), url: "https://c/de".into(), auto: false },
             Caption {
@@ -1478,6 +1549,52 @@ mod tests {
         assert!(matches!(effects.as_slice(), [Effect::Player(PlayerCommand::Start { start_secs: 90, .. })]));
         assert_eq!(a.player.as_ref().unwrap().caption, None);
         assert!(event(&mut a, PlayerEvent::FileLoaded).is_empty());
+    }
+
+    #[test]
+    fn a_403_retry_asks_for_the_size_that_played() {
+        let mut a = App::new(KeyMap::default(), Graphics::KittyShm);
+        a.update(Message::Input(Input::Resize { width: 384, height: 108 }));
+        a.update(Message::Input(Input::CellSize { width: 10, height: 20 }));
+        a.max_quality = 2160;
+        let first = a.play("v1".into(), "Title".into());
+        assert!(first.contains(&Effect::ResolveStreams { session: 1, id: "v1".into(), max_height: 2160 }));
+        // A vertical 1080 x 1920 video played. The retry knows its shape now,
+        // but it asks for the same size, so the picture does not change.
+        let mut s = streams(None);
+        s.format = FormatInfo { width: Some(1080), height: Some(1920), ..FormatInfo::default() };
+        a.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(s) });
+        event(&mut a, PlayerEvent::FileLoaded);
+        let effects = event(&mut a, PlayerEvent::Failed("HTTP error 403".into()));
+        assert!(
+            effects.contains(&Effect::ResolveStreams { session: 1, id: "v1".into(), max_height: 1080 }),
+            "{effects:?}"
+        );
+    }
+
+    #[test]
+    fn vertical_videos_get_the_maximum_on_the_short_side() {
+        // A 9:16 picture fits 1192 x 2120 px here. The default maximum, 1080,
+        // limits its short side, its width.
+        let g = Geometry::fit(384, 108, (10, 20), (9, 16), 1080);
+        assert!((1056..=1080).contains(&g.width) && (1860..=1920).contains(&g.height), "{g:?}");
+    }
+
+    #[test]
+    fn the_quality_menu_leaves_out_wide_and_late_streams() {
+        let mut a = app();
+        a.play("v1".into(), "Title".into());
+        let mut s = streams(Some(100));
+        s.qualities = vec![
+            quality(720, "https://720"),
+            // An ultrawide stream: short enough, but wider than 1080p allows.
+            Quality { res: 1072, long: 2560, url: "https://wide".into(), available_at: None },
+            // From a YouTube client with a longer ads wait.
+            Quality { available_at: Some(130), ..quality(1080, "https://late") },
+        ];
+        a.update(Message::StreamsResolved { session: 1, now: 100, result: Ok(s) });
+        let urls: Vec<&str> = a.player.as_ref().unwrap().qualities.iter().map(|q| q.url.as_str()).collect();
+        assert_eq!(urls, ["https://720"]);
     }
 
     #[test]
@@ -1886,7 +2003,7 @@ mod tests {
 
     #[test]
     fn fit_area_is_fit_without_the_status_rows() {
-        assert_eq!(Geometry::fit_area(80, 22, (10, 20), (16, 9)), Geometry::fit(80, 24, (10, 20), (16, 9)));
+        assert_eq!(Geometry::fit_area(80, 22, (10, 20), (16, 9), 720), Geometry::fit(80, 24, (10, 20), (16, 9), 720));
     }
 
     #[test]
@@ -1973,7 +2090,7 @@ mod tests {
     #[test]
     fn v_shows_the_full_player_and_x_stops_it() {
         let mut a = mini();
-        let full = Geometry::fit(120, 40, (10, 20), (16, 9));
+        let full = Geometry::fit(120, 40, (10, 20), (16, 9), 720);
         assert_eq!(key(&mut a, "v"), [Effect::Player(PlayerCommand::Resize(full))]);
         assert!(!a.player.as_ref().unwrap().mini);
         key(&mut a, "esc");
@@ -2128,7 +2245,7 @@ mod tests {
         assert_eq!(effects, [Effect::Player(PlayerCommand::Resize(g))]);
         // No room for the dock: a small picture that nothing shows.
         let effects = a.update(Message::Input(Input::Resize { width: 60, height: 20 }));
-        let g = Geometry::fit_area(HIDDEN_CELLS.0, HIDDEN_CELLS.1, (10, 20), (16, 9));
+        let g = Geometry::fit_area(HIDDEN_CELLS.0, HIDDEN_CELLS.1, (10, 20), (16, 9), 720);
         assert_eq!(effects, [Effect::Player(PlayerCommand::Resize(g))]);
     }
 }

@@ -95,7 +95,9 @@ reeltty skips sponsor messages that the SponsorBlock community marked, and the s
 
 In the quality menu, move with the browse keys (`j`, `k`), choose with `enter`, and close it with `esc`. The video goes on from the same place.
 
-As a guest, you sometimes wait before a video starts. YouTube makes guests wait as long as the ads would play, and reeltty shows a countdown.
+Some videos, such as videos made for kids, make you wait a few seconds before they start. YouTube makes guests wait as long as the ads would play, and reeltty shows a countdown. Most videos start at once.
+
+The video size follows the size of the picture: a small window gets a small stream. By default it goes up to 1080p. Set `max_quality` to go higher or lower. Larger sizes use more CPU, mostly to scale the picture and for the terminal to draw it.
 
 ## Configuration
 
@@ -111,6 +113,10 @@ thumbnails = true
 
 # When a video ends, play the next one from the queue or the related videos.
 autoplay = true
+
+# The largest video size: "auto" (up to 1080p), "best" (up to 2160p),
+# or a height such as 1440 or 720.
+max_quality = "auto"
 
 # Show Shorts and live streams in the subscriptions feed.
 [feed]

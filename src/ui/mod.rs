@@ -796,7 +796,10 @@ mod tests {
             channel: None,
             duration_secs: None,
             live: false,
-            qualities: [360, 720].into_iter().map(|res| Quality { res, url: String::new() }).collect(),
+            qualities: [360, 720]
+                .into_iter()
+                .map(|res| Quality { res, long: res * 16 / 9, url: String::new(), available_at: None })
+                .collect(),
             captions: vec![Caption { lang: "en".into(), name: "English".into(), url: String::new(), auto: false }],
         };
         app.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(Box::new(streams)) });

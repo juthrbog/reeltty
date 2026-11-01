@@ -83,12 +83,31 @@ impl Source for YtDlp {
     }
 }
 
+/// The YouTube clients that yt-dlp asks for streams, in order. yt-dlp keeps
+/// the first copy of each format. As a guest, `visionos` gets no ads, so its
+/// URLs work at once, without the wait that YouTube gives the other clients
+/// (`available_at`). It has H.264 up to 1080p. `tv_samsung` and `web` give
+/// the larger VP9 sizes, and videos made for kids, which `visionos` cannot
+/// play. These are yt-dlp's default clients, with `visionos` first.
+const PLAYER_CLIENTS: &str = "youtube:player_client=visionos,tv_samsung,web";
+
 impl YtDlp {
     /// The stream URLs of a video, at most `max_height` pixels high.
     pub async fn streams(&self, id: &str, max_height: u32) -> Result<Streams> {
         let url = format!("https://www.youtube.com/watch?v={id}");
-        let (format, sort) = (streams::selector(), streams::sort(max_height));
-        let args = ["-J", "--no-playlist", "--no-warnings", "-f", &format, "-S", &sort, &url];
+        let (format, sort) = (streams::selector(max_height), streams::sort(max_height));
+        let args = [
+            "-J",
+            "--no-playlist",
+            "--no-warnings",
+            "--extractor-args",
+            PLAYER_CLIENTS,
+            "-f",
+            &format,
+            "-S",
+            &sort,
+            &url,
+        ];
         streams::parse_streams(&self.run(&args).await?)
     }
 
@@ -824,8 +843,9 @@ mod tests {
     async fn streams_pass_the_selector() {
         let dir = tempfile::tempdir().unwrap();
         let args = format!(
-            "-J --no-playlist --no-warnings -f {} -S res:480 https://www.youtube.com/watch?v=aqz-KE-bpKQ",
-            streams::selector()
+            "-J --no-playlist --no-warnings --extractor-args {PLAYER_CLIENTS} -f {} -S res:480,vcodec:avc1 \
+             https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+            streams::selector(480)
         );
         // The fake script puts the arguments in single quotes.
         let y = expects(&dir, &args.replace('\'', r"'\''"), "streams.json");

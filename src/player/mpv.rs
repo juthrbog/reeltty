@@ -462,8 +462,16 @@ impl Frame {
     /// Sets every alpha byte to 255. mpv's `rgb0` leaves it undefined, and
     /// Kitty reads it as alpha.
     pub fn set_opaque(&mut self) {
-        for px in self.bytes_mut().as_chunks_mut::<4>().0 {
-            px[3] = 255;
+        // One 32-bit OR for each pixel, which the compiler makes into vector
+        // code. A loop that sets one byte of each pixel stays one byte at a
+        // time, and it was reeltty's most expensive code at 1440p.
+        let alpha = u32::from_ne_bytes([0, 0, 0, 255]);
+        // SAFETY: `Block` is 64 plain bytes aligned to 64, so the buffer is a
+        // whole number of aligned u32 values, and any bits are a valid u32.
+        let pixels =
+            unsafe { std::slice::from_raw_parts_mut(self.blocks.as_mut_ptr().cast::<u32>(), self.blocks.len() * 16) };
+        for px in pixels {
+            *px |= alpha;
         }
     }
 }
@@ -481,6 +489,19 @@ mod tests {
         f.set_opaque();
         assert!(f.bytes().chunks(4).all(|p| p == [0, 0, 0, 255]));
         assert_eq!(Frame::new(3, 0).bytes().len(), 16 * 4);
+    }
+
+    #[test]
+    fn set_opaque_keeps_the_colors() {
+        let mut f = Frame::new(32, 2);
+        for (i, b) in f.bytes_mut().iter_mut().enumerate() {
+            *b = u8::try_from(i * 7 % 256).unwrap();
+        }
+        let before = f.bytes().to_vec();
+        f.set_opaque();
+        for (px, old) in f.bytes().chunks(4).zip(before.chunks(4)) {
+            assert_eq!(px, [old[0], old[1], old[2], 255]);
+        }
     }
 
     #[test]

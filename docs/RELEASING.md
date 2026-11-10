@@ -92,4 +92,4 @@ To set up or replace the key:
 4. Delete an old deploy key in the tap under Settings, Deploy keys.
 5. Delete the two key files from your computer.
 
-The tap's `validate.yml` tests each published formula. Add an `install-reeltty` job there, like the others, after the first release.
+The tap's `validate.yml` tests each published formula. Its `install-reeltty` job installs the reeltty formula and runs `brew test`.

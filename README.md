@@ -28,7 +28,7 @@ Each [release](https://github.com/juthrbog/reeltty/releases) has Linux archives 
 To check that an archive comes from this repository's release workflow:
 
 ```sh
-gh attestation verify reeltty_0.1.0_linux_amd64.tar.gz --repo juthrbog/reeltty
+gh attestation verify reeltty_0.2.0_linux_amd64.tar.gz --repo juthrbog/reeltty
 ```
 
 Or check the checksums and their signature:

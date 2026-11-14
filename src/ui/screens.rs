@@ -162,7 +162,7 @@ fn draw_items(app: &App, list: &ItemList, empty: &str, f: &mut Frame, area: Rect
         f.render_widget(text, area);
         return;
     }
-    items::draw_list(t, &list.items, list.selection, &app.thumbnails, &app.history, f, area);
+    items::draw_list(app, &list.items, list.selection, f, area);
 }
 
 fn draw_video(app: &App, s: &VideoScreen, f: &mut Frame, area: Rect) {
@@ -516,13 +516,16 @@ pub fn draw_subscriptions(app: &App, f: &mut Frame, area: Rect) {
         f.render_widget(Paragraph::new(Line::styled(text, t.muted)).wrap(Wrap { trim: true }), inner);
         return;
     }
+    let width = usize::from(inner.width).saturating_sub(items::MARK_WIDTH);
+    let selected = items::selected(app.subscriptions_selection, app.subscriptions.len());
     let rows = app
         .subscriptions
         .iter()
-        .map(|s| {
+        .enumerate()
+        .map(|(i, s)| {
             vec![
-                Line::styled(s.name.clone(), t.title),
-                Line::styled(format!("  {}", s.handle.clone().unwrap_or_default()), t.muted),
+                items::title_line(t, Vec::new(), &s.name, None, width, i == selected),
+                items::detail_line(t, None, &s.handle.iter().cloned().collect::<Vec<_>>(), width),
             ]
         })
         .collect();
@@ -565,7 +568,7 @@ pub fn draw_feed(app: &App, f: &mut Frame, area: Rect) {
         f.render_widget(Paragraph::new(text), list);
         return;
     }
-    items::draw_list(t, &feed.items, feed.selection, &app.thumbnails, &app.history, f, list);
+    items::draw_list(app, &feed.items, feed.selection, f, list);
 }
 
 pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
@@ -578,22 +581,29 @@ pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
         f.render_widget(Paragraph::new(Line::styled(text, t.muted)).wrap(Wrap { trim: true }), inner);
         return;
     }
-    let width = usize::from(inner.width).saturating_sub(2);
+    let width = usize::from(inner.width).saturating_sub(items::MARK_WIDTH);
     let now = app.clock;
+    let selected = items::selected(app.history_selection, app.history.len());
+    let playing = app.player.as_ref().map(|p| p.id.as_str());
     let rows = app
         .history
         .iter()
-        .map(|e| {
-            let mut parts: Vec<String> = e.channel_name.iter().cloned().collect();
-            parts.push(match (e.finished, e.duration_secs) {
+        .enumerate()
+        .map(|(i, e)| {
+            let progress = match (e.finished, e.duration_secs) {
                 (true, _) => "watched".to_string(),
                 (false, Some(d)) => format!("{} of {}", clock(e.position_secs), clock(d)),
                 (false, None) => format!("stopped at {}", clock(e.position_secs)),
-            });
-            parts.push(ago(now, e.watched_at));
+            };
+            let lead = if playing == Some(e.video_id.as_str()) {
+                vec![Span::styled("▶", t.now_playing), Span::from(" ")]
+            } else {
+                Vec::new()
+            };
+            let rest = [progress, ago(now, e.watched_at)];
             vec![
-                Line::styled(e.title.clone(), t.title),
-                Line::styled(format!("  {}", items::truncate(&parts.join(" · "), width)), t.muted),
+                items::title_line(t, lead, &e.title, None, width, i == selected),
+                items::detail_line(t, e.channel_name.as_deref(), &rest, width),
             ]
         })
         .collect();
@@ -638,8 +648,17 @@ pub fn draw_queue(app: &App, f: &mut Frame, area: Rect) {
         f.render_widget(Paragraph::new(Line::styled(text, t.muted)).wrap(Wrap { trim: true }), inner);
         return;
     }
-    let width = usize::from(inner.width);
-    let rows = app.queue.iter().map(|v| items::rows(t, &Item::Video(v.clone()), None, width, false)).collect();
+    let width = usize::from(inner.width).saturating_sub(items::MARK_WIDTH);
+    let selected = items::selected(app.queue_selection, app.queue.len());
+    let rows = app
+        .queue
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            let state = items::RowState { selected: i == selected, playing: false };
+            items::rows(t, &Item::Video(v.clone()), None, width, false, state)
+        })
+        .collect();
     items::draw_rows(t, rows, app.queue_selection, f, inner);
 }
 
@@ -655,12 +674,17 @@ pub fn draw_saved(app: &App, f: &mut Frame, area: Rect) {
         f.render_widget(Paragraph::new(Line::styled(text, t.muted)).wrap(Wrap { trim: true }), inner);
         return;
     }
+    let width = usize::from(inner.width).saturating_sub(items::MARK_WIDTH);
+    let selected = items::selected(app.saved_selection, app.saved_playlists.len());
     let rows = app
         .saved_playlists
         .iter()
-        .map(|p| {
-            let parts: Vec<String> = p.channel_name.iter().chain(&p.videos_text).cloned().collect();
-            vec![Line::styled(p.title.clone(), t.title), Line::styled(format!("  {}", parts.join(" · ")), t.muted)]
+        .enumerate()
+        .map(|(i, p)| {
+            vec![
+                items::title_line(t, Vec::new(), &p.title, p.videos_text.as_deref(), width, i == selected),
+                items::detail_line(t, p.channel_name.as_deref(), &[], width),
+            ]
         })
         .collect();
     items::draw_rows(t, rows, app.saved_selection, f, inner);

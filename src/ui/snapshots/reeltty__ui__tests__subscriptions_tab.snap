@@ -4,10 +4,10 @@ expression: "render(&app, 70, 10)"
 ---
  Search · Feed · Subscriptions · Playlists · Queue · History          
 ╭ Subscriptions (2) ─────────────────────────────────────────────────╮
-│ 3Blue1Brown                                                        │
+│   3Blue1Brown                                                      │
 │   @3blue1brown                                                     │
-│ Jon Gjengset                                                       │
-│   @jonhoo                                                          │
+│ ▌ Jon Gjengset                                                     │
+│ ▌ @jonhoo                                                          │
 │                                                                    │
 │                                                                    │
 ╰────────────────────────────────────────────────────────────────────╯

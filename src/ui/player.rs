@@ -71,14 +71,21 @@ fn draw_up_next(app: &App, up: &UpNext, f: &mut Frame, area: Rect) {
     }
     let inner = block.inner(column);
     f.render_widget(block, column);
-    let text_width = usize::from(inner.width);
-    let items: Vec<ListItem> = up
+    let width = usize::from(inner.width).saturating_sub(super::items::MARK_WIDTH);
+    let rows = up
         .videos
         .iter()
-        .map(|v| ListItem::new(super::items::rows(t, &Item::Video(v.clone()), None, text_width, false)))
+        .enumerate()
+        .map(|(i, v)| {
+            let state = super::items::RowState {
+                selected: i == up.selection.min(up.videos.len().saturating_sub(1)),
+                playing: false,
+            };
+            super::items::rows(t, &Item::Video(v.clone()), None, width, false, state)
+        })
         .collect();
-    let list = List::new(items).highlight_style(t.selection);
-    f.render_stateful_widget(list, inner, &mut ListState::default().with_selected(Some(up.selection)));
+    let selection = crate::app::Selection { index: up.selection, offset: 0 };
+    super::items::draw_rows(t, rows, selection, f, inner);
 }
 
 fn draw_quality_menu(t: &Theme, p: &PlayerState, f: &mut Frame, area: Rect) {

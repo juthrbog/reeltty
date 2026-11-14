@@ -5,10 +5,10 @@ expression: "render(&app, 70, 10)"
  Search · Feed · Subscriptions · Playlists · Queue · History          
 ╭ Search · 6.19M results ────────────────────────────────────────────╮
 │ rust                                                               │
-│ CHANNEL Jon Gjengset ✓                                             │
+│   CHANNEL Jon Gjengset ✓                                           │
 │   @jonhoo · 111K subscribers                                       │
-│ PLAYLIST Crust of Rust                                             │
-│   Jon Gjengset · 44 videos                                         │
+│ ▌ PLAYLIST Crust of Rust                                 44 videos │
+│ ▌ Jon Gjengset                                                     │
 │                                                                    │
 ╰────────────────────────────────────────────────────────────────────╯
                                   ? help  / search  f filters  q quit

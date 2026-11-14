@@ -365,6 +365,16 @@ pub enum ThemeName {
 }
 
 impl ThemeName {
+    /// Whether the theme is made for a light background, if it is made for
+    /// one kind. Used when the terminal does not say.
+    pub fn light(self) -> Option<bool> {
+        match self {
+            Self::CatppuccinLatte => Some(true),
+            Self::CatppuccinMocha | Self::TokyoNight => Some(false),
+            Self::Ansi | Self::Auto => None,
+        }
+    }
+
     /// The name as in the configuration file.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -440,6 +450,11 @@ mod tests {
         // No answer from the terminal: dark.
         assert_eq!(Theme::named(ThemeName::Auto, None), Theme::truecolor(&CATPPUCCIN_MOCHA));
         assert_eq!(Theme::named(ThemeName::TokyoNight, Some(true)), Theme::truecolor(&TOKYO_NIGHT));
+        // A theme for one kind of background says which, for the accent.
+        assert_eq!(ThemeName::CatppuccinLatte.light(), Some(true));
+        assert_eq!(ThemeName::TokyoNight.light(), Some(false));
+        assert_eq!(ThemeName::Auto.light(), None);
+        assert_eq!(ThemeName::Ansi.light(), None);
     }
 
     #[test]

@@ -3,18 +3,18 @@ source: src/ui/mod.rs
 expression: "styled(&draw_only(&app, 70, 16))"
 ---
 {M b} Search {/}{d}· Feed · Subscriptions · Playlists · Queue · History {/}         
-{d}┌{/}{b} Search · 6.19M results {/}{d}────────────────────────────────────────────┐{/}
-{d}│{/}{b}rust{/}                                                                {d}│{/}
-{d}│{/}{br}Rust in 100 seconds{/}{r}                                                 {/}{d}│{/}
-{d}│{/}{r}  {/}{dr}Fireship · 12:34 · 1.2M views · 3 years ago · 4K{/}{r}                  {/}{d}│{/}
-{d}│{/}{R br}LIVE{/} {b}Lofi beats to code to{/}                                          {d}│{/}
-{d}│{/}  {d}Lofi Girl · 32 watching · 4K{/}                                      {d}│{/}
-{d}│{/}{Y br}MEMBERS{/} {b}Async Rust with a friend{/}                                    {d}│{/}
-{d}│{/}  {d}Jon Gjengset and Ana · 12:34 · 1.2M views · 3 years ago{/}           {d}│{/}
-{d}│CHANNEL{/} {b}Jon Gjengset{/} ✓                                              {d}│{/}
-{d}│{/}  {d}@jonhoo · 111K subscribers{/}                                        {d}│{/}
-{d}│PLAYLIST{/} {b}Crust of Rust{/}                                              {d}│{/}
-{d}│{/}  {d}Jon Gjengset · 44 videos{/}                                          {d}│{/}
+{d}╭{/}{b} Search · 6.19M results {/}{d}────────────────────────────────────────────╮{/}
+{d}│{/} {b}rust{/}                                                               {d}│{/}
+{d}│{/} {br}Rust in 100 seconds{/}{r}                                               {/} {d}│{/}
+{d}│{/} {r}  {/}{dr}Fireship · 12:34 · 1.2M views · 3 years ago · 4K{/}{r}                {/} {d}│{/}
+{d}│{/} {R br}LIVE{/} {b}Lofi beats to code to{/}                                         {d}│{/}
+{d}│{/}   {d}Lofi Girl · 32 watching · 4K{/}                                     {d}│{/}
+{d}│{/} {Y br}MEMBERS{/} {b}Async Rust with a friend{/}                                   {d}│{/}
+{d}│{/}   {d}Jon Gjengset and Ana · 12:34 · 1.2M views · 3 years ago{/}          {d}│{/}
+{d}│{/} {d}CHANNEL{/} {b}Jon Gjengset{/} ✓                                             {d}│{/}
+{d}│{/}   {d}@jonhoo · 111K subscribers{/}                                       {d}│{/}
+{d}│{/} {d}PLAYLIST{/} {b}Crust of Rust{/}                                             {d}│{/}
+{d}│{/}   {d}Jon Gjengset · 44 videos{/}                                         {d}│{/}
 {d}│{/}                                                                    {d}│{/}
-{d}└────────────────────────────────────────────────────────────────────┘{/}
-{G b}✓{/} Saved Crust of Rust.           {b}?{/}{d} help  {/}{b}/{/}{d} search  {/}{b}f{/}{d} filters  {/}{b}q{/}{d} quit  {/}
+{d}╰────────────────────────────────────────────────────────────────────╯{/}
+{G b}✓{/} Saved Crust of Rust.            {b}?{/}{d} help{/}  {b}/{/}{d} search{/}  {b}f{/}{d} filters{/}  {b}q{/}{d} quit{/}

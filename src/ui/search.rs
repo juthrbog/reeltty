@@ -106,10 +106,9 @@ fn draw_filter_menu(app: &App, f: &mut Frame, area: Rect) {
     let height = u16::try_from(FilterRow::ALL.len()).unwrap_or(u16::MAX) + 2;
     let popup = centered(area, 40, height);
     let mut block = bordered(&app.theme, " Filters ");
-    let hints =
-        super::hints([(app.keymap.first_key(Action::Open), "change"), (app.keymap.first_key(Action::Back), "done")]);
-    if !hints.is_empty() {
-        block = block.title_bottom(Line::styled(format!(" {hints} "), app.theme.key_label));
+    let keys = [(app.keymap.first_key(Action::Open), "change"), (app.keymap.first_key(Action::Back), "done")];
+    if let Some(hints) = super::hint_title(&app.theme, keys) {
+        block = block.title_bottom(hints);
     }
     let table = Table::new(rows, [Constraint::Length(14), Constraint::Min(0)]).block(block);
     f.render_widget(Clear, popup);

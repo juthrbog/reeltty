@@ -3,18 +3,18 @@ source: src/ui/mod.rs
 expression: "render(&app, 80, 16)"
 ---
  reeltty  Search · Feed · Subscriptions · Playlists · Queue · History           
-┌ Search · 6.19M results ────────────────────────────┐                          
-│rust                                                │                          
-│Rust in 100 seconds                                 │┌────────────────────────┐
-│  Fireship · 12:34 · 1.2M views · 3 years ago · 4K  ││                        │
-│LIVE Lofi beats to code to                          ││                        │
-│  Lofi Girl · 32 watching · 4K                      ││                        │
-│MEMBERS Async Rust with a friend                    ││    Finding the video   │
-│  Jon Gjengset and Ana · 12:34 · 1.2M views · 3 yea…││        streams…        │
-│CHANNEL Jon Gjengset ✓                              ││                        │
-│  @jonhoo · 111K subscribers                        ││                        │
-│PLAYLIST Crust of Rust                              │└────────────────────────┘
-│  Jon Gjengset · 44 videos                          │ Big Buck Bunny           
+╭ Search · 6.19M results ────────────────────────────╮                          
+│ rust                                               │                          
+│ Rust in 100 seconds                                │╭────────────────────────╮
+│   Fireship · 12:34 · 1.2M views · 3 years ago · 4K ││                        │
+│ LIVE Lofi beats to code to                         ││                        │
+│   Lofi Girl · 32 watching · 4K                     ││                        │
+│ MEMBERS Async Rust with a friend                   ││    Finding the video   │
+│   Jon Gjengset and Ana · 12:34 · 1.2M views · 3 y… ││        streams…        │
+│ CHANNEL Jon Gjengset ✓                             ││                        │
+│   @jonhoo · 111K subscribers                       ││                        │
+│ PLAYLIST Crust of Rust                             │╰────────────────────────╯
+│   Jon Gjengset · 44 videos                         │ Big Buck Bunny           
 │                                                    │                          
-└────────────────────────────────────────────────────┘ v full  x stop           
-                                           ? help  / search  f filters  q quit
+╰────────────────────────────────────────────────────╯ v full  x stop           
+                                            ? help  / search  f filters  q quit

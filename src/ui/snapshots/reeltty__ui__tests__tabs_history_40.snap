@@ -3,12 +3,12 @@ source: src/ui/mod.rs
 expression: "render(&app, 40, 10)"
 ---
 ‹ Playlists · Queue · History           
-┌ History (0) ─────────────────────────┐
-│No watch history yet. Videos you play │
-│show here, and play again from where  │
-│you stopped.                          │
+╭ History (0) ─────────────────────────╮
+│ No watch history yet. Videos you     │
+│ play show here, and play again from  │
+│ where you stopped.                   │
 │                                      │
 │                                      │
 │                                      │
-└──────────────────────────────────────┘
-              ? help  / search  q quit
+╰──────────────────────────────────────╯
+               ? help  / search  q quit

@@ -10,7 +10,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph, Row, Table};
+use ratatui::widgets::{Block, BorderType, Clear, Padding, Paragraph, Row, Table};
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::app::player::{Phase, dock};
@@ -49,12 +49,50 @@ fn draw(app: &App, f: &mut Frame) {
     }
 }
 
-/// A bordered block in the theme with `title`. Only the border takes the
-/// border style: a style on the block would also cover image cells.
+/// A bordered block in the theme with `title`: rounded corners, and one
+/// column of space inside each side. Only the border takes the border
+/// style: a style on the block would also cover image cells.
 pub(crate) fn bordered<'a>(theme: &Theme, title: impl Into<Line<'a>>) -> Block<'a> {
     let mut title = title.into();
     title.style = theme.title.patch(title.style);
-    Block::bordered().border_style(theme.border).title(title)
+    Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(theme.border)
+        .padding(Padding::horizontal(1))
+        .title(title)
+}
+
+/// Key hints in one style: the key, then its label, and two spaces between
+/// hints. A hint whose key is not bound is left out.
+pub(crate) fn hint_spans<'a, K: std::fmt::Display>(
+    theme: &Theme,
+    parts: impl IntoIterator<Item = (Option<K>, &'a str)>,
+) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    for (key, label) in parts {
+        let Some(key) = key else { continue };
+        if !spans.is_empty() {
+            spans.push(Span::from("  "));
+        }
+        spans.push(Span::styled(key.to_string(), theme.key));
+        spans.push(Span::styled(format!(" {label}"), theme.key_label));
+    }
+    spans
+}
+
+/// Hints for the bottom border of a block, with a space at each end, or
+/// `None` when no key is bound.
+pub(crate) fn hint_title<'a, K: std::fmt::Display>(
+    theme: &Theme,
+    parts: impl IntoIterator<Item = (Option<K>, &'a str)>,
+) -> Option<Line<'static>> {
+    let mut spans = hint_spans(theme, parts);
+    if spans.is_empty() {
+        return None;
+    }
+    spans.insert(0, Span::from(" "));
+    spans.push(Span::from(" "));
+    Some(Line::from(spans))
 }
 
 /// An error in the body of a view: "✗ " and the text.
@@ -63,12 +101,6 @@ pub(crate) fn error_line(theme: &Theme, text: String) -> Line<'static> {
         Span::styled("✗ ", theme.status_error.add_modifier(Modifier::BOLD)),
         Span::styled(text, theme.status_error),
     ])
-}
-
-/// Key hints such as `j/k choose · enter play`. A hint whose key is not
-/// bound is left out.
-pub(crate) fn hints<'a, K: std::fmt::Display>(parts: impl IntoIterator<Item = (Option<K>, &'a str)>) -> String {
-    parts.into_iter().filter_map(|(key, label)| key.map(|k| format!("{k} {label}"))).collect::<Vec<_>>().join(" · ")
 }
 
 /// Removes the colors from every cell, for `NO_COLOR`, and keeps the
@@ -180,11 +212,6 @@ fn draw_body(app: &App, f: &mut Frame, area: Rect) {
 /// the mini-player, so the message can be the video that plays.
 fn draw_status(app: &App, f: &mut Frame, area: Rect, no_dock: bool) {
     let t = &app.theme;
-    let hint = |a: Action, label: &str| {
-        app.keymap
-            .first_key(a)
-            .map(|k| vec![Span::styled(k.to_string(), t.key), Span::styled(format!(" {label}  "), t.key_label)])
-    };
     let mut wanted = vec![(Action::Help, "help"), (Action::Search, "search")];
     if !app.screens.is_empty() {
         wanted.push((Action::Back, "back"));
@@ -192,7 +219,10 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect, no_dock: bool) {
         wanted.push((Action::Filters, "filters"));
     }
     wanted.push((Action::Quit, "quit"));
-    let hints: Vec<Span> = wanted.into_iter().filter_map(|(a, l)| hint(a, l)).flatten().collect();
+    let mut hints = hint_spans(t, wanted.into_iter().map(|(a, l)| (app.keymap.first_key(a), l)));
+    if !hints.is_empty() {
+        hints.push(Span::from(" "));
+    }
     let hints = Line::from(hints).right_aligned();
     let message = app
         .status
@@ -244,46 +274,99 @@ pub(crate) fn status_line(t: &Theme, m: &StatusMessage) -> Line<'static> {
 /// in the mini-player too, when browse does not use them.
 fn draw_help(app: &App, f: &mut Frame, area: Rect) {
     let keys = |keys: &[crate::keymap::KeyPress]| keys.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
-    // A heading has no keys.
-    let mut entries: Vec<(String, Option<String>)> = vec![("Browse".into(), None)];
-    entries.extend(app.keymap.bindings().iter().map(|(a, k)| (a.description().to_string(), Some(keys(k)))));
-    entries.push(("Player".into(), None));
-    entries.extend(app.keymap.player.bindings().iter().map(|(a, k)| (a.description().to_string(), Some(keys(k)))));
+    let mut lines = vec![HelpLine::Heading("Browse".into())];
+    lines.extend(app.keymap.bindings().iter().map(|(a, k)| HelpLine::Key(a.description().to_string(), keys(k))));
+    lines.extend([HelpLine::Blank, HelpLine::Heading("Player".into())]);
+    lines.extend(app.keymap.player.bindings().iter().map(|(a, k)| HelpLine::Key(a.description().to_string(), keys(k))));
     let cells = |n: Option<usize>| u16::try_from(n.unwrap_or(0)).unwrap_or(u16::MAX);
-    let description_width = cells(entries.iter().map(|(d, _)| d.width()).max());
-    let keys_width = cells(entries.iter().map(|(_, k)| k.as_deref().map_or(0, str::width)).max());
+    let description_width = cells(lines.iter().map(|l| l.texts().0.width()).max());
+    let keys_width = cells(lines.iter().map(|l| l.texts().1.width()).max());
     // Two spaces after each column.
     let column = description_width.saturating_add(keys_width).saturating_add(3);
-    // As many columns as the height needs and the width allows.
+    // The border and the space inside it take 2 rows and 4 columns.
     let fit = usize::from(area.height.saturating_sub(2)).max(1);
-    let most = usize::from(area.width.saturating_sub(2) / column.max(1)).max(1);
-    let columns = entries.len().div_ceil(fit).clamp(1, most);
-    let per_column = entries.len().div_ceil(columns);
-    let height = u16::try_from(per_column).unwrap_or(u16::MAX).saturating_add(2);
-    let width = column.saturating_mul(u16::try_from(columns).unwrap_or(1)).saturating_add(2);
+    let most = usize::from(area.width.saturating_sub(4) / column.max(1)).max(1);
+    // As few rows as the columns that fit allow, but at most `fit`.
+    let wanted = lines.len().div_ceil(fit).clamp(1, most);
+    let mut rows = lines.len().div_ceil(wanted);
+    let mut columns = help_columns(&lines, rows);
+    while columns.len() > wanted && rows < fit {
+        rows += 1;
+        columns = help_columns(&lines, rows);
+    }
+    let cut = columns.len() > most || columns.iter().any(|c| c.len() > fit);
+    columns.truncate(most);
+    let rows = columns.iter().map(Vec::len).max().unwrap_or(0);
+    let shown = u16::try_from(columns.len()).unwrap_or(1);
+    let height = u16::try_from(rows).unwrap_or(u16::MAX).saturating_add(2);
+    let width = column.saturating_mul(shown).saturating_add(4);
     let popup = centered(area, width, height);
     let t = &app.theme;
     let mut block = bordered(t, " Keys ");
-    if per_column > fit {
+    if cut {
         block = block.title_bottom(Line::styled(" More keys in a larger window ", t.muted));
     }
-    let rows: Vec<Row> = entries
-        .into_iter()
-        .map(|(description, keys)| match keys {
-            Some(keys) => Row::new([Line::from(description), Line::styled(keys, t.key)]),
-            None => Row::new([Line::styled(description, t.title), Line::default()]),
-        })
-        .collect();
     let inner = block.inner(popup);
     f.render_widget(Clear, popup);
     f.render_widget(block, popup);
-    let ratio = u32::try_from(columns).unwrap_or(1);
-    let areas = Layout::horizontal(vec![Constraint::Ratio(1, ratio); columns]).split(inner);
-    let mut rows = rows.into_iter();
-    for column in areas.iter() {
-        let chunk: Vec<Row> = rows.by_ref().take(per_column).collect();
-        f.render_widget(Table::new(chunk, [Constraint::Length(description_width), Constraint::Min(0)]), *column);
+    let areas = Layout::horizontal(vec![Constraint::Length(column); columns.len()]).split(inner);
+    for (lines, area) in columns.into_iter().zip(areas.iter()) {
+        let rows: Vec<Row> = lines
+            .into_iter()
+            .map(|l| match l {
+                HelpLine::Key(description, keys) => {
+                    Row::new([Line::from(description.clone()), Line::styled(keys.clone(), t.key)])
+                }
+                HelpLine::Heading(heading) => Row::new([Line::styled(heading.clone(), t.title), Line::default()]),
+                HelpLine::Blank => Row::new([Line::default(), Line::default()]),
+            })
+            .collect();
+        f.render_widget(Table::new(rows, [Constraint::Length(description_width), Constraint::Min(0)]), *area);
     }
+}
+
+/// One line of the help overlay.
+#[derive(Debug, PartialEq, Eq)]
+enum HelpLine {
+    Heading(String),
+    /// What a key does, and its keys.
+    Key(String, String),
+    Blank,
+}
+
+impl HelpLine {
+    fn texts(&self) -> (&str, &str) {
+        match self {
+            Self::Heading(h) => (h, ""),
+            Self::Key(d, k) => (d, k),
+            Self::Blank => ("", ""),
+        }
+    }
+}
+
+/// Fills columns of `rows` lines. A heading never ends a column, so it
+/// stays with its first key, and no column starts or ends with a blank line.
+fn help_columns(lines: &[HelpLine], rows: usize) -> Vec<Vec<&HelpLine>> {
+    let rows = rows.max(1);
+    let mut columns: Vec<Vec<&HelpLine>> = vec![Vec::new()];
+    for line in lines {
+        let need = if matches!(line, HelpLine::Heading(_)) { 2 } else { 1 };
+        let full = columns.last().is_some_and(|c| !c.is_empty() && c.len() + need > rows);
+        if full {
+            if let Some(c) = columns.last_mut()
+                && c.last() == Some(&&HelpLine::Blank)
+            {
+                c.pop();
+            }
+            columns.push(Vec::new());
+        }
+        let column = columns.last_mut().expect("there is always a column");
+        if *line == HelpLine::Blank && column.is_empty() {
+            continue;
+        }
+        column.push(line);
+    }
+    columns
 }
 
 pub(crate) fn centered(area: Rect, width: u16, height: u16) -> Rect {
@@ -720,21 +803,21 @@ mod tests {
 
         // Each cell names its row and column, and the color names the image.
         let buf = buffer(&app, 70, 20);
-        let first = (0..20).find(|y| buf[(1, *y)].symbol().starts_with(kitty::PLACEHOLDER)).unwrap();
-        assert_eq!(buf[(1, first)].symbol(), kitty::cell(0, 0).unwrap());
-        assert_eq!(buf[(2, first + 1)].symbol(), kitty::cell(1, 1).unwrap());
+        let first = (0..20).find(|y| buf[(2, *y)].symbol().starts_with(kitty::PLACEHOLDER)).unwrap();
+        assert_eq!(buf[(2, first)].symbol(), kitty::cell(0, 0).unwrap());
+        assert_eq!(buf[(3, first + 1)].symbol(), kitty::cell(1, 1).unwrap());
         let (r, g, b) = kitty::id_color(app.thumbnails.image(&app.search.results[0]).unwrap());
-        assert_eq!(buf[(1, first)].fg, Color::Rgb(r, g, b));
+        assert_eq!(buf[(2, first)].fg, Color::Rgb(r, g, b));
 
         // Item 1 is selected. The highlight covers its text but not its image.
         let selected = first + 3;
-        // x = 13 is the LIVE pill, which is reversed too, so check the title.
-        assert!(buf[(20, selected)].modifier.contains(Modifier::REVERSED), "the text is highlighted");
-        assert!(buf[(1, selected)].symbol().is_empty() || buf[(1, selected)].symbol() == " ");
+        // x = 14 is the LIVE pill, which is reversed too, so check the title.
+        assert!(buf[(21, selected)].modifier.contains(Modifier::REVERSED), "the text is highlighted");
+        assert!(buf[(2, selected)].symbol().is_empty() || buf[(2, selected)].symbol() == " ");
         app.update(Message::ThumbnailLoaded { url: urls[1].clone(), slot, result: Ok(Arc::new(picture.clone())) });
         let buf = buffer(&app, 70, 20);
         let (r, g, b) = kitty::id_color(app.thumbnails.image(&app.search.results[1]).unwrap());
-        for x in 1..=slot.cols {
+        for x in 2..=slot.cols + 1 {
             let cell = &buf[(x, selected)];
             assert!(cell.symbol().starts_with(kitty::PLACEHOLDER));
             assert!(!cell.modifier.contains(Modifier::REVERSED), "the highlight leaves images alone");
@@ -755,7 +838,7 @@ mod tests {
             }
         }
         let buf = buffer(&app, 70, 16);
-        let rows_with_pictures = (0..16).filter(|y| buf[(1, *y)].symbol().starts_with(kitty::PLACEHOLDER)).count();
+        let rows_with_pictures = (0..16).filter(|y| buf[(2, *y)].symbol().starts_with(kitty::PLACEHOLDER)).count();
         assert_eq!(rows_with_pictures, 9);
     }
 
@@ -1025,6 +1108,10 @@ mod tests {
         let max = s.max_scroll.get();
         assert!(max > 0 && max < 20, "max {max}");
         assert_eq!(s.scroll.get(), max);
+        // At the end, the scrollbar thumb is at the bottom of the right border.
+        let buf = buffer(&app, 70, 10);
+        assert_eq!(buf[(69, 7)].symbol(), "┃");
+        assert_eq!(buf[(69, 2)].symbol(), "│");
         press(&mut app, "k");
         let Some(crate::app::screens::Screen::Video(s)) = app.screens.last() else { panic!("no video screen") };
         assert_eq!(s.scroll.get(), max - 1);
@@ -1388,8 +1475,34 @@ mod tests {
 
     #[test]
     fn hints_leave_out_unbound_keys() {
-        assert_eq!(hints([(Some("j"), "down"), (None, "up"), (Some("enter"), "play")]), "j down · enter play");
-        assert_eq!(hints([(None::<&str>, "up")]), "");
+        let t = crate::theme::Theme::ansi();
+        let line = hint_title(&t, [(Some("j"), "down"), (None, "up"), (Some("enter"), "play")]).unwrap();
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text, " j down  enter play ");
+        assert_eq!((line.spans[1].style, line.spans[2].style), (t.key, t.key_label));
+        assert_eq!(hint_title(&t, [(None::<&str>, "up")]), None);
+    }
+
+    #[test]
+    fn help_headings_stay_with_their_keys() {
+        let key = |n: &str| HelpLine::Key(n.into(), "x".into());
+        let lines = [
+            HelpLine::Heading("A".into()),
+            key("a1"),
+            key("a2"),
+            HelpLine::Blank,
+            HelpLine::Heading("B".into()),
+            key("b1"),
+        ];
+        let names = |columns: Vec<Vec<&HelpLine>>| -> Vec<Vec<String>> {
+            columns.iter().map(|c| c.iter().map(|l| l.texts().0.to_string()).collect()).collect()
+        };
+        // In 4 rows, "B" would end the first column, so it starts the next,
+        // and the blank line before it goes.
+        assert_eq!(names(help_columns(&lines, 4)), vec![vec!["A", "a1", "a2"], vec!["B", "b1"]]);
+        assert_eq!(names(help_columns(&lines, 6)), vec![vec!["A", "a1", "a2", "", "B", "b1"]]);
+        // A column never starts with a blank line.
+        assert_eq!(names(help_columns(&lines, 3)), vec![vec!["A", "a1", "a2"], vec!["B", "b1"]]);
     }
 
     #[test]

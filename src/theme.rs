@@ -84,6 +84,9 @@ theme! {
     title: strong(),
     /// Every border.
     border: dim(),
+    /// The thumb of a scrollbar on a border. It removes the dim of the
+    /// border under it.
+    scrollbar: Style::new().remove_modifier(DIM),
     /// The selected row of a list, table or menu.
     selection: Style::new().add_modifier(REVERSED),
     /// A key in a hint.

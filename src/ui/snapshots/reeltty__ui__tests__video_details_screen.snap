@@ -3,20 +3,20 @@ source: src/ui/mod.rs
 expression: "render(&app, 70, 18)"
 ---
  Search · Feed · Subscriptions · Playlists · Queue · History          
-┌ Video ─────────────────────────────────────────────────────────────┐
-│But what is a neural network?                                       │
-│3Blue1Brown · 8.73M subscribers                                     │
-│25,037,755 views · Oct 5, 2017 · 568K likes · 18:32                 │
-│Comments: press C · Links: press n                                  │
+╭ Video ─────────────────────────────────────────────────────────────╮
+│ But what is a neural network?                                      │
+│ 3Blue1Brown · 8.73M subscribers                                    │
+│ 25,037,755 views · Oct 5, 2017 · 568K likes · 18:32                │
+│ C comments  n links                                                │
 │                                                                    │
-│Chapters                                                            │
-│     0:00  Introduction                                             │
-│     1:07  Series preview                                           │
+│ Chapters                                                           │
+│      0:00  Introduction                                            │
+│      1:07  Series preview                                          │
 │                                                                    │
-│Learn more: 3b1b.co/nn                                              │
-│0:00 Intro                                                          │
-│Thanks!                                                             │
+│ Learn more: 3b1b.co/nn                                             │
+│ 0:00 Intro                                                         │
+│ Thanks!                                                            │
 │                                                                    │
 │                                                                    │
-└────────────────────────────────────────────────────────────────────┘
-                                  ? help  / search  esc back  q quit
+╰────────────────────────────────────────────────────────────────────╯
+                                   ? help  / search  esc back  q quit

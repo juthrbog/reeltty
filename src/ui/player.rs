@@ -7,7 +7,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use unicode_width::UnicodeWidthStr as _;
@@ -151,16 +151,21 @@ pub fn draw_mini(app: &App, p: &PlayerState, f: &mut Frame, dock: Rect) {
             Some(d) => format!(" {} / {} ", clock(p.position_ms), clock(d)),
             None => format!(" {} ", clock(p.position_ms)),
         };
+        // The title is on the dim border, so it removes the dim, as block titles do.
+        let undim = Style::new().remove_modifier(Modifier::DIM);
         block = block.title(Line::from(vec![
             Span::from(" "),
-            Span::styled(state_mark(p), theme.now_playing),
-            Span::from(times),
+            Span::styled(state_mark(p), theme.now_playing.patch(undim)),
+            Span::styled(times, undim),
         ]));
     }
     let inner = block.inner(frame);
     f.render_widget(block, frame);
     if p.is_running() && frame.width > 2 && frame.height > 1 {
+        // The bar takes the place of the border there, so none of the
+        // border's style (its dim) stays under it.
         let edge = Rect::new(frame.x + 1, frame.bottom() - 1, frame.width - 2, 1);
+        f.buffer_mut().set_style(edge, Style::reset());
         f.render_widget(Line::from(bar(theme, p, usize::from(edge.width))), edge);
     }
     if let (Phase::Ended, Some(up)) = (&p.phase, &p.up_next) {

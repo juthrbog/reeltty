@@ -907,6 +907,26 @@ mod tests {
     }
 
     #[test]
+    fn the_mini_player_edge_is_not_dim() {
+        let app = mini_app(100, 24, true);
+        let buf = draw_only(&app, 100, 24);
+        let g = app.player.as_ref().unwrap().geometry;
+        let t = app.theme;
+        // The played part of the bottom edge, and the state mark in the top edge.
+        let played = &buf[(g.x, g.y + g.rows)];
+        assert_eq!(played.symbol(), "━");
+        assert!(!played.modifier.contains(Modifier::DIM), "{played:?}");
+        assert!(has_style(played, t.progress_played));
+        let mark = &buf[(g.x + 1, g.y - 1)];
+        assert_eq!(mark.symbol(), "▶");
+        assert!(!mark.modifier.contains(Modifier::DIM), "{mark:?}");
+        // The rest of the bar is dim, as in the full player.
+        let track = &buf[(g.x + g.cols - 1, g.y + g.rows)];
+        assert_eq!(track.symbol(), "─");
+        assert!(has_style(track, t.progress_track));
+    }
+
+    #[test]
     fn a_thumbnail_that_loads_later_gives_the_accent() {
         let (mut app, effects) = search_app(20, true);
         app.play("a".into(), "Rust in 100 seconds".into());

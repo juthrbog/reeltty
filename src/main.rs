@@ -117,7 +117,8 @@ fn run_tui(paths: &Paths) -> Result<()> {
         app.reduce_motion = config.reduce_motion;
         app.density = config.density;
         app.accent_from_thumbnail = config.accent == reeltty::config::Accent::Auto;
-        app.light_background = light;
+        // A light or dark theme says what the background is, if the terminal did not.
+        app.light_background = light.or(config.theme.light());
         app.autohide_status = config.autohide_status;
         app.theme = if no_color {
             reeltty::theme::Theme::no_color()

@@ -435,9 +435,6 @@ impl PlayerState {
 }
 
 impl App {
-    /// Plays a video full size, or says why it cannot. The video that plays
-    /// in the mini-player goes back to full size. After its end or a
-    /// failure, it starts again.
     /// Gives the player the color of its video's thumbnail, if it has none
     /// yet and the thumbnail is loaded.
     pub(super) fn take_accent(&mut self) {
@@ -446,6 +443,9 @@ impl App {
         }
     }
 
+    /// Plays a video full size, or says why it cannot. The video that plays
+    /// in the mini-player goes back to full size. After its end or a
+    /// failure, it starts again.
     pub fn play(&mut self, id: String, title: String) -> Vec<Effect> {
         let alive = |p: &PlayerState| !matches!(p.phase, Phase::Ended | Phase::Failed(_));
         if self.player.as_ref().is_some_and(|p| p.mini && p.id == id && alive(p)) {

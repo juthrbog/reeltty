@@ -129,7 +129,7 @@ pub fn main_color(rgba: &[u8]) -> Option<(u8, u8, u8)> {
     }
     let (best, &w) = weight.iter().enumerate().max_by_key(|(_, w)| **w)?;
     // At least a twentieth of the picture, at full chroma.
-    if w == 0 || w * 20 < pixels * 255 / 4 {
+    if w == 0 || w * 20 < pixels * 255 {
         return None;
     }
     let avg = |i: usize| u8::try_from(sums[best][i] / w).unwrap_or(u8::MAX);
@@ -346,6 +346,8 @@ mod tests {
         // Grey, black, white, or a little color in a big grey picture: none.
         assert_eq!(main_color(&image(&[([128, 128, 128, 255], 100), ([255, 255, 255, 255], 100)])), None);
         assert_eq!(main_color(&image(&[([20, 20, 20, 255], 990), ([255, 0, 0, 255], 10)])), None);
+        assert_eq!(main_color(&image(&[([20, 20, 20, 255], 985), ([255, 0, 0, 255], 15)])), None);
+        assert_eq!(main_color(&image(&[([20, 20, 20, 255], 950), ([255, 0, 0, 255], 50)])), Some((255, 0, 0)));
         // Transparent sides do not count.
         let sides = image(&[([0, 0, 0, 0], 900), ([0, 120, 255, 255], 100)]);
         assert_eq!(main_color(&sides), Some((0, 120, 255)));

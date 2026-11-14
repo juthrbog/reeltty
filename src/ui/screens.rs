@@ -517,7 +517,7 @@ pub fn draw_subscriptions(app: &App, f: &mut Frame, area: Rect) {
         return;
     }
     let width = usize::from(inner.width).saturating_sub(items::MARK_WIDTH);
-    let selected = app.subscriptions_selection.index;
+    let selected = items::selected(app.subscriptions_selection, app.subscriptions.len());
     let rows = app
         .subscriptions
         .iter()
@@ -583,7 +583,7 @@ pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
     }
     let width = usize::from(inner.width).saturating_sub(items::MARK_WIDTH);
     let now = app.clock;
-    let selected = app.history_selection.index;
+    let selected = items::selected(app.history_selection, app.history.len());
     let playing = app.player.as_ref().map(|p| p.id.as_str());
     let rows = app
         .history
@@ -649,7 +649,7 @@ pub fn draw_queue(app: &App, f: &mut Frame, area: Rect) {
         return;
     }
     let width = usize::from(inner.width).saturating_sub(items::MARK_WIDTH);
-    let selected = app.queue_selection.index;
+    let selected = items::selected(app.queue_selection, app.queue.len());
     let rows = app
         .queue
         .iter()
@@ -675,7 +675,7 @@ pub fn draw_saved(app: &App, f: &mut Frame, area: Rect) {
         return;
     }
     let width = usize::from(inner.width).saturating_sub(items::MARK_WIDTH);
-    let selected = app.saved_selection.index;
+    let selected = items::selected(app.saved_selection, app.saved_playlists.len());
     let rows = app
         .saved_playlists
         .iter()

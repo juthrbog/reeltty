@@ -77,7 +77,10 @@ fn draw_up_next(app: &App, up: &UpNext, f: &mut Frame, area: Rect) {
         .iter()
         .enumerate()
         .map(|(i, v)| {
-            let state = super::items::RowState { selected: i == up.selection, playing: false };
+            let state = super::items::RowState {
+                selected: i == up.selection.min(up.videos.len().saturating_sub(1)),
+                playing: false,
+            };
             super::items::rows(t, &Item::Video(v.clone()), None, width, false, state)
         })
         .collect();

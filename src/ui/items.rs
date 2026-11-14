@@ -8,7 +8,8 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState};
-use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
+use unicode_segmentation::UnicodeSegmentation as _;
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::player::clock;
 use crate::app::{App, Selection};
@@ -46,7 +47,7 @@ pub fn draw_list(app: &App, items: &[Item], selection: Selection, f: &mut Frame,
             Item::Video(v) => (watched.get(v.id.as_str()).copied(), playing == Some(v.id.as_str())),
             Item::Channel(_) | Item::Playlist(_) => (None, false),
         };
-        let state = RowState { selected: i == selection.index, playing: plays };
+        let state = RowState { selected: i == selected(selection, items.len()), playing: plays };
         rows(theme, item, entry, width, three, state)
     };
     let offset = draw_rows(theme, items.iter().enumerate().map(rows_of).collect(), selection, f, text);
@@ -80,6 +81,7 @@ pub fn draw_rows(
     // A list area too small for a whole item shows titles only, so that the selection is still visible.
     let lines = rows.first().map_or(1, Vec::len);
     let whole = usize::from(area.height) >= lines;
+    let index = selected(selection, rows.len());
     let items: Vec<ListItem> = rows
         .into_iter()
         .enumerate()
@@ -87,7 +89,7 @@ pub fn draw_rows(
             if !whole {
                 lines.truncate(1);
             }
-            let mark = if i == selection.index { Span::styled("▌ ", theme.list_bar) } else { Span::from("  ") };
+            let mark = if i == index { Span::styled("▌ ", theme.list_bar) } else { Span::from("  ") };
             for line in &mut lines {
                 line.spans.insert(0, mark.clone());
             }
@@ -95,7 +97,7 @@ pub fn draw_rows(
         })
         .collect();
     let list = List::new(items);
-    let mut state = ListState::default().with_offset(selection.offset).with_selected(Some(selection.index));
+    let mut state = ListState::default().with_offset(selection.offset).with_selected(Some(index));
     f.render_stateful_widget(list, area, &mut state);
     state.offset()
 }
@@ -112,6 +114,12 @@ pub fn draw_image(buf: &mut Buffer, area: Rect, id: u32) {
             }
         }
     }
+}
+
+/// The selected row of a list of `len` rows. A selection past the end, as
+/// after the last entry was removed elsewhere, is the last row.
+pub fn selected(selection: Selection, len: usize) -> usize {
+    selection.index.min(len.saturating_sub(1))
 }
 
 /// How a row shows.
@@ -141,10 +149,10 @@ pub fn title_line(
     let lead_width: usize = lead.iter().map(Span::width).sum();
     let room = width.saturating_sub(lead_width);
     // The title keeps at least this many columns before `right` is left out.
-    let right = right.filter(|r| room >= r.width() + 1 + 8);
-    let title_room = room.saturating_sub(right.map_or(0, |r| r.width() + 1));
+    let right = right.filter(|r| room >= cells(r) + 1 + 8);
+    let title_room = room.saturating_sub(right.map_or(0, |r| cells(r) + 1));
     let title = truncate(title, title_room);
-    let gap = title_room.saturating_sub(title.width());
+    let gap = title_room.saturating_sub(cells(&title));
     lead.push(Span::styled(title, title_style(theme, selected)));
     if let Some(right) = right {
         lead.push(Span::from(" ".repeat(gap + 1)));
@@ -288,19 +296,19 @@ pub fn channel_names(channels: &[ChannelRef]) -> String {
 
 /// Cuts `s` to `width` columns and ends it with `…` if it was cut.
 pub fn truncate(s: &str, width: usize) -> String {
-    if s.width() <= width {
+    if cells(s) <= width {
         return s.to_string();
     }
     let budget = width.saturating_sub(1);
     let mut out = String::new();
     let mut used = 0;
-    for c in s.chars() {
-        let w = c.width().unwrap_or(0);
+    for g in s.graphemes(true) {
+        let w = g.width();
         if used + w > budget {
             break;
         }
         used += w;
-        out.push(c);
+        out.push_str(g);
     }
     out.push('…');
     out
@@ -310,8 +318,8 @@ pub fn truncate(s: &str, width: usize) -> String {
 pub fn tail(s: &str, width: usize) -> String {
     let mut used = 0;
     let mut start = s.len();
-    for (i, c) in s.char_indices().rev() {
-        let w = c.width().unwrap_or(0);
+    for (i, g) in s.grapheme_indices(true).rev() {
+        let w = g.width();
         if used + w > width {
             break;
         }
@@ -319,6 +327,13 @@ pub fn tail(s: &str, width: usize) -> String {
         start = i;
     }
     s[start..].to_string()
+}
+
+/// The columns that `s` takes on screen. Like ratatui, it measures each
+/// grapheme: "❤️" is one heart two columns wide, though its two chars
+/// measure 1 and 0.
+pub fn cells(s: &str) -> usize {
+    s.graphemes(true).map(UnicodeWidthStr::width).sum()
 }
 
 #[cfg(test)]
@@ -343,6 +358,26 @@ mod tests {
         // Too narrow for the duration: the title gets the room.
         let line = title_line(&t, badge("LIVE", t.badge_live).to_vec(), "Lofi beats", Some("1:02:03"), 18, false);
         assert_eq!(text(&line), "LIVE Lofi beats");
+    }
+
+    #[test]
+    fn emoji_titles_fit() {
+        // "❤️" is two chars that measure 1 and 0, but it shows two columns wide.
+        let title = format!("{} lofi mix", "❤️".repeat(20));
+        let t = Theme::ansi();
+        let line = title_line(&t, Vec::new(), &title, Some("2:24"), 30, false);
+        assert_eq!(line.width(), 30);
+        assert!(text(&line).ends_with("… 2:24"), "{}", text(&line));
+        assert_eq!(cells(&truncate(&title, 9)), 9);
+        assert_eq!(tail("ab❤️", 2), "❤️");
+    }
+
+    #[test]
+    fn a_selection_past_the_end_is_the_last_row() {
+        let s = |index| Selection { index, offset: 0 };
+        assert_eq!(selected(s(5), 3), 2);
+        assert_eq!(selected(s(1), 3), 1);
+        assert_eq!(selected(s(0), 0), 0);
     }
 
     #[test]

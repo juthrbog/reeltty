@@ -106,7 +106,11 @@ fn run_tui(paths: &Paths) -> Result<()> {
         app.captions_on = config.captions.on;
         app.max_quality = config.max_quality.height();
         // https://no-color.org: set and not empty.
-        app.no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
+        app.theme = if std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {
+            reeltty::theme::Theme::no_color()
+        } else {
+            reeltty::theme::Theme::ansi()
+        };
         app.autoplay = config.autoplay.0;
         let sponsorblock = start_sponsorblock(config.sponsorblock.skipped());
         app.sponsorblock = sponsorblock.is_some();

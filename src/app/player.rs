@@ -8,7 +8,7 @@
 //!
 //! The app never reads the clock. The runtime puts the time in the messages.
 
-use super::{App, Effect, Tab};
+use super::{App, Effect, StatusMessage, Tab};
 use crate::keymap::{Action, KeyPress, PlayerAction};
 use crate::source::model::{ChannelRef, Chapter, Video, VideoDetails, VideoKind};
 use crate::source::streams::{Caption, Quality, Streams, max_long, pick_caption, rung};
@@ -450,7 +450,7 @@ impl App {
         let same = self.player.as_mut().filter(|p| p.id == id);
         match same.as_ref().map(|p| &p.phase) {
             Some(Phase::Loading | Phase::Playing) => {
-                self.status = Some(format!("Playing from {}.", clock(secs)));
+                self.status = Some(StatusMessage::info(format!("Playing from {}.", clock(secs))));
                 return vec![Effect::Player(PlayerCommand::SeekTo { secs })];
             }
             // mpv has no file yet: it starts there.
@@ -458,7 +458,7 @@ impl App {
                 if let Some(p) = same {
                     p.position_ms = u64::from(secs) * 1000;
                 }
-                self.status = Some(format!("Playing from {}.", clock(secs)));
+                self.status = Some(StatusMessage::info(format!("Playing from {}.", clock(secs))));
                 return Vec::new();
             }
             _ => {}
@@ -469,7 +469,7 @@ impl App {
         let effects = self.play_video(id, title, again.is_none(), again.unwrap_or(false));
         if let (Some(secs), Some(p)) = (start_secs, self.player.as_mut()) {
             p.position_ms = u64::from(secs) * 1000;
-            self.status = Some(format!("Playing from {}.", clock(secs)));
+            self.status = Some(StatusMessage::info(format!("Playing from {}.", clock(secs))));
         }
         effects
     }
@@ -477,7 +477,7 @@ impl App {
     /// Plays a video. With `remember`, the video that plays now can come back with "previous video".
     fn play_video(&mut self, id: String, title: String, remember: bool, mini: bool) -> Vec<Effect> {
         if let Some(why) = self.graphics.message() {
-            self.status = Some(why);
+            self.status = Some(StatusMessage::warn(why));
             return Vec::new();
         }
         let mut effects: Vec<Effect> = self.save_watch(false).into_iter().collect();
@@ -540,7 +540,7 @@ impl App {
         let mut state = state;
         if let Some(secs) = self.resume_at(&state.id) {
             state.position_ms = u64::from(secs) * 1000;
-            self.status = Some(format!("Resuming at {}.", clock(secs)));
+            self.status = Some(StatusMessage::info(format!("Resuming at {}.", clock(secs))));
         }
         effects.push(self.resolve(&state));
         effects.push(Effect::LoadRelated { session: state.session, id: state.id.clone() });
@@ -852,11 +852,13 @@ impl App {
             PlayerEvent::Volume(v) => p.volume = v,
             PlayerEvent::Muted(b) => p.muted = b,
             PlayerEvent::Speed(s) => p.speed = s,
-            PlayerEvent::Skipped(category) => self.status = Some(format!("Skipped {}.", category.label())),
+            PlayerEvent::Skipped(category) => {
+                self.status = Some(StatusMessage::info(format!("Skipped {}.", category.label())));
+            }
             PlayerEvent::CaptionsFailed(e) => {
                 p.caption = None;
                 p.caption_loaded = false;
-                self.status = Some(format!("Cannot load the captions: {e}"));
+                self.status = Some(StatusMessage::error(format!("Cannot load the captions: {e}")));
             }
             PlayerEvent::Failed(e) if p.is_running() => {
                 // A new size that does not load: go back to the one that played.
@@ -864,7 +866,7 @@ impl App {
                     p.quality = back.quality;
                     p.video_url.clone_from(&back.url);
                     let secs = u32::try_from(p.position_ms / 1000).unwrap_or(u32::MAX);
-                    self.status = Some(format!("Cannot play that size: {e}"));
+                    self.status = Some(StatusMessage::error(format!("Cannot play that size: {e}")));
                     return vec![Effect::Player(PlayerCommand::SwitchVideo { url: back.url, secs })];
                 }
                 // The URLs can expire, or the ads wait was too short. Find
@@ -961,12 +963,12 @@ impl App {
                 if let Some(v) = next.into_iter().next() {
                     return self.play_next(v);
                 }
-                self.status = Some("Nothing to play next. Add videos to the queue with a.".into());
+                self.status = Some(StatusMessage::warn("Nothing to play next. Add videos to the queue with a."));
                 return Vec::new();
             }
             Some(PlayerAction::PrevVideo) => {
                 let Some(prev) = self.played.pop() else {
-                    self.status = Some("No video played before this one.".into());
+                    self.status = Some(StatusMessage::warn("No video played before this one."));
                     return Vec::new();
                 };
                 // The video that plays now comes next again, before the queue.
@@ -991,7 +993,7 @@ impl App {
             Some(a @ (PlayerAction::NextChapter | PlayerAction::PrevChapter)) => {
                 let Some(secs) = p.chapter_seek(a == PlayerAction::NextChapter) else {
                     if p.chapters.is_empty() {
-                        self.status = Some("This video has no chapters.".into());
+                        self.status = Some(StatusMessage::warn("This video has no chapters."));
                     }
                     return Vec::new();
                 };
@@ -1002,7 +1004,7 @@ impl App {
                     return vec![Effect::Player(PlayerCommand::ShowCaptions(false))];
                 }
                 let Some(track) = pick_caption(&p.captions, &language) else {
-                    self.status = Some(format!("This video has no captions in \"{language}\"."));
+                    self.status = Some(StatusMessage::warn(format!("This video has no captions in \"{language}\".")));
                     return Vec::new();
                 };
                 p.caption = Some(track.name.clone());
@@ -1013,7 +1015,7 @@ impl App {
             }
             Some(PlayerAction::Quality) => {
                 if p.qualities.is_empty() {
-                    self.status = Some("This video has no other sizes.".into());
+                    self.status = Some(StatusMessage::warn("This video has no other sizes."));
                     return Vec::new();
                 }
                 let selection = p.qualities.iter().position(|q| Some(q.res) == p.quality).unwrap_or(0);

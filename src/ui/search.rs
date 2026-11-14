@@ -2,20 +2,20 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style, Stylize as _};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph, Row, Table, Wrap};
+use ratatui::widgets::{Clear, Paragraph, Row, Table, Wrap};
 
 use super::items::tail;
-use super::{centered, items};
-use crate::app::App;
+use super::{bordered, centered, error_line, items};
 use crate::app::search::{FilterRow, Loading, SearchState};
 use crate::app::thumbnails::Thumbnails;
+use crate::app::{App, StatusMessage};
 use crate::keymap::Action;
 use crate::source::filters::SearchFilters;
 use crate::source::model::Spelling;
 use crate::source::ytdlp::compact;
 use crate::store::HistoryEntry;
+use crate::theme::Theme;
 
 pub fn draw(app: &App, f: &mut Frame, area: Rect) {
     let s = &app.search;
@@ -24,13 +24,13 @@ pub fn draw(app: &App, f: &mut Frame, area: Rect) {
         (Some(_), Some(n)) => format!(" Search · {} results ", compact(n)),
         _ => " Search ".to_string(),
     };
-    let block = Block::bordered().title(title);
+    let block = bordered(&app.theme, title);
     let inner = block.inner(area);
     f.render_widget(block, area);
     let [query, list] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
 
     f.render_widget(query_line(app, usize::from(query.width)), query);
-    draw_results(s, &app.thumbnails, &app.history, f, list);
+    draw_results(&app.theme, s, &app.thumbnails, &app.history, f, list);
     if s.filter_menu.is_some() {
         draw_filter_menu(app, f, area);
     }
@@ -38,11 +38,12 @@ pub fn draw(app: &App, f: &mut Frame, area: Rect) {
 
 fn query_line(app: &App, width: usize) -> Paragraph<'static> {
     let s = &app.search;
+    let t = &app.theme;
     let key = |a| app.keymap.first_key(a).map(|k| k.to_string()).unwrap_or_default();
     if let Some(input) = &s.input {
         // Show the end of a long query, so the cursor stays on screen.
         let shown = tail(input, width.saturating_sub(3));
-        return Paragraph::new(Line::from(vec![Span::from("/ ").bold(), Span::from(shown), "█".into()]));
+        return Paragraph::new(Line::from(vec![Span::styled("/ ", t.key), Span::from(shown), "█".into()]));
     }
     // Only the filters that differ from the defaults.
     let defaults = SearchFilters::default();
@@ -52,35 +53,43 @@ fn query_line(app: &App, width: usize) -> Paragraph<'static> {
         .map(|row| row.value(&s.filters))
         .collect();
     let mut spans = match &s.query {
-        Some(q) => vec![Span::from(q.text.clone()).bold()],
-        None => vec![
-            Span::from(format!("Press {} to search, {} for filters.", key(Action::Search), key(Action::Filters))).dim(),
-        ],
+        Some(q) => vec![Span::styled(q.text.clone(), t.title)],
+        None => vec![Span::styled(
+            format!("Press {} to search, {} for filters.", key(Action::Search), key(Action::Filters)),
+            t.muted,
+        )],
     };
     if !filters.is_empty() {
-        spans.push(Span::from(format!("  [{}]", filters.join(", "))).cyan());
+        spans.push(Span::styled(format!("  [{}]", filters.join(", ")), t.accent));
     }
     Paragraph::new(Line::from(spans))
 }
 
-fn draw_results(s: &SearchState, thumbnails: &Thumbnails, history: &[HistoryEntry], f: &mut Frame, area: Rect) {
+fn draw_results(
+    t: &Theme,
+    s: &SearchState,
+    thumbnails: &Thumbnails,
+    history: &[HistoryEntry],
+    f: &mut Frame,
+    area: Rect,
+) {
     if s.results.is_empty()
         && let Some(e) = &s.error
     {
-        let text = Paragraph::new(format!("Search failed: {e}")).red().wrap(Wrap { trim: true });
+        let text = Paragraph::new(error_line(t, format!("Search failed: {e}"))).wrap(Wrap { trim: true });
         f.render_widget(text, area);
         return;
     }
     if s.results.is_empty() {
         let text = match (s.loading, &s.query, &s.error) {
-            (Loading::FirstPage, _, _) => "Searching…",
-            (_, Some(_), None) => "No results.",
-            _ => "",
+            (Loading::FirstPage, _, _) => Line::styled("Searching…", t.status_progress),
+            (_, Some(_), None) => Line::styled("No results.", t.muted),
+            _ => Line::default(),
         };
-        f.render_widget(Paragraph::new(text).dim(), area);
+        f.render_widget(Paragraph::new(text), area);
         return;
     }
-    items::draw_list(&s.results, s.selection, thumbnails, history, f, area);
+    items::draw_list(t, &s.results, s.selection, thumbnails, history, f, area);
 }
 
 fn draw_filter_menu(app: &App, f: &mut Frame, area: Rect) {
@@ -91,40 +100,41 @@ fn draw_filter_menu(app: &App, f: &mut Frame, area: Rect) {
         .enumerate()
         .map(|(i, row)| {
             let r = Row::new([row.title().to_string(), row.value(&s.filters).to_string()]);
-            if i == menu.row { r.style(Style::new().add_modifier(Modifier::REVERSED)) } else { r }
+            if i == menu.row { r.style(app.theme.selection) } else { r }
         })
         .collect();
     let height = u16::try_from(FilterRow::ALL.len()).unwrap_or(u16::MAX) + 2;
     let popup = centered(area, 40, height);
-    let mut block = Block::bordered().title(" Filters ");
+    let mut block = bordered(&app.theme, " Filters ");
     let hints =
         super::hints([(app.keymap.first_key(Action::Open), "change"), (app.keymap.first_key(Action::Back), "done")]);
     if !hints.is_empty() {
-        block = block.title_bottom(Line::from(format!(" {hints} ")).dim());
+        block = block.title_bottom(Line::styled(format!(" {hints} "), app.theme.key_label));
     }
     let table = Table::new(rows, [Constraint::Length(14), Constraint::Min(0)]).block(block);
     f.render_widget(Clear, popup);
     f.render_widget(table, popup);
 }
 
-/// The status bar message for the Search tab, if any, and whether it is an error.
-pub fn status(s: &SearchState) -> Option<(String, bool)> {
-    if let Some(e) = &s.error {
-        return Some((format!("Search failed: {e}"), true));
+/// The status bar message for the Search tab, if any.
+pub fn status(s: &SearchState) -> Option<StatusMessage> {
+    // Without results, the body shows the error, so it shows in one place.
+    if let Some(e) = s.error.as_ref().filter(|_| !s.results.is_empty()) {
+        return Some(StatusMessage::error(format!("Search failed: {e}")));
     }
     match s.loading {
-        Loading::FirstPage => return Some(("Searching…".into(), false)),
-        Loading::MorePages => return Some(("Loading more…".into(), false)),
+        Loading::FirstPage => return Some(StatusMessage::progress("Searching…")),
+        Loading::MorePages => return Some(StatusMessage::progress("Loading more…")),
         Loading::Idle => {}
     }
     if let Some(n) = &s.note {
-        return Some((n.clone(), false));
+        return Some(StatusMessage::info(n.clone()));
     }
     match &s.spelling {
         Some(Spelling::ShowingResultsFor { corrected, original }) => {
-            Some((format!("Showing results for \"{corrected}\" (you searched for \"{original}\")"), false))
+            Some(StatusMessage::info(format!("Showing results for \"{corrected}\" (you searched for \"{original}\")")))
         }
-        Some(Spelling::DidYouMean { corrected }) => Some((format!("Did you mean \"{corrected}\"?"), false)),
+        Some(Spelling::DidYouMean { corrected }) => Some(StatusMessage::info(format!("Did you mean \"{corrected}\"?"))),
         None => None,
     }
 }

@@ -7,18 +7,20 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style, Stylize as _};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use unicode_width::UnicodeWidthStr as _;
 
 use super::items::{draw_image, truncate};
-use crate::app::App;
+use super::{bordered, error_line};
 use crate::app::player::{MINI_INFO_ROWS, Phase, PlayerState, UpNext};
+use crate::app::{App, StatusMessage};
 use crate::keymap::Action;
 use crate::keymap::PlayerAction;
 use crate::source::model::Item;
 use crate::terminal::kitty::VIDEO_ID;
+use crate::theme::Theme;
 
 /// The status line keeps this many columns for the title and the chapter,
 /// and drops key hints for them.
@@ -33,11 +35,11 @@ pub fn draw(app: &App, p: &PlayerState, f: &mut Frame) {
         let g = p.geometry;
         let area = Rect::new(video.x + g.x, video.y + g.y, g.cols, g.rows).intersection(video);
         draw_image(f.buffer_mut(), area, VIDEO_ID);
-        draw_quality_menu(p, f, video);
+        draw_quality_menu(&app.theme, p, f, video);
     } else {
-        draw_message(p, f, video);
+        draw_message(&app.theme, p, f, video);
     }
-    draw_progress(p, f, progress);
+    draw_progress(&app.theme, p, f, progress);
     draw_status(app, p, f, status);
 }
 
@@ -59,27 +61,28 @@ fn draw_up_next(app: &App, up: &UpNext, f: &mut Frame, area: Rect) {
     let width = area.width.min(100);
     let [_, column, _] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(width), Constraint::Fill(1)]).areas(area);
-    let block = Block::bordered().title(format!(" {header} ")).title_bottom(Line::from(format!(" {help} ")).dim());
+    let t = &app.theme;
+    let block = bordered(t, format!(" {header} ")).title_bottom(Line::styled(format!(" {help} "), t.key_label));
     let inner = block.inner(column);
     f.render_widget(block, column);
     let text_width = usize::from(inner.width);
     let items: Vec<ListItem> = up
         .videos
         .iter()
-        .map(|v| ListItem::new(super::items::rows(&Item::Video(v.clone()), None, text_width, false)))
+        .map(|v| ListItem::new(super::items::rows(t, &Item::Video(v.clone()), None, text_width, false)))
         .collect();
-    let list = List::new(items).highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+    let list = List::new(items).highlight_style(t.selection);
     f.render_stateful_widget(list, inner, &mut ListState::default().with_selected(Some(up.selection)));
 }
 
-fn draw_quality_menu(p: &PlayerState, f: &mut Frame, area: Rect) {
+fn draw_quality_menu(t: &Theme, p: &PlayerState, f: &mut Frame, area: Rect) {
     let Some(menu) = &p.quality_menu else { return };
     let items: Vec<ListItem> = p
         .qualities
         .iter()
         .map(|q| {
-            let mark = if Some(q.res) == p.quality { "●" } else { " " };
-            ListItem::new(format!(" {mark} {}p", q.res))
+            let mark = if Some(q.res) == p.quality { Span::styled("●", t.accent) } else { Span::from(" ") };
+            ListItem::new(Line::from(vec![Span::from(" "), mark, Span::from(format!(" {}p", q.res))]))
         })
         .collect();
     let height = u16::try_from(items.len()).unwrap_or(u16::MAX).saturating_add(2).min(area.height);
@@ -88,9 +91,7 @@ fn draw_quality_menu(p: &PlayerState, f: &mut Frame, area: Rect) {
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(width), Constraint::Fill(1)]).areas(area);
     let [_, popup, _] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(height), Constraint::Fill(1)]).areas(column);
-    let list = List::new(items)
-        .block(Block::bordered().title(" Quality "))
-        .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+    let list = List::new(items).block(bordered(t, " Quality ")).highlight_style(t.selection);
     f.render_widget(Clear, popup);
     f.render_stateful_widget(list, popup, &mut ListState::default().with_selected(Some(menu.selection)));
 }
@@ -101,7 +102,9 @@ fn draw_quality_menu(p: &PlayerState, f: &mut Frame, area: Rect) {
 pub fn draw_mini(app: &App, p: &PlayerState, f: &mut Frame, dock: Rect) {
     let g = p.geometry;
     let frame = Rect::new(dock.x, g.y.saturating_sub(1), dock.width, g.rows.saturating_add(2)).intersection(dock);
-    let block = Block::bordered();
+    // Only the border takes a style: the video is inside the block.
+    let theme = &app.theme;
+    let block = Block::bordered().border_style(theme.border);
     let inner = block.inner(frame);
     f.render_widget(block, frame);
     if let (Phase::Ended, Some(up)) = (&p.phase, &p.up_next) {
@@ -110,29 +113,32 @@ pub fn draw_mini(app: &App, p: &PlayerState, f: &mut Frame, dock: Rect) {
             None => "Up next".to_string(),
         };
         let title = up.videos.get(up.selection).map(|v| v.title.clone()).unwrap_or_default();
-        draw_centered(f, inner, vec![Line::from(header).dim(), Line::from(title).bold()]);
+        draw_centered(f, inner, vec![Line::styled(header, theme.muted), Line::styled(title, theme.title)]);
     } else if p.is_running() {
         let area = Rect::new(g.x, g.y, g.cols, g.rows).intersection(inner);
         draw_image(f.buffer_mut(), area, VIDEO_ID);
     } else {
-        draw_centered(f, inner, vec![phase_message(p)]);
+        draw_centered(f, inner, vec![phase_message(theme, p)]);
     }
     let info = Rect::new(dock.x, frame.bottom(), dock.width, MINI_INFO_ROWS).intersection(dock);
     let [title, progress, state] = Layout::vertical([Constraint::Length(1); 3]).areas(info);
     let width = usize::from(title.width).saturating_sub(1);
-    f.render_widget(Line::from(format!(" {}", truncate(&p.title, width))).bold(), title);
-    draw_progress(p, f, progress);
+    f.render_widget(Line::styled(format!(" {}", truncate(&p.title, width)), theme.title), title);
+    draw_progress(theme, p, f, progress);
     draw_mini_state(app, p, f, state);
 }
 
 /// The state of the mini-player, and the keys for full size and stop.
 fn draw_mini_state(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
+    let t = &app.theme;
     let mut parts = status_parts(p);
     // Only the keys that the configuration file did not take away.
     let mut hints = Some(
         [(Action::ShowPlayer, " full"), (Action::ClosePlayer, " stop")]
             .into_iter()
-            .filter_map(|(a, label)| app.keymap.first_key(a).map(|k| [Span::from(k.to_string()).bold(), label.into()]))
+            .filter_map(|(a, label)| {
+                app.keymap.first_key(a).map(|k| [Span::styled(k.to_string(), t.key), Span::styled(label, t.key_label)])
+            })
             .collect::<Vec<_>>()
             .join(&Span::from("  ")),
     );
@@ -140,7 +146,7 @@ fn draw_mini_state(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
     let line = loop {
         let mut spans = vec![Span::from(" ")];
         if !parts.is_empty() {
-            spans.push(Span::from(format!("{}  ", parts.join("  "))).dim());
+            spans.push(Span::styled(format!("{}  ", parts.join("  ")), t.muted));
         }
         spans.extend(hints.iter().flatten().cloned());
         let line = Line::from(spans);
@@ -170,23 +176,23 @@ fn draw_centered(f: &mut Frame, area: Rect, lines: Vec<Line<'static>>) {
 }
 
 /// What happens before the video plays, or why it failed.
-fn phase_message(p: &PlayerState) -> Line<'static> {
+fn phase_message(t: &Theme, p: &PlayerState) -> Line<'static> {
     match &p.phase {
-        Phase::Resolving => Line::from("Finding the video streams…").dim(),
+        Phase::Resolving => Line::styled("Finding the video streams…", t.status_progress),
         Phase::Waiting { .. } => Line::from(format!(
             "YouTube makes guests wait for the ads. The video starts in {} s.",
             p.wait_left().unwrap_or(0)
         )),
-        Phase::Failed(e) => Line::from(format!("Cannot play this video: {e}")).red(),
+        Phase::Failed(e) => error_line(t, format!("Cannot play this video: {e}")),
         Phase::Loading | Phase::Playing | Phase::Ended => Line::default(),
     }
 }
 
 /// The mini-player as a status bar message, for a screen with no room for
-/// the dock. `true` for an error.
-pub fn status_message(p: &PlayerState) -> (String, bool) {
+/// the dock.
+pub fn status_message(p: &PlayerState) -> StatusMessage {
     let state = match &p.phase {
-        Phase::Failed(e) => return (format!("Cannot play {}: {e}", p.title), true),
+        Phase::Failed(e) => return StatusMessage::error(format!("Cannot play {}: {e}", p.title)),
         Phase::Resolving => " · finding the video streams…".to_string(),
         Phase::Waiting { .. } => format!(" · starts in {} s", p.wait_left().unwrap_or(0)),
         Phase::Loading | Phase::Playing | Phase::Ended => match p.duration_ms {
@@ -194,12 +200,12 @@ pub fn status_message(p: &PlayerState) -> (String, bool) {
             None => format!(" {}", clock(p.position_ms)),
         },
     };
-    (format!("▶ {}{state}", p.title), false)
+    StatusMessage::info(format!("▶ {}{state}", p.title))
 }
 
 /// The text in place of the video before it plays, or after it failed.
-fn draw_message(p: &PlayerState, f: &mut Frame, area: Rect) {
-    draw_centered(f, area, vec![Line::from(p.title.clone()).bold(), Line::default(), phase_message(p)]);
+fn draw_message(t: &Theme, p: &PlayerState, f: &mut Frame, area: Rect) {
+    draw_centered(f, area, vec![Line::styled(p.title.clone(), t.title), Line::default(), phase_message(t, p)]);
 }
 
 /// `1:05`, or `1:02:05` from one hour.
@@ -209,7 +215,7 @@ fn clock(ms: u64) -> String {
     if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m}:{s:02}") }
 }
 
-fn draw_progress(p: &PlayerState, f: &mut Frame, area: Rect) {
+fn draw_progress(t: &Theme, p: &PlayerState, f: &mut Frame, area: Rect) {
     if !p.is_running() {
         return;
     }
@@ -217,15 +223,17 @@ fn draw_progress(p: &PlayerState, f: &mut Frame, area: Rect) {
     let right = p.duration_ms.map(clock).unwrap_or_default();
     let bar_width = usize::from(area.width).saturating_sub(left.width() + right.width() + 4);
     let mut spans = vec![Span::from(format!(" {left} "))];
-    spans.extend(bar(p, bar_width));
+    spans.extend(bar(t, p, bar_width));
     spans.push(Span::from(format!(" {right} ")));
     f.render_widget(Line::from(spans), area);
 }
 
-/// The progress bar, `width` cells wide. Parts that SponsorBlock skips are
-/// green.
-fn bar(p: &PlayerState, width: usize) -> Vec<Span<'static>> {
-    let Some(d) = p.duration_ms.filter(|d| *d > 0) else { return vec![Span::from("─".repeat(width)).dim()] };
+/// The progress bar, `width` cells wide. Parts that SponsorBlock skips have
+/// a color and glyphs of their own: `┅` played and `┄` not played.
+fn bar(t: &Theme, p: &PlayerState, width: usize) -> Vec<Span<'static>> {
+    let Some(d) = p.duration_ms.filter(|d| *d > 0) else {
+        return vec![Span::styled("─".repeat(width), t.progress_track)];
+    };
     let segments = p.skip_segments();
     // The time at the start of cell `i`.
     let at = |i: usize| u64::try_from(u128::from(d) * i as u128 / width.max(1) as u128).unwrap_or(d);
@@ -237,14 +245,19 @@ fn bar(p: &PlayerState, width: usize) -> Vec<Span<'static>> {
         let played = end <= p.position_ms.min(d);
         let skipped = segments.iter().any(|s| s.start_ms < end && start < s.end_ms);
         let style = match (played, skipped) {
-            (_, true) => Style::new().green(),
-            (true, false) => Style::new().red(),
-            (false, false) => Style::new().dim(),
+            (_, true) => t.progress_sponsor,
+            (true, false) => t.progress_played,
+            (false, false) => t.progress_track,
         };
         if run_style.is_some_and(|s| s != (style, played)) {
             spans.push(Span::styled(std::mem::take(&mut run), run_style.map_or_else(Style::new, |s| s.0)));
         }
-        run.push(if played { '━' } else { '─' });
+        run.push(match (played, skipped) {
+            (true, true) => '┅',
+            (false, true) => '┄',
+            (true, false) => '━',
+            (false, false) => '─',
+        });
         run_style = Some((style, played));
     }
     if let Some((style, _)) = run_style {
@@ -257,15 +270,24 @@ fn draw_status(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
     // A message from the last key takes the whole line, because it is the
     // only answer to that key.
     if let Some(status) = &app.status {
-        let width = usize::from(area.width).saturating_sub(1);
-        f.render_widget(Line::from(format!(" {}", truncate(status, width))).yellow(), area);
+        // The mark ("! ", "✓ ", "✗ ") takes room too.
+        let mark = super::status_line(&app.theme, &StatusMessage::new(status.kind, "")).width();
+        let width = usize::from(area.width).saturating_sub(1 + mark);
+        let shown = StatusMessage::new(status.kind, truncate(status, width));
+        let mut line = super::status_line(&app.theme, &shown);
+        line.spans.insert(0, Span::from(" "));
+        f.render_widget(line, area);
         return;
     }
     let mut parts = status_parts(p);
     // A hint whose key is not bound is left out. Back is always bound.
     let hint = |a, label: &'static str| {
         let key = app.keymap.player.first_key(a)?;
-        Some(vec![Span::from("  "), Span::from(key.to_string()).bold(), Span::from(label)])
+        Some(vec![
+            Span::from("  "),
+            Span::styled(key.to_string(), app.theme.key),
+            Span::styled(label, app.theme.key_label),
+        ])
     };
     let mut pause = p.is_running().then(|| hint(PlayerAction::TogglePause, " pause")).flatten();
     let mut mini = hint(PlayerAction::Minimize, " mini");
@@ -273,7 +295,7 @@ fn draw_status(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
     // Leave room for the title. Drop the mini and pause hints first, then
     // the state from its end, and the back hint last.
     let right = loop {
-        let mut spans = vec![Span::from(parts.join("  ")).dim()];
+        let mut spans = vec![Span::styled(parts.join("  "), app.theme.muted)];
         spans.extend(back.iter().chain(&mini).chain(&pause).flatten().cloned());
         let line = Line::from(spans);
         if line.width() + MIN_TITLE_WIDTH <= usize::from(area.width) {
@@ -300,7 +322,7 @@ fn draw_status(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
         Some(c) => format!("{} · {}", c.title, p.title),
         None => p.title.clone(),
     };
-    f.render_widget(Line::from(format!(" {}", truncate(&title, width))).bold(), left);
+    f.render_widget(Line::styled(format!(" {}", truncate(&title, width)), app.theme.title), left);
     f.render_widget(right, hints);
 }
 

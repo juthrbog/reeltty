@@ -2,7 +2,7 @@
 source: src/ui/mod.rs
 expression: "render(&app, 70, 16)"
 ---
- Search   Feed   Subscriptions   Playlists   Queue   History          
+ Search · Feed · Subscriptions · Playlists · Queue · History          
 ┌ Search · 6.19M results ────────────────────────────────────────────┐
 │rust                                                                │
 │Rust in 100 seconds                                                 │

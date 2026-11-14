@@ -25,6 +25,63 @@ use crate::source::streams::Streams;
 use crate::sponsorblock::Segment;
 use crate::store::{FeedVideo, HISTORY_LIMIT, HistoryEntry, SavedPlaylist, Subscription};
 use crate::terminal::detect::Graphics;
+use crate::theme::Theme;
+
+/// What a status bar message is about. The UI marks and styles it by kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusKind {
+    /// A plain note.
+    Info,
+    /// Work that is going on, such as "Loading…".
+    Progress,
+    /// A change that worked, such as "Saved".
+    Success,
+    /// Something that did not happen, but is not an error.
+    Warn,
+    Error,
+}
+
+/// A status bar message and its kind.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusMessage {
+    pub kind: StatusKind,
+    pub text: String,
+}
+
+impl StatusMessage {
+    pub fn new(kind: StatusKind, text: impl Into<String>) -> Self {
+        Self { kind, text: text.into() }
+    }
+
+    pub fn info(text: impl Into<String>) -> Self {
+        Self::new(StatusKind::Info, text)
+    }
+
+    pub fn progress(text: impl Into<String>) -> Self {
+        Self::new(StatusKind::Progress, text)
+    }
+
+    pub fn success(text: impl Into<String>) -> Self {
+        Self::new(StatusKind::Success, text)
+    }
+
+    pub fn warn(text: impl Into<String>) -> Self {
+        Self::new(StatusKind::Warn, text)
+    }
+
+    pub fn error(text: impl Into<String>) -> Self {
+        Self::new(StatusKind::Error, text)
+    }
+}
+
+/// The text, so that code and tests can read a message as a `str`.
+impl std::ops::Deref for StatusMessage {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.text
+    }
+}
 use crate::thumbnails::{Picture, Slot};
 use comments::{CommentRow, CommentsFrom, CommentsLoad, CommentsSlot, CommentsState};
 use feed::FeedState;
@@ -346,7 +403,7 @@ pub struct App {
     pub history: Vec<HistoryEntry>,
     pub history_selection: Selection,
     /// A short message for the status bar, cleared by the next key.
-    pub status: Option<String>,
+    pub status: Option<StatusMessage>,
     pub thumbnails: Thumbnails,
     /// The player: full size over everything else, or in the mini-player
     /// next to the browse screen.
@@ -360,8 +417,8 @@ pub struct App {
     /// The Unix time, set by the runtime before each draw. The history shows
     /// how long ago each video was watched from it. `view` stays pure.
     pub clock: i64,
-    /// Draw the UI without colors, from the `NO_COLOR` environment variable.
-    pub no_color: bool,
+    /// The styles of the UI. Without colors when `NO_COLOR` is set.
+    pub theme: Theme,
     /// Videos to play next, in order.
     pub queue: Vec<Video>,
     pub queue_selection: Selection,
@@ -408,7 +465,7 @@ impl App {
             captions_on: false,
             max_quality: 1080,
             clock: 0,
-            no_color: false,
+            theme: Theme::ansi(),
             queue: Vec::new(),
             queue_selection: Selection::default(),
             autoplay: true,
@@ -547,11 +604,11 @@ impl App {
                 self.on_comments_loaded(request, generation, slot, result)
             }
             Message::StoreFailed(e) => {
-                self.status = Some(format!("Could not save: {e}"));
+                self.status = Some(StatusMessage::error(format!("Could not save: {e}")));
                 Vec::new()
             }
             Message::OpenFailed(e) => {
-                self.status = Some(format!("Could not open the link: {e}"));
+                self.status = Some(StatusMessage::error(format!("Could not open the link: {e}")));
                 Vec::new()
             }
             Message::ThumbnailLoaded { url, slot, result } => {
@@ -824,10 +881,10 @@ impl App {
             LinkTarget::Url(url) => {
                 // Text from strangers: no `file:` or other schemes.
                 if !(url.starts_with("https://") || url.starts_with("http://")) {
-                    self.status = Some(format!("Only web links open: {url}"));
+                    self.status = Some(StatusMessage::warn(format!("Only web links open: {url}")));
                     return Vec::new();
                 }
-                self.status = Some(format!("Opened {url} in the browser."));
+                self.status = Some(StatusMessage::success(format!("Opened {url} in the browser.")));
                 vec![Effect::OpenUrl(url)]
             }
             LinkTarget::Video { id, start_secs } => {
@@ -976,14 +1033,14 @@ impl App {
                 if let Some(t) = Target::channel_of(item) {
                     return self.open(t);
                 }
-                self.status = Some("The channel of this item is not known.".into());
+                self.status = Some(StatusMessage::warn("The channel of this item is not known."));
                 Vec::new()
             }
             Action::Enqueue => {
                 if let Item::Video(v) = item {
                     self.toggle_queued(v);
                 } else {
-                    self.status = Some("Only videos can go in the queue.".into());
+                    self.status = Some(StatusMessage::warn("Only videos can go in the queue."));
                 }
                 Vec::new()
             }
@@ -1071,14 +1128,14 @@ impl App {
     fn toggle_subscription(&mut self, channel_id: String, name: String, handle: Option<String>) -> Vec<Effect> {
         if let Some(i) = self.subscriptions.iter().position(|s| s.channel_id == channel_id) {
             let s = self.subscriptions.remove(i);
-            self.status = Some(format!("Unsubscribed from {}.", s.name));
+            self.status = Some(StatusMessage::success(format!("Unsubscribed from {}.", s.name)));
             self.feed.forget_channel(&channel_id);
             self.rebuild_feed();
             return vec![Effect::Unsubscribe { channel_id: channel_id.clone() }, Effect::ForgetFeed { channel_id }];
         }
         // The runtime sets the time when it saves.
         let s = Subscription { channel_id, name, handle, subscribed_at: 0 };
-        self.status = Some(format!("Subscribed to {}.", s.name));
+        self.status = Some(StatusMessage::success(format!("Subscribed to {}.", s.name)));
         let at = self.subscriptions.partition_point(|x| x.name.to_lowercase() <= s.name.to_lowercase());
         self.subscriptions.insert(at, s.clone());
         let load = Effect::LoadFeed { channels: vec![(s.channel_id.clone(), None)], force: true };
@@ -1152,7 +1209,7 @@ impl App {
         }
         if action == Action::Refresh {
             if self.feed.loading > 0 {
-                self.status = Some("The feed is loading already.".into());
+                self.status = Some(StatusMessage::info("The feed is loading already."));
                 return Some(Vec::new());
             }
             return Some(self.load_feed(true));
@@ -1169,10 +1226,10 @@ impl App {
     fn toggle_saved(&mut self, p: SavedPlaylist) -> Vec<Effect> {
         if let Some(i) = self.saved_playlists.iter().position(|x| x.playlist_id == p.playlist_id) {
             let removed = self.saved_playlists.remove(i);
-            self.status = Some(format!("Removed {} from saved playlists.", removed.title));
+            self.status = Some(StatusMessage::success(format!("Removed {} from saved playlists.", removed.title)));
             return vec![Effect::UnsavePlaylist { playlist_id: p.playlist_id }];
         }
-        self.status = Some(format!("Saved {}.", p.title));
+        self.status = Some(StatusMessage::success(format!("Saved {}.", p.title)));
         self.saved_playlists.insert(0, p.clone());
         vec![Effect::SavePlaylist(p)]
     }
@@ -1199,10 +1256,11 @@ impl App {
     fn toggle_queued(&mut self, v: &Video) {
         if let Some(i) = self.queue.iter().position(|q| q.id == v.id) {
             self.queue.remove(i);
-            self.status = Some(format!("Removed from the queue. {} left.", self.queue.len()));
+            self.status = Some(StatusMessage::success(format!("Removed from the queue. {} left.", self.queue.len())));
         } else {
             self.queue.push(v.clone());
-            self.status = Some(format!("Added to the queue. {} in the queue.", self.queue.len()));
+            self.status =
+                Some(StatusMessage::success(format!("Added to the queue. {} in the queue.", self.queue.len())));
         }
         self.queue_selection.clamp(self.queue.len(), self.plain_rows());
         self.refresh_up_next();

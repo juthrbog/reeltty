@@ -87,8 +87,15 @@ theme! {
     /// The thumb of a scrollbar on a border. It removes the dim of the
     /// border under it.
     scrollbar: Style::new().remove_modifier(DIM),
-    /// The selected row of a list, table or menu.
+    /// The selected row of a menu or table, and the selected link.
     selection: Style::new().add_modifier(REVERSED),
+    /// The bar before each line of the selected row of a list.
+    list_bar: Style::new().fg(ACCENT),
+    /// The title of the selected row of a list, on top of `title`. The
+    /// underline also shows it without color.
+    list_title: Style::new().fg(ACCENT).add_modifier(Modifier::UNDERLINED),
+    /// The `▶` before the video that plays now.
+    now_playing: Style::new().fg(ACCENT).add_modifier(BOLD),
     /// A key in a hint.
     key: strong(),
     /// The label next to a key.

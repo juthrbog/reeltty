@@ -626,13 +626,14 @@ mod tests {
         for (a, b) in colored.content.iter().zip(&plain.content) {
             assert_eq!((a.symbol(), a.modifier), (b.symbol(), b.modifier));
         }
-        // The selected title (the first result) is still reversed. A LIVE pill
-        // is reversed too, so the check is on the title.
+        // Without color, the selected row (the first result) still shows: a
+        // bar before it, and its title underlined.
         let y = (0..20)
             .find(|y| (0..70).map(|x| plain[(x, *y)].symbol()).collect::<String>().contains("Rust in 100"))
             .unwrap();
         let x = (0..70).find(|x| plain[(*x, y)].symbol() == "R").unwrap();
-        assert!(plain[(x, y)].modifier.contains(Modifier::REVERSED), "the selection still shows");
+        assert_eq!(plain[(x - 2, y)].symbol(), "▌", "the selection bar");
+        assert!(plain[(x, y)].modifier.contains(Modifier::UNDERLINED), "the selected title");
     }
 
     /// Every image cell keeps its ID color and no style, and no other cell
@@ -699,6 +700,16 @@ mod tests {
         let (mut app, _) = search_app(16, false);
         app.status = Some(StatusMessage::success("Saved Crust of Rust."));
         insta::assert_snapshot!("search_results_styled", styled(&draw_only(&app, 70, 16)));
+        // The bar has the same style on each line of the selected row, here
+        // a channel, whose details are dim.
+        app.search.selection.index = 3;
+        let buf = draw_only(&app, 70, 16);
+        let bars: Vec<_> = (0..16).filter(|y| buf[(2, *y)].symbol() == "▌").collect();
+        assert_eq!(bars.len(), 2, "two lines");
+        for y in bars {
+            assert_eq!(buf[(2, y)].modifier, Modifier::empty(), "row {y}");
+            assert_eq!(buf[(2, y)].fg, Color::Magenta);
+        }
     }
 
     #[test]
@@ -811,8 +822,11 @@ mod tests {
 
         // Item 1 is selected. The highlight covers its text but not its image.
         let selected = first + 3;
-        // x = 14 is the LIVE pill, which is reversed too, so check the title.
-        assert!(buf[(21, selected)].modifier.contains(Modifier::REVERSED), "the text is highlighted");
+        // The bar marks the selected row in the text column, and its title is
+        // underlined. x = 16 is the LIVE pill, so check a title cell.
+        assert_eq!(buf[(14, selected)].symbol(), "▌");
+        assert!(has_style(&buf[(14, selected)], app.theme.list_bar));
+        assert!(buf[(23, selected)].modifier.contains(Modifier::UNDERLINED), "the title is marked");
         assert!(buf[(2, selected)].symbol().is_empty() || buf[(2, selected)].symbol() == " ");
         app.update(Message::ThumbnailLoaded { url: urls[1].clone(), slot, result: Ok(Arc::new(picture.clone())) });
         let buf = buffer(&app, 70, 20);
@@ -820,7 +834,7 @@ mod tests {
         for x in 2..=slot.cols + 1 {
             let cell = &buf[(x, selected)];
             assert!(cell.symbol().starts_with(kitty::PLACEHOLDER));
-            assert!(!cell.modifier.contains(Modifier::REVERSED), "the highlight leaves images alone");
+            assert!(cell.modifier.is_empty(), "the selection leaves images alone");
             assert_eq!(cell.fg, Color::Rgb(r, g, b));
         }
     }
@@ -847,13 +861,14 @@ mod tests {
         let (app, _) = search_app(12, true);
         let mut t = Terminal::new(TestBackend::new(25, 6)).unwrap();
         t.draw(|f| {
-            items::draw_list(&app.theme, &app.search.results, Selection::default(), &app.thumbnails, &[], f, f.area());
+            items::draw_list(&app, &app.search.results, Selection::default(), f, f.area());
         })
         .unwrap();
         let buf = t.backend().buffer();
         assert!(buf.content().iter().all(|c| !c.symbol().starts_with(kitty::PLACEHOLDER)));
-        // Still three lines for each item: the second one starts on row 3.
-        assert_eq!(buf[(0, 3)].symbol(), "L");
+        // Still three lines for each item: the second one starts on row 3,
+        // after the selection bar and its space.
+        assert_eq!(buf[(2, 3)].symbol(), "L");
     }
 
     #[test]
@@ -1549,8 +1564,37 @@ mod tests {
         insta::assert_snapshot!("search_results_watched", render(&app, 70, 16));
         app.history = vec![entry("a", 0, true), entry("b", 0, false)];
         let text = render(&app, 70, 16);
-        assert!(text.contains("Fireship · watched · 12:34"), "{text}");
+        assert!(text.contains("Fireship · watched · 1.2M views"), "{text}");
         assert!(text.contains("Lofi Girl · played"), "{text}");
+    }
+
+    #[test]
+    fn lists_mark_the_video_that_plays() {
+        use crate::store::HistoryEntry;
+        let mut app = mini_app(100, 24, true);
+        // The search results have the video "a", "Rust in 100 seconds".
+        app.player.as_mut().unwrap().id = "a".into();
+        let text = render(&app, 100, 24);
+        assert!(text.contains("▶ Rust in 100 seconds"), "{text}");
+        assert_eq!(text.matches('▶').count(), 1, "only that video: {text}");
+        let buf = draw_only(&app, 100, 24);
+        let y =
+            (0..24).find(|y| (0..100).map(|x| buf[(x, *y)].symbol()).collect::<String>().contains("▶ Rust")).unwrap();
+        let x = (0..100).find(|x| buf[(*x, y)].symbol() == "▶").unwrap();
+        assert!(has_style(&buf[(x, y)], app.theme.now_playing));
+        // The history marks it too.
+        app.history = vec![HistoryEntry {
+            video_id: "a".into(),
+            title: "Rust in 100 seconds".into(),
+            channel_id: None,
+            channel_name: Some("Fireship".into()),
+            duration_secs: None,
+            position_secs: 10,
+            finished: false,
+            watched_at: 0,
+        }];
+        press(&mut app, "shift-tab");
+        assert!(render(&app, 100, 24).contains("▶ Rust in 100 seconds"));
     }
 
     #[test]

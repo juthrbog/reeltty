@@ -8,14 +8,11 @@ use ratatui::widgets::{Clear, Paragraph, Row, Table, Wrap};
 use super::items::tail;
 use super::{bordered, centered, error_line, items};
 use crate::app::search::{FilterRow, Loading, SearchState};
-use crate::app::thumbnails::Thumbnails;
 use crate::app::{App, StatusMessage};
 use crate::keymap::Action;
 use crate::source::filters::SearchFilters;
 use crate::source::model::Spelling;
 use crate::source::ytdlp::compact;
-use crate::store::HistoryEntry;
-use crate::theme::Theme;
 
 pub fn draw(app: &App, f: &mut Frame, area: Rect) {
     let s = &app.search;
@@ -30,7 +27,7 @@ pub fn draw(app: &App, f: &mut Frame, area: Rect) {
     let [query, list] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
 
     f.render_widget(query_line(app, usize::from(query.width)), query);
-    draw_results(&app.theme, s, &app.thumbnails, &app.history, f, list);
+    draw_results(app, f, list);
     if s.filter_menu.is_some() {
         draw_filter_menu(app, f, area);
     }
@@ -65,14 +62,8 @@ fn query_line(app: &App, width: usize) -> Paragraph<'static> {
     Paragraph::new(Line::from(spans))
 }
 
-fn draw_results(
-    t: &Theme,
-    s: &SearchState,
-    thumbnails: &Thumbnails,
-    history: &[HistoryEntry],
-    f: &mut Frame,
-    area: Rect,
-) {
+fn draw_results(app: &App, f: &mut Frame, area: Rect) {
+    let (t, s) = (&app.theme, &app.search);
     if s.results.is_empty()
         && let Some(e) = &s.error
     {
@@ -89,7 +80,7 @@ fn draw_results(
         f.render_widget(Paragraph::new(text), area);
         return;
     }
-    items::draw_list(t, &s.results, s.selection, thumbnails, history, f, area);
+    items::draw_list(app, &s.results, s.selection, f, area);
 }
 
 fn draw_filter_menu(app: &App, f: &mut Frame, area: Rect) {

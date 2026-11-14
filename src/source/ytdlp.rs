@@ -440,7 +440,7 @@ fn subscribers_text(n: u64) -> String {
 
 /// A short count with three digits at most: "999", "1.2K", "568K",
 /// "8.73M". Rounded down, as YouTube does.
-fn compact(n: u64) -> String {
+pub(crate) fn compact(n: u64) -> String {
     let (unit, suffix) = match n {
         1_000_000_000.. => (1_000_000_000, "B"),
         1_000_000.. => (1_000_000, "M"),

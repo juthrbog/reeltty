@@ -3,15 +3,15 @@ source: src/ui/mod.rs
 expression: "format!(\"{loading}{}\", render(&app, 70, 8))"
 ---
  Search   Feed   Subscriptions   Playlists   Queue   History          
-┌Playlist: Crust of Rust─────────────────────────────────────────────┐
+┌ Playlist: Crust of Rust ───────────────────────────────────────────┐
 │                                                                    │
 │                                                                    │
-│Loading...                                                          │
+│Loading…                                                            │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
-Loading...                        ? help  / search  esc back  q quit  
+Loading…                          ? help  / search  esc back  q quit  
  Search   Feed   Subscriptions   Playlists   Queue   History          
-┌Playlist: Crust of Rust─────────────────────────────────────────────┐
+┌ Playlist: Crust of Rust ───────────────────────────────────────────┐
 │                                                                    │
 │                                                                    │
 │Could not load: HTTP 404: Not Found                                 │

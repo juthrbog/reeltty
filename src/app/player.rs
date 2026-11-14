@@ -790,6 +790,7 @@ impl App {
     }
 
     pub(super) fn on_tick(&mut self, session: u64, now: u64) -> Vec<Effect> {
+        self.clock = self.clock.max(i64::try_from(now).unwrap_or(i64::MAX));
         let Some(p) = self.player_of(session) else { return Vec::new() };
         if let Some(up) = p.up_next.as_mut().filter(|_| p.phase == Phase::Ended) {
             let Some(left) = up.countdown else { return Vec::new() };

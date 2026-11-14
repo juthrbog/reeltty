@@ -38,6 +38,12 @@ pub fn view(app: &App, f: &mut Frame) {
     }
 }
 
+/// Key hints such as `j/k choose · enter play`. A hint whose key is not
+/// bound is left out.
+pub(crate) fn hints<'a, K: std::fmt::Display>(parts: impl IntoIterator<Item = (Option<K>, &'a str)>) -> String {
+    parts.into_iter().filter_map(|(key, label)| key.map(|k| format!("{k} {label}"))).collect::<Vec<_>>().join(" · ")
+}
+
 /// The size in cells of the video that `view` draws, or `None` when it
 /// draws no video.
 pub fn video_cells(app: &App) -> Option<(u16, u16)> {
@@ -135,7 +141,7 @@ fn draw_help(app: &App, f: &mut Frame, area: Rect) {
     let height = u16::try_from(per_column).unwrap_or(u16::MAX).saturating_add(2);
     let width = column.saturating_mul(u16::try_from(columns).unwrap_or(1)).saturating_add(2);
     let popup = centered(area, width, height);
-    let mut block = Block::bordered().title("Keys");
+    let mut block = Block::bordered().title(" Keys ");
     if per_column > fit {
         block = block.title_bottom(Line::from(" More keys in a larger window ").dim());
     }
@@ -962,12 +968,20 @@ mod tests {
     }
 
     #[test]
+    fn hints_leave_out_unbound_keys() {
+        assert_eq!(hints([(Some("j"), "down"), (None, "up"), (Some("enter"), "play")]), "j down · enter play");
+        assert_eq!(hints([(None::<&str>, "up")]), "");
+    }
+
+    #[test]
     fn history_tab() {
         use crate::store::HistoryEntry;
         let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
         press(&mut app, "shift-tab");
         insta::assert_snapshot!("history_tab_empty", render(&app, 60, 8));
-        let entry = |id: &str, position_secs, finished, duration_secs| HistoryEntry {
+        let now = 1_793_373_867;
+        app.clock = now;
+        let entry = |id: &str, position_secs, finished, duration_secs, ago| HistoryEntry {
             video_id: id.into(),
             title: format!("Video {id}"),
             channel_id: None,
@@ -975,10 +989,13 @@ mod tests {
             duration_secs,
             position_secs,
             finished,
-            watched_at: 1_793_373_867,
+            watched_at: now - ago,
         };
-        app.history =
-            vec![entry("a", 252, false, Some(635)), entry("b", 0, true, Some(100)), entry("c", 70, false, None)];
+        app.history = vec![
+            entry("a", 252, false, Some(635), 90),
+            entry("b", 0, true, Some(100), 3 * 3600),
+            entry("c", 70, false, None, 40 * 86_400),
+        ];
         insta::assert_snapshot!("history_tab", render(&app, 60, 10));
     }
 

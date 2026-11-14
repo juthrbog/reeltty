@@ -44,13 +44,18 @@ pub fn draw(app: &App, p: &PlayerState, f: &mut Frame) {
 /// The list of videos that can play next, after the video ended. It takes
 /// the place of the last frame.
 fn draw_up_next(app: &App, up: &UpNext, f: &mut Frame, area: Rect) {
-    let key = |a| app.keymap.first_key(a).map(|k| k.to_string()).unwrap_or_default();
-    let back = app.keymap.player.first_key(PlayerAction::Back).map(|k| k.to_string()).unwrap_or_default();
+    let key = |a| app.keymap.first_key(a);
     let header = match up.countdown {
         Some(n) => format!("Up next in {n} s"),
         None => "Up next".to_string(),
     };
-    let help = format!("{}/{} choose · {} play · {back} back", key(Action::Down), key(Action::Up), key(Action::Open));
+    // Both keys or no "choose" hint, so it never shows as `j/ choose`.
+    let choose = key(Action::Down).zip(key(Action::Up)).map(|(d, u)| format!("{d}/{u}"));
+    let help = super::hints([
+        (choose, "choose"),
+        (key(Action::Open).map(|k| k.to_string()), "play"),
+        (app.keymap.player.first_key(PlayerAction::Back).map(|k| k.to_string()), "back"),
+    ]);
     let width = area.width.min(100);
     let [_, column, _] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(width), Constraint::Fill(1)]).areas(area);

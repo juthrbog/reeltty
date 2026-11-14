@@ -57,12 +57,15 @@ fn main() -> Result<()> {
     }
 }
 
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}
+
 fn import(paths: &Paths, path: &std::path::Path) -> Result<()> {
     let store = Store::open(&paths.database)?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
-    let s = takeout::import(&store, path, now)?;
+    let s = takeout::import(&store, path, unix_now())?;
     let (added, already) = (takeout::channels(s.added), takeout::channels(s.already));
     let were = if s.already == 1 { "was" } else { "were" };
     println!("Added {added}. {already} {were} there already.");
@@ -102,6 +105,7 @@ fn run_tui(paths: &Paths) -> Result<()> {
         app.captions_language.clone_from(&config.captions.language);
         app.captions_on = config.captions.on;
         app.max_quality = config.max_quality.height();
+        app.clock = unix_now();
         app.autoplay = config.autoplay.0;
         let sponsorblock = start_sponsorblock(config.sponsorblock.skipped());
         app.sponsorblock = sponsorblock.is_some();

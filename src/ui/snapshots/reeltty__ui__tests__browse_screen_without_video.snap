@@ -2,7 +2,7 @@
 source: src/ui/mod.rs
 expression: "render(&app, 100, 8)"
 ---
- Search   Feed   Subscriptions   Playlists   Queue   History                                        
+ reeltty  Search · Feed · Subscriptions · Playlists · Queue · History                               
 ┌ Subscriptions (0) ───────────────────────────────────────────────────────────────────────────────┐
 │No subscriptions yet. Press s on a channel to subscribe.                                          │
 │                                                                                                  │

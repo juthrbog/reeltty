@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize as _};
+use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState};
 use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
@@ -16,6 +16,7 @@ use crate::app::thumbnails::Thumbnails;
 use crate::source::model::{Channel, ChannelRef, Item, Playlist, PlaylistKind, Video, VideoKind};
 use crate::store::HistoryEntry;
 use crate::terminal::kitty;
+use crate::theme::Theme;
 
 /// The text column must keep at least this many cells, or thumbnails are not drawn.
 const MIN_TEXT_WIDTH: u16 = 20;
@@ -23,6 +24,7 @@ const MIN_TEXT_WIDTH: u16 = 20;
 /// Draws `items` with the selected one highlighted, and with thumbnails if they
 /// are on. Videos in `history` show as watched.
 pub fn draw_list(
+    theme: &Theme,
     items: &[Item],
     selection: Selection,
     thumbnails: &Thumbnails,
@@ -46,9 +48,9 @@ pub fn draw_list(
             Item::Video(v) => watched.get(v.id.as_str()).copied(),
             Item::Channel(_) | Item::Playlist(_) => None,
         };
-        rows(item, entry, usize::from(text.width), three)
+        rows(theme, item, entry, usize::from(text.width), three)
     };
-    let offset = draw_rows(items.iter().map(rows_of).collect(), selection, f, text);
+    let offset = draw_rows(theme, items.iter().map(rows_of).collect(), selection, f, text);
     let Some(pictures) = pictures else { return };
     for (n, item) in items.iter().skip(offset).enumerate() {
         // The List draws only whole items, so a picture is drawn only where it fits whole.
@@ -67,7 +69,13 @@ pub fn draw_list(
 
 /// Draws prepared rows (all with the same number of lines) with the selected
 /// one highlighted. Returns the first visible row.
-pub fn draw_rows(rows: Vec<Vec<Line<'static>>>, selection: Selection, f: &mut Frame, area: Rect) -> usize {
+pub fn draw_rows(
+    theme: &Theme,
+    rows: Vec<Vec<Line<'static>>>,
+    selection: Selection,
+    f: &mut Frame,
+    area: Rect,
+) -> usize {
     // A list area too small for a whole item shows titles only, so that the selection is still visible.
     let lines = rows.first().map_or(1, Vec::len);
     let whole = usize::from(area.height) >= lines;
@@ -80,7 +88,7 @@ pub fn draw_rows(rows: Vec<Vec<Line<'static>>>, selection: Selection, f: &mut Fr
             ListItem::new(lines)
         })
         .collect();
-    let list = List::new(items).highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+    let list = List::new(items).highlight_style(theme.selection);
     let mut state = ListState::default().with_offset(selection.offset).with_selected(Some(selection.index));
     f.render_stateful_widget(list, area, &mut state);
     state.offset()
@@ -103,14 +111,23 @@ pub fn draw_image(buf: &mut Buffer, area: Rect, id: u32) {
 /// The lines for one result: the title, then the details. `watched` is the
 /// history entry of a video. `three` puts the details on two lines, beside a
 /// thumbnail.
-pub fn rows(item: &Item, watched: Option<&HistoryEntry>, width: usize, three: bool) -> Vec<Line<'static>> {
+pub fn rows(
+    theme: &Theme,
+    item: &Item,
+    watched: Option<&HistoryEntry>,
+    width: usize,
+    three: bool,
+) -> Vec<Line<'static>> {
     let (title, mut first, mut second) = match item {
-        Item::Video(v) => video_rows(v, watched),
-        Item::Channel(c) => channel_rows(c),
-        Item::Playlist(p) => playlist_rows(p),
+        Item::Video(v) => video_rows(theme, v, watched),
+        Item::Channel(c) => channel_rows(theme, c),
+        Item::Playlist(p) => playlist_rows(theme, p),
     };
     let detail = |parts: &[String]| {
-        Line::from(vec![Span::from("  "), Span::from(truncate(&parts.join(" · "), width.saturating_sub(2))).dim()])
+        Line::from(vec![
+            Span::from("  "),
+            Span::styled(truncate(&parts.join(" · "), width.saturating_sub(2)), theme.muted),
+        ])
     };
     if !three {
         first.append(&mut second);
@@ -125,17 +142,22 @@ pub fn rows(item: &Item, watched: Option<&HistoryEntry>, width: usize, three: bo
 /// The title line and two groups of details: who made it, then the rest.
 type Rows = (Line<'static>, Vec<String>, Vec<String>);
 
-fn video_rows(v: &Video, watched: Option<&HistoryEntry>) -> Rows {
+/// A badge before a title, such as LIVE, then one space.
+fn badge(text: &'static str, style: Style) -> [Span<'static>; 2] {
+    [Span::styled(text, style), Span::from(" ")]
+}
+
+fn video_rows(theme: &Theme, v: &Video, watched: Option<&HistoryEntry>) -> Rows {
     let mut title = Vec::new();
     match v.kind {
-        VideoKind::Live => title.push(Span::from("LIVE ").red().bold()),
-        VideoKind::Short => title.push(Span::from("SHORT ").magenta().bold()),
+        VideoKind::Live => title.extend(badge("LIVE", theme.badge_live)),
+        VideoKind::Short => title.extend(badge("SHORT", theme.badge_short)),
         VideoKind::Normal | VideoKind::PastStream => {}
     }
     if v.members_only {
-        title.push(Span::from("MEMBERS ").yellow().bold());
+        title.extend(badge("MEMBERS", theme.badge_members));
     }
-    title.push(Span::from(v.title.clone()).bold());
+    title.push(Span::styled(v.title.clone(), theme.title));
     let by = if v.channels.is_empty() { Vec::new() } else { vec![channel_names(&v.channels)] };
     let mut rest = Vec::new();
     // First, so that a narrow list does not cut it off.
@@ -156,8 +178,9 @@ fn watched_text(e: &HistoryEntry) -> String {
     }
 }
 
-fn channel_rows(c: &Channel) -> Rows {
-    let mut title = vec![Span::from("CHANNEL ").cyan().bold(), Span::from(c.name.clone()).bold()];
+fn channel_rows(theme: &Theme, c: &Channel) -> Rows {
+    let mut title = badge("CHANNEL", theme.badge_channel).to_vec();
+    title.push(Span::styled(c.name.clone(), theme.title));
     if c.verified {
         title.push(" ✓".into());
     }
@@ -165,12 +188,13 @@ fn channel_rows(c: &Channel) -> Rows {
     (Line::from(title), by, c.description_snippet.iter().cloned().collect())
 }
 
-fn playlist_rows(p: &Playlist) -> Rows {
+fn playlist_rows(theme: &Theme, p: &Playlist) -> Rows {
     let label = match p.kind {
-        PlaylistKind::Playlist => "PLAYLIST ",
-        PlaylistKind::Course => "COURSE ",
+        PlaylistKind::Playlist => "PLAYLIST",
+        PlaylistKind::Course => "COURSE",
     };
-    let title = vec![Span::from(label).green().bold(), Span::from(p.title.clone()).bold()];
+    let mut title = badge(label, theme.badge_playlist).to_vec();
+    title.push(Span::styled(p.title.clone(), theme.title));
     let by = p.channel.iter().map(|c| c.name.clone()).collect();
     (Line::from(title), by, p.count_text.iter().cloned().collect())
 }

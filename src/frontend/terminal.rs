@@ -30,7 +30,7 @@ impl TerminalFrontend {
         tracing::info!(?graphics, "terminal graphics");
         // crossterm drops every color when NO_COLOR is set. Image cells keep
         // the image ID in their color, so they would show nothing. The UI
-        // applies NO_COLOR itself instead (`App::no_color`).
+        // applies NO_COLOR itself instead (`Theme::no_color`).
         crossterm::style::force_color_output(true);
         let terminal = ratatui::init();
         let uploads = Uploads::default();

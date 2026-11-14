@@ -15,5 +15,6 @@ pub mod takeout;
 pub mod terminal;
 #[cfg(test)]
 mod test_server;
+pub mod theme;
 pub mod thumbnails;
 pub mod ui;

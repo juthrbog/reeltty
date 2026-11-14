@@ -619,6 +619,29 @@ mod tests {
     }
 
     #[test]
+    fn an_error_shows_in_one_place() {
+        let (mut app, _) = search_app(16, false);
+        let g = app.search.generation;
+        app.update(Message::SearchResult { generation: g, append: true, result: Err("timed out".into()) });
+        // Results stay, so only the status bar can show the error.
+        let text = render(&app, 70, 16);
+        let last = text.lines().last().unwrap();
+        assert!(last.starts_with("✗ Search failed: timed out"), "{text}");
+        assert_eq!(text.matches("Search failed").count(), 1, "{text}");
+    }
+
+    #[test]
+    fn long_player_messages_are_cut_after_the_mark() {
+        let mut app = playing_app();
+        app.status = Some(StatusMessage::error("Cannot load the captions: a very long reason that does not fit"));
+        let text = render(&app, 40, 12);
+        let last = text.lines().last().unwrap();
+        assert!(last.starts_with(" ✗ Cannot load the captions"), "{last:?}");
+        assert!(last.trim_end().ends_with('…'), "{last:?}");
+        assert!(last.width() <= 40);
+    }
+
+    #[test]
     fn status_marks_by_kind() {
         let t = crate::theme::Theme::ansi();
         let line = |m: StatusMessage| status_line(&t, &m);
@@ -632,7 +655,10 @@ mod tests {
         assert_eq!((text(&warn), warn.spans[0].style), ("! No chapters".to_string(), t.status_warn));
         let error = line(StatusMessage::error("Failed"));
         assert_eq!(text(&error), "✗ Failed");
+        assert_eq!(error.spans[0].style, t.status_error.add_modifier(Modifier::BOLD));
         assert_eq!(error.spans[2].style, t.status_error);
+        assert_eq!(warn.spans[2].style, t.title);
+        assert_eq!(line(StatusMessage::info("Note")).spans[0].style, ratatui::style::Style::new());
     }
 
     #[test]

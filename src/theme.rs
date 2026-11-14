@@ -4,7 +4,9 @@
 //! The default theme uses only the 16 ANSI colors, so it follows the colors
 //! of the terminal, on dark and light backgrounds and over tmux or SSH. It
 //! has one accent color (magenta), uses red only for errors and LIVE, and
-//! uses yellow only as the background of a pill. No state depends on color
+//! uses yellow only for a pill on a word or mark that reads without color.
+//! On a light background, yellow has weak contrast either way, so it never
+//! carries meaning alone. No state depends on color
 //! alone: each one also has a modifier, a mark or a word.
 //!
 //! Image cells (Kitty placeholders) never take a theme style. Their color
@@ -153,7 +155,8 @@ mod tests {
                 None | Some(Color::Magenta) => {}
                 Some(Color::Green) => assert!(matches!(role, "status_success" | "progress_sponsor"), "{role}"),
                 Some(Color::Red) => assert!(matches!(role, "status_error" | "badge_live"), "{role}"),
-                // Yellow text is hard to read on light backgrounds, so only as a pill.
+                // Weak on light backgrounds, so only as a pill on a word or a
+                // mark, never as the color of plain text.
                 Some(Color::Yellow) => {
                     assert!(matches!(role, "status_warn" | "badge_members"), "{role}");
                     assert!(style.add_modifier.contains(REVERSED), "{role}");

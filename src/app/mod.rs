@@ -98,6 +98,9 @@ pub enum Message {
     InputClosed(String),
     /// SIGTERM or SIGHUP.
     Terminate,
+    /// The next frame of the loading spinner. The runtime sends it while
+    /// `App::busy` is true.
+    Spin,
     /// The reply to `Effect::Search` (`append` false) or `Effect::SearchMore` (`append` true).
     SearchResult {
         generation: u64,
@@ -419,6 +422,10 @@ pub struct App {
     pub clock: i64,
     /// The styles of the UI. Without colors when `NO_COLOR` is set.
     pub theme: Theme,
+    /// The frame of the loading spinner.
+    pub spin: u8,
+    /// No spinner: loading shows as text only.
+    pub reduce_motion: bool,
     /// Videos to play next, in order.
     pub queue: Vec<Video>,
     pub queue_selection: Selection,
@@ -466,6 +473,8 @@ impl App {
             max_quality: 1080,
             clock: 0,
             theme: Theme::ansi(),
+            spin: 0,
+            reduce_motion: false,
             queue: Vec::new(),
             queue_selection: Selection::default(),
             autoplay: true,
@@ -494,6 +503,28 @@ impl App {
     /// which have no thumbnails.
     pub fn plain_rows(&self) -> usize {
         usize::from(self.height.saturating_sub(CHROME_ROWS) / ROWS_PER_ITEM).max(1)
+    }
+
+    /// Whether something loads that the screen shows, so the spinner turns.
+    pub fn busy(&self) -> bool {
+        use crate::app::list::Loading as L;
+        let search = self.tab == Tab::Search && self.search.loading != search::Loading::Idle;
+        let screen = match self.screens.last() {
+            Some(screens::Screen::Channel(s)) => s.list.loading != L::Idle,
+            Some(screens::Screen::Playlist(s)) => s.list.loading != L::Idle,
+            Some(screens::Screen::Video(s)) => {
+                s.loading || s.comments.as_ref().is_some_and(|c| c.loading != L::Idle || c.loading_replies.is_some())
+            }
+            None => false,
+        };
+        let feed = self.screens.is_empty() && self.tab == Tab::Feed && self.feed.loading > 0;
+        let player = self.player.as_ref().is_some_and(|p| p.phase == player::Phase::Resolving);
+        (self.screens.is_empty() && search) || screen || feed || player
+    }
+
+    fn on_spin(&mut self) -> Vec<Effect> {
+        self.spin = self.spin.wrapping_add(1);
+        Vec::new()
     }
 
     /// The number of search results that fit on screen.
@@ -530,6 +561,7 @@ impl App {
             Message::Input(input) => self.on_input(input),
             Message::InputClosed(why) => vec![Effect::Fail(format!("terminal input stopped: {why}"))],
             Message::Terminate => vec![Effect::Quit],
+            Message::Spin => self.on_spin(),
             Message::SearchResult { generation, append, result } => {
                 let page = self.page();
                 self.search.on_result(generation, append, result, page)

@@ -43,6 +43,8 @@ pub struct Config {
     pub autoplay: Autoplay,
     /// The largest video size to play.
     pub max_quality: MaxQuality,
+    /// No spinner while things load.
+    pub reduce_motion: bool,
     pub captions: Captions,
     pub feed: Feed,
     pub sponsorblock: SponsorBlock,
@@ -244,6 +246,13 @@ mod tests {
         let err = Config::parse("max_quality = \"4k\"").unwrap_err();
         assert!(format!("{err:#}").contains("\"auto\", \"best\", or a height"), "{err:#}");
         assert!(Config::parse("max_quality = -1").is_err());
+    }
+
+    #[test]
+    fn reads_reduce_motion() {
+        assert!(!Config::parse("").unwrap().reduce_motion);
+        assert!(Config::parse("reduce_motion = true").unwrap().reduce_motion);
+        assert!(Config::parse("reduce_motion = \"yes\"").is_err());
     }
 
     #[test]

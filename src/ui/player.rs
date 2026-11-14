@@ -37,7 +37,7 @@ pub fn draw(app: &App, p: &PlayerState, f: &mut Frame) {
         draw_image(f.buffer_mut(), area, VIDEO_ID);
         draw_quality_menu(&app.theme, p, f, video);
     } else {
-        draw_message(&app.theme, p, f, video);
+        draw_message(&app.theme, p, super::spinner(app), f, video);
     }
     draw_progress(&app.theme, p, f, progress);
     draw_status(app, p, f, status);
@@ -131,7 +131,7 @@ pub fn draw_mini(app: &App, p: &PlayerState, f: &mut Frame, dock: Rect) {
         let area = Rect::new(g.x, g.y, g.cols, g.rows).intersection(inner);
         draw_image(f.buffer_mut(), area, VIDEO_ID);
     } else {
-        draw_centered(f, inner, vec![phase_message(theme, p)]);
+        draw_centered(f, inner, vec![phase_message(theme, p, super::spinner(app))]);
     }
     let info = Rect::new(dock.x, frame.bottom(), dock.width, MINI_INFO_ROWS).intersection(dock);
     let [title, progress, state] = Layout::vertical([Constraint::Length(1); 3]).areas(info);
@@ -189,9 +189,15 @@ fn draw_centered(f: &mut Frame, area: Rect, lines: Vec<Line<'static>>) {
 }
 
 /// What happens before the video plays, or why it failed.
-fn phase_message(t: &Theme, p: &PlayerState) -> Line<'static> {
+fn phase_message(t: &Theme, p: &PlayerState, spin: Option<&str>) -> Line<'static> {
     match &p.phase {
-        Phase::Resolving => Line::styled("Finding the video streams…", t.status_progress),
+        Phase::Resolving => {
+            let text = Span::styled("Finding the video streams…", t.status_progress);
+            match spin {
+                Some(frame) => Line::from(vec![Span::styled(frame.to_string(), t.accent), Span::from(" "), text]),
+                None => Line::from(text),
+            }
+        }
         Phase::Waiting { .. } => Line::from(format!(
             "YouTube makes guests wait for the ads. The video starts in {} s.",
             p.wait_left().unwrap_or(0)
@@ -217,8 +223,8 @@ pub fn status_message(p: &PlayerState) -> StatusMessage {
 }
 
 /// The text in place of the video before it plays, or after it failed.
-fn draw_message(t: &Theme, p: &PlayerState, f: &mut Frame, area: Rect) {
-    draw_centered(f, area, vec![Line::styled(p.title.clone(), t.title), Line::default(), phase_message(t, p)]);
+fn draw_message(t: &Theme, p: &PlayerState, spin: Option<&str>, f: &mut Frame, area: Rect) {
+    draw_centered(f, area, vec![Line::styled(p.title.clone(), t.title), Line::default(), phase_message(t, p, spin)]);
 }
 
 /// `1:05`, or `1:02:05` from one hour.
@@ -284,10 +290,11 @@ fn draw_status(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
     // only answer to that key.
     if let Some(status) = &app.status {
         // The mark ("! ", "✓ ", "✗ ") takes room too.
-        let mark = super::status_line(&app.theme, &StatusMessage::new(status.kind, "")).width();
+        let spin = super::spinner(app);
+        let mark = super::status_line(&app.theme, &StatusMessage::new(status.kind, ""), spin).width();
         let width = usize::from(area.width).saturating_sub(1 + mark);
         let shown = StatusMessage::new(status.kind, truncate(status, width));
-        let mut line = super::status_line(&app.theme, &shown);
+        let mut line = super::status_line(&app.theme, &shown, spin);
         line.spans.insert(0, Span::from(" "));
         f.render_widget(line, area);
         return;

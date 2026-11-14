@@ -4,7 +4,7 @@ expression: "render(&app, 60, 12)"
 ---
  Search · Feed · Subscriptions · Playlists · Queue · History
 ╭ Feed (1 channel) ────────────────────────────────────────╮
-│ Loading 1 channel…                                       │
+│ ⠋ Loading 1 channel…                                     │
 │ ▌ Rust in 100 seconds                              12:34 │
 │ ▌ Fireship · 1.2M views · 1 day ago · 4K                 │
 │                                                          │

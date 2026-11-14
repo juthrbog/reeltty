@@ -72,15 +72,21 @@ fn draw_results(app: &App, f: &mut Frame, area: Rect) {
         return;
     }
     if s.results.is_empty() {
-        let text = match (s.loading, &s.query, &s.error) {
-            (Loading::FirstPage, _, _) => Line::styled("Searching…", t.status_progress),
-            (_, Some(_), None) => Line::styled("No results.", t.muted),
-            _ => Line::default(),
-        };
-        f.render_widget(Paragraph::new(text), area);
+        match (s.loading, &s.query, &s.error) {
+            (Loading::FirstPage, _, _) => super::draw_skeleton(t, f, area, rows_per_item(app)),
+            (_, Some(_), None) => {
+                super::draw_empty(t, f, area, "No results", Some("Try other words or filters.".into()));
+            }
+            _ => {}
+        }
         return;
     }
     items::draw_list(app, &s.results, s.selection, f, area);
+}
+
+/// The lines of each row: three beside thumbnails, else two.
+pub(crate) fn rows_per_item(app: &App) -> usize {
+    if app.thumbnails.enabled { 3 } else { 2 }
 }
 
 fn draw_filter_menu(app: &App, f: &mut Frame, area: Rect) {

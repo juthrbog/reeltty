@@ -117,6 +117,9 @@ autoplay = true
 # or a height such as 1440 or 720.
 max_quality = "auto"
 
+# No spinner while things load: the status bar shows the text only.
+reduce_motion = false
+
 # Show Shorts and live streams in the subscriptions feed.
 [feed]
 shorts = false

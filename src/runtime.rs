@@ -170,6 +170,8 @@ pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services
             return result;
         }
     }
+    let mut spinner = Spinner::default();
+    spinner.sync(app, &tx);
     app.clock = clock();
     frontend.draw(app)?;
 
@@ -184,10 +186,56 @@ pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services
             }
             next = rx.try_recv().ok();
         }
+        spinner.sync(app, &tx);
         app.clock = clock();
         frontend.draw(app)?;
     }
     Err(anyhow!("all message senders stopped"))
+}
+
+/// How often the spinner turns.
+const SPIN_EVERY: Duration = Duration::from_millis(100);
+
+/// Sends `Message::Spin` while the app is busy, and not at all with
+/// `reduce_motion`. Nothing ticks while nothing loads.
+#[derive(Default)]
+struct Spinner(Option<AbortHandle>);
+
+impl Spinner {
+    fn sync(&mut self, app: &App, tx: &UnboundedSender<Message>) {
+        let wanted = app.busy() && !app.reduce_motion;
+        match (wanted, &self.0) {
+            (true, None) => {
+                let tx = tx.clone();
+                let task = tokio::spawn(async move {
+                    let mut every = tokio::time::interval(SPIN_EVERY);
+                    every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                    // The first tick is at once.
+                    every.tick().await;
+                    loop {
+                        every.tick().await;
+                        if tx.send(Message::Spin).is_err() {
+                            return;
+                        }
+                    }
+                });
+                self.0 = Some(task.abort_handle());
+            }
+            (false, Some(task)) => {
+                task.abort();
+                self.0 = None;
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Drop for Spinner {
+    fn drop(&mut self) {
+        if let Some(task) = &self.0 {
+            task.abort();
+        }
+    }
 }
 
 /// Turns SIGTERM and SIGHUP into `Message::Terminate`, so the terminal is

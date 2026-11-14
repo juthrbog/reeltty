@@ -863,6 +863,50 @@ mod tests {
     }
 
     #[test]
+    fn thumbnails_show_how_much_was_watched() {
+        use crate::store::HistoryEntry;
+        // Video "a" was watched to the end before its thumbnail loaded.
+        let (mut app, effects) = search_app(20, true);
+        app.history = vec![HistoryEntry {
+            video_id: "a".into(),
+            title: "Rust in 100 seconds".into(),
+            channel_id: None,
+            channel_name: None,
+            duration_secs: Some(100),
+            position_secs: 0,
+            finished: true,
+            watched_at: 0,
+        }];
+        let slot = app.thumbnails.slot();
+        let rgba = [90, 90, 90, 255].repeat((slot.width * slot.height) as usize);
+        let picture = Picture { width: slot.width, height: slot.height, cols: slot.cols, rows: slot.rows, rgba };
+        for e in effects {
+            if let Effect::LoadThumbnail { url, .. } = e {
+                app.update(Message::ThumbnailLoaded { url, slot, result: Ok(Arc::new(picture.clone())) });
+            }
+        }
+        let bottom_middle = |app: &App, item: usize| {
+            let id = app.thumbnails.image(&app.search.results[item]).unwrap();
+            let (_, p) = app.thumbnails.ready().find(|(i, _)| *i == id).unwrap();
+            let i = ((p.height - 1) * p.width + p.width / 2) as usize * 4;
+            (id, [p.rgba[i], p.rgba[i + 1], p.rgba[i + 2]])
+        };
+        let (watched, color) = bottom_middle(&app, 0);
+        assert_eq!(color, [255, 0, 0], "a red bar");
+        assert_eq!(bottom_middle(&app, 1).1, [90, 90, 90], "not watched");
+        // The screen draws that image.
+        let (r, g, b) = kitty::id_color(watched);
+        assert!(buffer(&app, 70, 20).content.iter().any(|c| c.fg == Color::Rgb(r, g, b)));
+        // Deleting it from the history takes the bar away.
+        app.tab = Tab::History;
+        press(&mut app, "d");
+        assert!(app.history.is_empty());
+        let (plain, color) = bottom_middle(&app, 0);
+        assert_ne!(plain, watched, "a new image");
+        assert_eq!(color, [90, 90, 90]);
+    }
+
+    #[test]
     fn a_thumbnail_that_loads_later_gives_the_accent() {
         let (mut app, effects) = search_app(20, true);
         app.play("a".into(), "Rust in 100 seconds".into());

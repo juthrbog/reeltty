@@ -25,10 +25,14 @@ const DEFAULT_CELL: (u16, u16) = (10, 20);
 #[derive(Debug, Clone)]
 pub enum State {
     Loading,
-    /// `color` is the main color of the picture, if it has one.
+    /// `picture` is what shows: `base`, with how much of the video was
+    /// watched (`watched`, in thousandths) drawn on it. `color` is the main
+    /// color of `base`, if it has one.
     Ready {
         id: u32,
         picture: Arc<Picture>,
+        base: Arc<Picture>,
+        watched: Option<u16>,
         color: Option<(u8, u8, u8)>,
     },
     Failed,
@@ -39,6 +43,10 @@ struct Entry {
     state: State,
     /// The value of `clock` when the item was last visible.
     used: u64,
+    /// Only videos asked for this thumbnail. A playlist or a mix can use the
+    /// picture of its first video, and must not show that video's watched
+    /// part.
+    video: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -114,11 +122,22 @@ impl Thumbnails {
         let mut effects = Vec::new();
         for item in visible {
             let Some(url) = self.url(item) else { continue };
+            let video = matches!(item, Item::Video(_));
             if let Some(e) = self.entries.get_mut(url) {
                 e.used = self.clock;
+                if e.video && !video {
+                    e.video = false;
+                    // The plain picture, under a new ID, if it showed a watched part.
+                    if let State::Ready { id, picture, base, watched: shown @ Some(_), .. } = &mut e.state {
+                        *picture = Arc::clone(base);
+                        *shown = None;
+                        *id = self.next_id;
+                        self.next_id = if *id >= MAX_ID { FIRST_ID } else { *id + 1 };
+                    }
+                }
                 continue;
             }
-            self.entries.insert(url.to_string(), Entry { state: State::Loading, used: self.clock });
+            self.entries.insert(url.to_string(), Entry { state: State::Loading, used: self.clock, video });
             effects.push(Effect::LoadThumbnail { url: url.to_string(), slot: self.slot });
         }
         self.evict();
@@ -140,7 +159,7 @@ impl Thumbnails {
                 let id = self.next_id;
                 self.next_id = if id >= MAX_ID { FIRST_ID } else { id + 1 };
                 let color = crate::thumbnails::main_color(&picture.rgba);
-                State::Ready { id, picture, color }
+                State::Ready { id, base: Arc::clone(&picture), picture, watched: None, color }
             }
             Err(e) => {
                 tracing::debug!("thumbnail {url}: {e}");
@@ -149,14 +168,32 @@ impl Thumbnails {
         };
     }
 
-    /// The main color of a loaded thumbnail of the video `id`. YouTube
-    /// thumbnail URLs have the video ID in their path.
+    /// The main color of a loaded thumbnail of the video `id`.
     pub fn video_color(&self, id: &str) -> Option<(u8, u8, u8)> {
-        let paths = [format!("/vi/{id}/"), format!("/vi_webp/{id}/")];
         self.entries.iter().find_map(|(url, e)| match e.state {
-            State::Ready { color, .. } if paths.iter().any(|p| url.contains(p.as_str())) => color,
+            State::Ready { color, .. } if video_id(url) == Some(id) => color,
             _ => None,
         })
+    }
+
+    /// Draws on each loaded video thumbnail how much of the video was
+    /// watched, in thousandths, from `watched`. A thumbnail whose value
+    /// changed gets a new image ID, so that the frontend sends it again.
+    pub fn show_watched(&mut self, watched: impl Fn(&str) -> Option<u16>) {
+        for (url, entry) in &mut self.entries {
+            let State::Ready { id, picture, base, watched: shown, .. } = &mut entry.state else { continue };
+            let now = if entry.video { video_id(url).and_then(&watched) } else { None };
+            if now == *shown {
+                continue;
+            }
+            *picture = match now {
+                Some(permille) => Arc::new(crate::thumbnails::with_watched(base, permille)),
+                None => Arc::clone(base),
+            };
+            *shown = now;
+            *id = self.next_id;
+            self.next_id = if *id >= MAX_ID { FIRST_ID } else { *id + 1 };
+        }
     }
 
     /// Lets the failed thumbnails load again, for example after a network error.
@@ -185,6 +222,13 @@ impl Thumbnails {
             self.entries.remove(&url);
         }
     }
+}
+
+/// The video ID in a YouTube thumbnail URL, such as
+/// `https://i.ytimg.com/vi/<id>/hqdefault.jpg`.
+fn video_id(url: &str) -> Option<&str> {
+    let (_, rest) = url.split_once("/vi/").or_else(|| url.split_once("/vi_webp/"))?;
+    rest.split_once('/').map(|(id, _)| id).filter(|id| !id.is_empty())
 }
 
 #[cfg(test)]
@@ -227,6 +271,84 @@ mod tests {
         assert_eq!(t.image(&items[1]), None);
         assert_eq!(t.ready().count(), 1);
         assert!(t.want(&items).is_empty(), "failed thumbnails are not asked for again");
+    }
+
+    #[test]
+    fn finds_video_ids_in_urls() {
+        assert_eq!(video_id("https://i.ytimg.com/vi/abc_-12/hqdefault.jpg?sqp=x"), Some("abc_-12"));
+        assert_eq!(video_id("https://i.ytimg.com/vi_webp/abc/mqdefault.webp"), Some("abc"));
+        assert_eq!(video_id("https://yt3.ggpht.com/abc=s88"), None);
+        assert_eq!(video_id("https://i.ytimg.com/vi//a.jpg"), None);
+        assert_eq!(video_id("https://i.ytimg.com/vi/abc"), None);
+    }
+
+    #[test]
+    fn watched_thumbnails_get_a_bar_and_a_new_id() {
+        let mut t = Thumbnails::new(true);
+        let items = [video(1), video(2)];
+        t.want(&items);
+        let slot = t.slot();
+        let grey = Arc::new(Picture { width: 4, height: 4, cols: 1, rows: 1, rgba: [90, 90, 90, 255].repeat(16) });
+        t.loaded("https://i.ytimg.com/vi/v1/a.jpg", slot, Ok(Arc::clone(&grey)));
+        t.loaded("https://i.ytimg.com/vi/v2/a.jpg", slot, Ok(Arc::clone(&grey)));
+        let (first, second) = (t.image(&items[0]).unwrap(), t.image(&items[1]).unwrap());
+        let shown = |t: &Thumbnails, id: u32| t.ready().find(|(i, _)| *i == id).unwrap().1.clone();
+        // v1 was watched to the end. v2 was not watched.
+        let watched = |id: &str| (id == "v1").then_some(1000);
+        t.show_watched(watched);
+        let new = t.image(&items[0]).unwrap();
+        assert_ne!(new, first, "a new image, so the terminal gets it again");
+        assert_eq!(shown(&t, new).rgba[60..64], [255, 0, 0, 255], "the bottom row is red");
+        assert_eq!(shown(&t, new).rgba[0..4], [90, 90, 90, 255], "the top row is not");
+        assert_eq!(t.image(&items[1]), Some(second), "the other one stays");
+        assert_eq!(shown(&t, second), *grey);
+        // The same values again change nothing.
+        t.show_watched(watched);
+        assert_eq!(t.image(&items[0]), Some(new));
+        // Out of the history: the plain picture, with another new ID.
+        t.show_watched(|_| None);
+        let plain = t.image(&items[0]).unwrap();
+        assert_ne!(plain, new);
+        assert_eq!(shown(&t, plain), *grey);
+    }
+
+    #[test]
+    fn playlists_with_a_watched_first_video_get_no_bar() {
+        use crate::source::model::Playlist;
+        let mut t = Thumbnails::new(true);
+        let Item::Video(v) = video(1) else { unreachable!() };
+        // A playlist that uses the picture of its first video, v1.
+        let playlist = Item::Playlist(Playlist {
+            id: "PL1".into(),
+            title: String::new(),
+            kind: crate::source::model::PlaylistKind::Playlist,
+            channel: None,
+            count_text: None,
+            thumbnails: v.thumbnails.clone(),
+            first_video_id: None,
+        });
+        t.want([&playlist]);
+        let slot = t.slot();
+        let grey = Arc::new(Picture { width: 4, height: 4, cols: 1, rows: 1, rgba: [90, 90, 90, 255].repeat(16) });
+        t.loaded("https://i.ytimg.com/vi/v1/a.jpg", slot, Ok(Arc::clone(&grey)));
+        let id = t.image(&playlist).unwrap();
+        t.show_watched(|_| Some(1000));
+        assert_eq!(t.image(&playlist), Some(id), "no bar on a playlist");
+        // A video alone gets the bar. When a playlist with the same picture
+        // shows too, the bar goes.
+        let mut t = Thumbnails::new(true);
+        let v1 = Item::Video(v);
+        t.want([&v1]);
+        t.loaded("https://i.ytimg.com/vi/v1/a.jpg", slot, Ok(Arc::clone(&grey)));
+        t.show_watched(|_| Some(1000));
+        let barred = t.image(&v1).unwrap();
+        assert_ne!(t.ready().find(|(i, _)| *i == barred).unwrap().1, &*grey);
+        t.want([&v1, &playlist]);
+        let plain = t.image(&v1).unwrap();
+        assert_ne!(plain, barred);
+        assert_eq!(t.ready().find(|(i, _)| *i == plain).unwrap().1, &*grey);
+        t.show_watched(|_| Some(1000));
+        assert_eq!(t.image(&v1), Some(plain), "it stays plain");
     }
 
     #[test]

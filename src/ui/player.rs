@@ -85,7 +85,7 @@ fn draw_up_next(app: &App, up: &UpNext, f: &mut Frame, area: Rect) {
         })
         .collect();
     let selection = crate::app::Selection { index: up.selection, offset: 0 };
-    super::items::draw_rows(t, rows, selection, f, inner);
+    super::items::draw_rows(t, rows, selection, app.gap(), f, inner);
 }
 
 fn draw_quality_menu(t: &Theme, p: &PlayerState, f: &mut Frame, area: Rect) {

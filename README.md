@@ -120,6 +120,10 @@ max_quality = "auto"
 # No spinner while things load: the status bar shows the text only.
 reduce_motion = false
 
+# Space between list items: "compact" (none), "comfortable" (a blank row),
+# or "auto" (a blank row on screens 40 rows or taller).
+density = "compact"
+
 # Show Shorts and live streams in the subscriptions feed.
 [feed]
 shorts = false

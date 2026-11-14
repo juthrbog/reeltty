@@ -426,6 +426,8 @@ pub struct App {
     pub spin: u8,
     /// No spinner: loading shows as text only.
     pub reduce_motion: bool,
+    /// Space between list items.
+    pub density: crate::config::Density,
     /// Videos to play next, in order.
     pub queue: Vec<Video>,
     pub queue_selection: Selection,
@@ -475,6 +477,7 @@ impl App {
             theme: Theme::ansi(),
             spin: 0,
             reduce_motion: false,
+            density: crate::config::Density::Compact,
             queue: Vec::new(),
             queue_selection: Selection::default(),
             autoplay: true,
@@ -489,9 +492,15 @@ impl App {
         }
     }
 
-    /// The rows of one item in a list of videos, channels, and playlists.
+    /// The blank rows after each list item, from the density setting.
+    pub fn gap(&self) -> u16 {
+        self.density.gap(self.height)
+    }
+
+    /// The rows of one item in a list of videos, channels, and playlists,
+    /// with the blank rows after it.
     pub fn rows_per_item(&self) -> u16 {
-        if self.thumbnails.enabled { THUMBNAIL_ROWS } else { ROWS_PER_ITEM }
+        (if self.thumbnails.enabled { THUMBNAIL_ROWS } else { ROWS_PER_ITEM }) + self.gap()
     }
 
     /// The number of list items that fit below `header` rows.
@@ -502,7 +511,7 @@ impl App {
     /// The number of entries that fit in the Subscriptions and Playlists tabs,
     /// which have no thumbnails.
     pub fn plain_rows(&self) -> usize {
-        usize::from(self.height.saturating_sub(CHROME_ROWS) / ROWS_PER_ITEM).max(1)
+        usize::from(self.height.saturating_sub(CHROME_ROWS) / (ROWS_PER_ITEM + self.gap())).max(1)
     }
 
     /// Whether something loads that the screen shows, so the spinner turns.
@@ -855,7 +864,8 @@ impl App {
             Screen::Video(s) if s.pane == VideoPane::Comments => self.on_comments_action(action, rows),
             Screen::Video(s) => {
                 let max = s.max_scroll.get();
-                let half = u16::try_from(rows).unwrap_or(u16::MAX).max(1);
+                // Half of the text, which has no list items and so no gaps.
+                let half = (self.height.saturating_sub(CHROME_ROWS + SCREEN_HEADER_ROWS) / 2).max(1);
                 let scroll = s.scroll.get();
                 match action {
                     Action::Up => s.scroll.set(scroll.min(max).saturating_sub(1)),
@@ -1005,7 +1015,8 @@ impl App {
 
     /// Keys while the video screen shows the comments.
     fn on_comments_action(&mut self, action: Action, rows: usize) -> Vec<Effect> {
-        // Each comment takes about three rows.
+        // Each comment takes about three rows. `rows` counts list items, which
+        // can have blank rows after them.
         let page = rows * usize::from(self.rows_per_item()) / 3;
         let Some(Screen::Video(s)) = self.screens.last_mut() else { return Vec::new() };
         let (request, id) = (s.request, s.id.clone());

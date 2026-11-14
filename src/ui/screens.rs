@@ -159,7 +159,7 @@ fn draw_items(app: &App, list: &ItemList, empty: &str, f: &mut Frame, area: Rect
                 Paragraph::new(error_line(t, format!("Could not load: {e}"))).wrap(Wrap { trim: true }),
                 area,
             ),
-            (None, Loading::FirstPage) => super::draw_skeleton(t, f, area, super::search::rows_per_item(app)),
+            (None, Loading::FirstPage) => super::draw_skeleton(app, f, area),
             (None, _) => super::draw_empty(t, f, area, empty, None),
         }
         return;
@@ -532,7 +532,7 @@ pub fn draw_subscriptions(app: &App, f: &mut Frame, area: Rect) {
             ]
         })
         .collect();
-    items::draw_rows(t, rows, app.subscriptions_selection, f, inner);
+    items::draw_rows(t, rows, app.subscriptions_selection, app.gap(), f, inner);
 }
 
 pub fn draw_feed(app: &App, f: &mut Frame, area: Rect) {
@@ -570,7 +570,7 @@ pub fn draw_feed(app: &App, f: &mut Frame, area: Rect) {
     f.render_widget(line, status);
     if feed.items.is_empty() {
         if feed.loading > 0 {
-            super::draw_skeleton(t, f, list, super::search::rows_per_item(app));
+            super::draw_skeleton(app, f, list);
         } else {
             super::draw_empty(t, f, list, "No videos yet", None);
         }
@@ -615,7 +615,7 @@ pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
             ]
         })
         .collect();
-    items::draw_rows(t, rows, app.history_selection, f, inner);
+    items::draw_rows(t, rows, app.history_selection, app.gap(), f, inner);
 }
 
 /// How long before `now` the Unix time `then` was, as YouTube writes it:
@@ -668,7 +668,7 @@ pub fn draw_queue(app: &App, f: &mut Frame, area: Rect) {
             items::rows(t, &Item::Video(v.clone()), None, width, false, state)
         })
         .collect();
-    items::draw_rows(t, rows, app.queue_selection, f, inner);
+    items::draw_rows(t, rows, app.queue_selection, app.gap(), f, inner);
 }
 
 pub fn draw_saved(app: &App, f: &mut Frame, area: Rect) {
@@ -695,7 +695,7 @@ pub fn draw_saved(app: &App, f: &mut Frame, area: Rect) {
             ]
         })
         .collect();
-    items::draw_rows(t, rows, app.saved_selection, f, inner);
+    items::draw_rows(t, rows, app.saved_selection, app.gap(), f, inner);
 }
 
 #[cfg(test)]

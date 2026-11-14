@@ -73,7 +73,7 @@ fn draw_results(app: &App, f: &mut Frame, area: Rect) {
     }
     if s.results.is_empty() {
         match (s.loading, &s.query, &s.error) {
-            (Loading::FirstPage, _, _) => super::draw_skeleton(t, f, area, rows_per_item(app)),
+            (Loading::FirstPage, _, _) => super::draw_skeleton(app, f, area),
             (_, Some(_), None) => {
                 super::draw_empty(t, f, area, "No results", Some("Try other words or filters.".into()));
             }
@@ -82,11 +82,6 @@ fn draw_results(app: &App, f: &mut Frame, area: Rect) {
         return;
     }
     items::draw_list(app, &s.results, s.selection, f, area);
-}
-
-/// The lines of each row: three beside thumbnails, else two.
-pub(crate) fn rows_per_item(app: &App) -> usize {
-    if app.thumbnails.enabled { 3 } else { 2 }
 }
 
 fn draw_filter_menu(app: &App, f: &mut Frame, area: Rect) {

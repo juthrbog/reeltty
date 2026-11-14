@@ -6,8 +6,9 @@ mod screens;
 mod search;
 
 use ratatui::Frame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style, Stylize as _};
+use ratatui::style::{Color, Modifier, Style, Stylize as _};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Row, Table, Tabs};
 use unicode_width::UnicodeWidthStr as _;
@@ -17,6 +18,13 @@ use crate::app::{App, Tab};
 use crate::keymap::Action;
 
 pub fn view(app: &App, f: &mut Frame) {
+    draw(app, f);
+    if app.no_color {
+        remove_colors(f.buffer_mut());
+    }
+}
+
+fn draw(app: &App, f: &mut Frame) {
     if let Some(p) = app.player.as_ref().filter(|p| !p.mini) {
         return player::draw(app, p, f);
     }
@@ -42,6 +50,18 @@ pub fn view(app: &App, f: &mut Frame) {
 /// bound is left out.
 pub(crate) fn hints<'a, K: std::fmt::Display>(parts: impl IntoIterator<Item = (Option<K>, &'a str)>) -> String {
     parts.into_iter().filter_map(|(key, label)| key.map(|k| format!("{k} {label}"))).collect::<Vec<_>>().join(" · ")
+}
+
+/// Removes the colors from every cell, for `NO_COLOR`, and keeps the
+/// modifiers. Image cells keep their colors, because the colors hold the
+/// image ID and the position.
+fn remove_colors(buf: &mut Buffer) {
+    for cell in &mut buf.content {
+        if !cell.symbol().starts_with(crate::terminal::kitty::PLACEHOLDER) {
+            cell.set_fg(Color::Reset).set_bg(Color::Reset);
+            cell.underline_color = Color::Reset;
+        }
+    }
 }
 
 /// The size in cells of the video that `view` draws, or `None` when it
@@ -311,6 +331,59 @@ mod tests {
         let generation = app.search.generation;
         let effects = app.update(Message::SearchResult { generation, append: false, result: Ok(page) });
         (app, effects)
+    }
+
+    /// Checks that `buf` has no colors except in image cells, which keep
+    /// theirs. Returns the number of image cells.
+    fn assert_no_colors_but_images(buf: &ratatui::buffer::Buffer) -> usize {
+        let mut images = 0;
+        for cell in &buf.content {
+            if cell.symbol().starts_with(kitty::PLACEHOLDER) {
+                assert!(matches!(cell.fg, Color::Rgb(..)), "an image cell keeps its ID color");
+                images += 1;
+            } else {
+                assert_eq!((cell.fg, cell.bg), (Color::Reset, Color::Reset), "{:?}", cell.symbol());
+            }
+        }
+        images
+    }
+
+    #[test]
+    fn no_color_keeps_images_and_modifiers() {
+        let (mut app, effects) = search_app(20, true);
+        let url = effects
+            .into_iter()
+            .find_map(|e| match e {
+                Effect::LoadThumbnail { url, .. } => Some(url),
+                _ => None,
+            })
+            .unwrap();
+        let slot = app.thumbnails.slot();
+        let rgba = vec![0; (slot.width * slot.height * 4) as usize];
+        let picture = Picture { width: slot.width, height: slot.height, cols: slot.cols, rows: slot.rows, rgba };
+        app.update(Message::ThumbnailLoaded { url, slot, result: Ok(Arc::new(picture)) });
+        let colored = buffer(&app, 70, 20);
+        assert!(colored.content.iter().any(|c| c.fg != Color::Reset && !c.symbol().starts_with(kitty::PLACEHOLDER)));
+
+        app.no_color = true;
+        let plain = buffer(&app, 70, 20);
+        assert_eq!(assert_no_colors_but_images(&plain), usize::from(slot.cols * slot.rows));
+        // The text and the modifiers stay the same.
+        for (a, b) in colored.content.iter().zip(&plain.content) {
+            assert_eq!((a.symbol(), a.modifier), (b.symbol(), b.modifier));
+        }
+        assert!(plain.content.iter().any(|c| c.modifier.contains(Modifier::REVERSED)), "the selection still shows");
+    }
+
+    #[test]
+    fn no_color_keeps_the_video() {
+        let mut app = playing_app();
+        app.no_color = true;
+        let buf = buffer(&app, 40, 12);
+        let g = app.player.as_ref().unwrap().geometry;
+        assert_eq!(assert_no_colors_but_images(&buf), usize::from(g.cols * g.rows));
+        let (r, gr, b) = kitty::id_color(kitty::VIDEO_ID);
+        assert_eq!(buf[(g.x, g.y)].fg, Color::Rgb(r, gr, b));
     }
 
     #[test]

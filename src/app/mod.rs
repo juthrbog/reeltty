@@ -360,6 +360,8 @@ pub struct App {
     /// The Unix time, set by the runtime before each draw. The history shows
     /// how long ago each video was watched from it. `view` stays pure.
     pub clock: i64,
+    /// Draw the UI without colors, from the `NO_COLOR` environment variable.
+    pub no_color: bool,
     /// Videos to play next, in order.
     pub queue: Vec<Video>,
     pub queue_selection: Selection,
@@ -406,6 +408,7 @@ impl App {
             captions_on: false,
             max_quality: 1080,
             clock: 0,
+            no_color: false,
             queue: Vec::new(),
             queue_selection: Selection::default(),
             autoplay: true,

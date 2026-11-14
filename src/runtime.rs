@@ -175,9 +175,24 @@ pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services
     app.clock = clock();
     frontend.draw(app)?;
 
-    while let Some(msg) = rx.recv().await {
+    loop {
+        let msg = match app.redraw_at() {
+            // Wake at the time, and draw, if no message comes before it.
+            Some(at) => {
+                let Ok(msg) = tokio::time::timeout(until_unix(at), rx.recv()).await else {
+                    app.clock = clock();
+                    frontend.draw(app)?;
+                    continue;
+                };
+                msg
+            }
+            None => rx.recv().await,
+        };
+        let Some(msg) = msg else { break };
         let mut next = Some(msg);
         while let Some(msg) = next {
+            // The time now, for the deadlines that the message sets.
+            app.clock = clock();
             for effect in app.update(msg) {
                 let services = (&source, thumbnails.as_ref(), &writer, &mut playback);
                 if let ControlFlow::Break(result) = handle(effect, &tx, services) {
@@ -483,6 +498,12 @@ async fn ticks(tx: UnboundedSender<Message>, session: u64, count: u8) {
             return;
         }
     }
+}
+
+/// How long until the Unix time `at`, in seconds.
+fn until_unix(at: i64) -> Duration {
+    let at = Duration::from_secs(u64::try_from(at).unwrap_or(0));
+    at.saturating_sub(SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default())
 }
 
 /// The Unix time for `App::clock`.

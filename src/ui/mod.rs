@@ -1766,6 +1766,49 @@ mod tests {
         // Other messages hide with the line.
         app.status = Some(StatusMessage::info("Skipped sponsor."));
         assert_eq!(status_row(&app), "");
+        // The same message again shows the line again.
+        app.clock = 300;
+        app.update(Message::OpenFailed("x".into()));
+        assert_eq!(app.player.as_ref().unwrap().status_until, 303);
+        // A message that changes nothing keeps the one that shows.
+        app.update(Message::Player { session: 1, event: PlayerEvent::Position(70_000) });
+        assert!(app.status.is_some());
+        // The runtime draws again when the line hides, and then waits for messages.
+        assert_eq!(app.redraw_at(), Some(303));
+        app.clock = 303;
+        assert_eq!(app.redraw_at(), None);
+        app.autohide_status = false;
+        app.clock = 0;
+        assert_eq!(app.redraw_at(), None, "only with autohide_status");
+    }
+
+    #[test]
+    fn the_status_line_shows_when_the_video_starts() {
+        use crate::app::player::PlayerEvent;
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.autohide_status = true;
+        app.update(Message::Input(Input::Resize { width: 40, height: 12 }));
+        app.play("v1".into(), "Big Buck Bunny".into());
+        let streams = crate::source::streams::Streams {
+            video_url: "https://v".into(),
+            audio_url: None,
+            headers: Vec::new(),
+            available_at: None,
+            expires_at: None,
+            format: crate::source::streams::FormatInfo::default(),
+            chapters: Vec::new(),
+            channel: None,
+            duration_secs: None,
+            live: false,
+            qualities: Vec::new(),
+            captions: Vec::new(),
+        };
+        app.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(Box::new(streams)) });
+        // Finding the streams took 20 s.
+        app.clock = 20;
+        app.update(Message::Player { session: 1, event: PlayerEvent::FileLoaded });
+        assert_eq!(app.player.as_ref().unwrap().status_until, 23);
+        assert!(render(&app, 40, 12).lines().nth(11).unwrap().contains("Big Buck Bunny"));
     }
 
     #[test]

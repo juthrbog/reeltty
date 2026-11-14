@@ -529,6 +529,15 @@ impl App {
         self.thumbnails.show_watched(|id| watched.get(id).copied());
     }
 
+    /// When the screen must draw again although no message comes: when the
+    /// full player's status line hides. mpv sends the position once a second
+    /// of video, which is less often at a low speed.
+    pub fn redraw_at(&self) -> Option<i64> {
+        let p =
+            self.player.as_ref().filter(|p| self.autohide_status && !p.mini && p.phase == player::Phase::Playing)?;
+        (self.clock < p.status_until).then_some(p.status_until)
+    }
+
     /// The blank rows after each list item, from the density setting.
     pub fn gap(&self) -> u16 {
         self.density.gap(self.height)
@@ -579,14 +588,18 @@ impl App {
     }
 
     pub fn update(&mut self, msg: Message) -> Vec<Effect> {
-        let status = self.status.clone();
+        // Out while the message is handled, so that a message set again,
+        // even with the same text, counts as new. A key clears it.
+        let key = matches!(msg, Message::Input(Input::Key(_)));
+        let status = self.status.take();
         let mut effects = self.handle(msg);
-        // A new message shows the player's status line, as a key does.
-        if self.status.is_some()
-            && self.status != status
-            && let Some(p) = self.player.as_mut()
-        {
-            p.status_until = self.clock + player::STATUS_SHOW_SECS;
+        if self.status.is_some() {
+            // A new message shows the player's status line, as a key does.
+            if let Some(p) = self.player.as_mut() {
+                p.status_until = self.clock + player::STATUS_SHOW_SECS;
+            }
+        } else if !key {
+            self.status = status;
         }
         // Keep the place in the video that plays, before the app quits or fails.
         if effects.iter().any(|e| matches!(e, Effect::Quit | Effect::Fail(_)))

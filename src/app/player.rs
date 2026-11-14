@@ -837,11 +837,14 @@ impl App {
         if event == PlayerEvent::Ended {
             return self.on_ended(session);
         }
+        let now = self.clock;
         let Some(p) = self.player_of(session) else { return Vec::new() };
         match event {
             PlayerEvent::FileLoaded => {
                 if p.phase == Phase::Loading {
                     p.phase = Phase::Playing;
+                    // The status line shows when the video starts, however long it took.
+                    p.status_until = now + STATUS_SHOW_SECS;
                 }
                 p.switch = None;
                 // Caption tracks belong to one file, and a quality change loads a new one.

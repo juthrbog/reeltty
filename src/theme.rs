@@ -266,6 +266,90 @@ impl Theme {
     }
 }
 
+impl Theme {
+    /// The theme with `color` as the accent, for the player: the played part
+    /// of the progress bar, the state mark, and other accent marks. The
+    /// lightness of `color` changes so that it reads on the background,
+    /// which is dark if `light` is not known. Without colors, nothing
+    /// changes.
+    #[must_use]
+    pub fn with_accent(mut self, color: (u8, u8, u8), light: Option<bool>) -> Self {
+        if !self.colors {
+            return self;
+        }
+        let (r, g, b) = readable(color, light == Some(true));
+        let c = Color::Rgb(r, g, b);
+        for s in [&mut self.accent, &mut self.progress_played, &mut self.now_playing] {
+            s.fg = Some(c);
+        }
+        self
+    }
+}
+
+/// The least contrast (WCAG) of an accent with the background. Marks and
+/// the progress bar are large, so 3:1 is enough.
+const MIN_CONTRAST: f64 = 3.0;
+
+/// `color` with its lightness (HSL) moved into a range that reads on a
+/// light or a dark background. The hue stays, and a dull color gets more
+/// saturation. Yellow, green and cyan look brighter than their HSL
+/// lightness, so the lightness then moves on until the contrast with white
+/// (light) or black (dark) is at least `MIN_CONTRAST`.
+#[expect(clippy::many_single_char_names, reason = "the usual names of the HSL formulas")]
+fn readable((r, g, b): (u8, u8, u8), light: bool) -> (u8, u8, u8) {
+    let (r, g, b) = (f64::from(r) / 255.0, f64::from(g) / 255.0, f64::from(b) / 255.0);
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let l = f64::midpoint(max, min);
+    let d = max - min;
+    let s = if d == 0.0 { 0.0 } else { d / (1.0 - (2.0 * l - 1.0).abs()) };
+    let h = if d == 0.0 {
+        0.0
+    } else if (max - r).abs() < f64::EPSILON {
+        ((g - b) / d).rem_euclid(6.0)
+    } else if (max - g).abs() < f64::EPSILON {
+        (b - r) / d + 2.0
+    } else {
+        (r - g) / d + 4.0
+    } * 60.0;
+    let mut l = if light { l.clamp(0.30, 0.45) } else { l.clamp(0.60, 0.75) };
+    let s = s.clamp(0.5, 1.0);
+    let mut rgb = from_hsl(h, s, l);
+    while contrast(rgb, light) < MIN_CONTRAST && l > 0.0 && l < 1.0 {
+        l = if light { (l - 0.01).max(0.0) } else { (l + 0.01).min(1.0) };
+        rgb = from_hsl(h, s, l);
+    }
+    rgb
+}
+
+/// A color from its hue (degrees), saturation and lightness (0 to 1).
+#[expect(clippy::many_single_char_names, reason = "the usual names of the HSL formulas")]
+fn from_hsl(h: f64, s: f64, l: f64) -> (u8, u8, u8) {
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - ((h / 60.0).rem_euclid(2.0) - 1.0).abs());
+    let (r, g, b) = match h {
+        h if h < 60.0 => (c, x, 0.0),
+        h if h < 120.0 => (x, c, 0.0),
+        h if h < 180.0 => (0.0, c, x),
+        h if h < 240.0 => (0.0, x, c),
+        h if h < 300.0 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = l - c / 2.0;
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "0 to 255")]
+    let byte = |v: f64| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+    (byte(r), byte(g), byte(b))
+}
+
+/// The WCAG contrast of `color` with white (`light`) or black.
+fn contrast((r, g, b): (u8, u8, u8), light: bool) -> f64 {
+    let linear = |c: u8| {
+        let c = f64::from(c) / 255.0;
+        if c <= 0.040_45 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    };
+    let y = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+    if light { 1.05 / (y + 0.05) } else { (y + 0.05) / 0.05 }
+}
+
 /// The `theme` setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -356,6 +440,32 @@ mod tests {
         // No answer from the terminal: dark.
         assert_eq!(Theme::named(ThemeName::Auto, None), Theme::truecolor(&CATPPUCCIN_MOCHA));
         assert_eq!(Theme::named(ThemeName::TokyoNight, Some(true)), Theme::truecolor(&TOKYO_NIGHT));
+    }
+
+    #[test]
+    fn accents_read_on_the_background() {
+        // The lightness moves into range, and the hue stays.
+        assert_eq!(readable((255, 0, 0), false), (255, 51, 51));
+        assert_eq!(readable((255, 0, 0), true), (230, 0, 0));
+        assert_eq!(readable((20, 0, 60), false), (119, 51, 255));
+        // A dull color gets more saturation.
+        let (r, g, b) = readable((120, 110, 100), false);
+        assert!(r > g && g > b && r - b >= 90, "{r} {g} {b}");
+        // Bright hues get darker on light backgrounds, and dark ones lighter
+        // on dark backgrounds, until they read.
+        for color in [(240, 200, 0), (0, 200, 0), (0, 200, 200), (0, 0, 255), (128, 0, 255), (255, 0, 0)] {
+            for light in [true, false] {
+                let c = readable(color, light);
+                assert!(contrast(c, light) >= MIN_CONTRAST, "{color:?} on light={light}: {c:?}");
+            }
+        }
+        let (r, g, b) = readable((240, 200, 0), true);
+        assert!(r > g && g > b, "still yellow: {r} {g} {b}");
+        let t = Theme::ansi().with_accent((255, 0, 0), None);
+        assert_eq!(t.progress_played.fg, Some(Color::Rgb(255, 51, 51)));
+        assert_eq!(t.now_playing.fg, t.progress_played.fg);
+        assert!(t.now_playing.add_modifier.contains(BOLD), "only the color changes");
+        assert_eq!(Theme::no_color().with_accent((255, 0, 0), None), Theme::no_color());
     }
 
     #[test]

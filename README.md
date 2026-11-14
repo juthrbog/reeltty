@@ -132,6 +132,12 @@ density = "compact"
 # not say. NO_COLOR turns all colors off.
 theme = "ansi"
 
+# The player's accent color: the theme's ("theme"), or the main color of
+# the video's thumbnail ("auto"). "auto" needs thumbnails and a truecolor
+# terminal, and it changes the lightness so that the color reads on your
+# background. A video with a grey thumbnail keeps the theme's color.
+accent = "theme"
+
 # Show Shorts and live streams in the subscriptions feed.
 [feed]
 shorts = false

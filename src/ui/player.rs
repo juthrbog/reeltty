@@ -26,7 +26,18 @@ use crate::theme::Theme;
 /// and drops key hints for them.
 const MIN_TITLE_WIDTH: usize = 20;
 
+/// The theme of the player: with the color of the video's thumbnail as the
+/// accent, if `accent = "auto"` and the thumbnail is loaded.
+fn player_theme(app: &App, p: &PlayerState) -> Theme {
+    match p.accent.filter(|_| app.accent_from_thumbnail) {
+        Some(color) => app.theme.with_accent(color, app.light_background),
+        None => app.theme,
+    }
+}
+
 pub fn draw(app: &App, p: &PlayerState, f: &mut Frame) {
+    let theme = player_theme(app, p);
+    let t = &theme;
     let [video, progress, status] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(1), Constraint::Length(1)]).areas(f.area());
     if let (Phase::Ended, Some(up)) = (&p.phase, &p.up_next) {
@@ -35,11 +46,11 @@ pub fn draw(app: &App, p: &PlayerState, f: &mut Frame) {
         let g = p.geometry;
         let area = Rect::new(video.x + g.x, video.y + g.y, g.cols, g.rows).intersection(video);
         draw_image(f.buffer_mut(), area, VIDEO_ID);
-        draw_quality_menu(&app.theme, p, f, video);
+        draw_quality_menu(t, p, f, video);
     } else {
-        draw_message(&app.theme, p, super::spinner(app), f, video);
+        draw_message(t, p, super::spinner(app), f, video);
     }
-    draw_progress(&app.theme, p, f, progress);
+    draw_progress(t, p, f, progress);
     draw_status(app, p, f, status);
 }
 
@@ -117,7 +128,7 @@ pub fn draw_mini(app: &App, p: &PlayerState, f: &mut Frame, dock: Rect) {
     let g = p.geometry;
     let frame = Rect::new(dock.x, g.y.saturating_sub(1), dock.width, g.rows.saturating_add(2)).intersection(dock);
     // Only the border takes a style: the video is inside the block.
-    let theme = &app.theme;
+    let theme = &player_theme(app, p);
     let mut block = Block::bordered().border_type(BorderType::Rounded).border_style(theme.border);
     if p.is_running() {
         let times = match p.duration_ms {

@@ -101,6 +101,60 @@ pub fn fit(bytes: &[u8], slot: Slot) -> Result<Picture> {
     Ok(Picture { width: slot.width, height: slot.height, cols: slot.cols, rows: slot.rows, rgba: canvas.into_raw() })
 }
 
+/// The main color of an RGBA image, or `None` if it is mostly grey, black,
+/// or white. Colors are grouped by hue, each weighted by how colorful it
+/// is, and the result is the average of the largest group.
+pub fn main_color(rgba: &[u8]) -> Option<(u8, u8, u8)> {
+    /// Less colorful pixels count as grey.
+    const MIN_CHROMA: u8 = 48;
+    const BUCKETS: usize = 12;
+    let mut weight = [0u64; BUCKETS];
+    let mut sums = [[0u64; 3]; BUCKETS];
+    let mut pixels = 0u64;
+    for &[red, green, blue, alpha] in rgba.as_chunks::<4>().0 {
+        if alpha < 128 {
+            continue;
+        }
+        pixels += 1;
+        let (max, min) = (red.max(green).max(blue), red.min(green).min(blue));
+        let chroma = max - min;
+        if chroma < MIN_CHROMA {
+            continue;
+        }
+        let bucket = hue(red, green, blue) * BUCKETS / 360;
+        weight[bucket] += u64::from(chroma);
+        for (sum, c) in sums[bucket].iter_mut().zip([red, green, blue]) {
+            *sum += u64::from(chroma) * u64::from(c);
+        }
+    }
+    let (best, &w) = weight.iter().enumerate().max_by_key(|(_, w)| **w)?;
+    // At least a twentieth of the picture, at full chroma.
+    if w == 0 || w * 20 < pixels * 255 {
+        return None;
+    }
+    let avg = |i: usize| u8::try_from(sums[best][i] / w).unwrap_or(u8::MAX);
+    Some((avg(0), avg(1), avg(2)))
+}
+
+/// The hue of a color in degrees, 0 to 359. Grey gives 0.
+#[expect(clippy::many_single_char_names, reason = "the usual names of the hue formula")]
+fn hue(r: u8, g: u8, b: u8) -> usize {
+    let (r, g, b) = (i32::from(r), i32::from(g), i32::from(b));
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let c = max - min;
+    if c == 0 {
+        return 0;
+    }
+    let h = if max == r {
+        60 * (g - b) / c
+    } else if max == g {
+        60 * (b - r) / c + 120
+    } else {
+        60 * (r - g) / c + 240
+    };
+    usize::try_from(h.rem_euclid(360)).unwrap_or(0)
+}
+
 /// The cache file for `url`. FNV-1a, because its value never changes between builds.
 pub fn cache_file(dir: &Path, url: &str) -> PathBuf {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
@@ -276,6 +330,38 @@ mod tests {
         assert_eq!(px(20, 10), [255, 0, 0, 255]);
         assert_eq!(px(0, 10)[3], 0, "the sides are transparent");
         assert!(fit(b"not an image", slot).is_err());
+    }
+
+    #[test]
+    fn finds_the_main_color() {
+        let image = |pixels: &[([u8; 4], usize)]| {
+            pixels.iter().flat_map(|(px, n)| std::iter::repeat_n(*px, *n)).flatten().collect::<Vec<u8>>()
+        };
+        // Mostly dark grey with a red sign: red wins, because grey does not count.
+        let red = image(&[([30, 30, 30, 255], 700), ([220, 30, 40, 255], 200), ([40, 60, 200, 255], 100)]);
+        assert_eq!(main_color(&red), Some((220, 30, 40)));
+        // Shades of one hue are averaged, weighted by how colorful they are.
+        let greens = image(&[([0, 200, 0, 255], 100), ([100, 200, 100, 255], 100)]);
+        assert_eq!(main_color(&greens), Some((33, 200, 33)));
+        // Grey, black, white, or a little color in a big grey picture: none.
+        assert_eq!(main_color(&image(&[([128, 128, 128, 255], 100), ([255, 255, 255, 255], 100)])), None);
+        assert_eq!(main_color(&image(&[([20, 20, 20, 255], 990), ([255, 0, 0, 255], 10)])), None);
+        assert_eq!(main_color(&image(&[([20, 20, 20, 255], 985), ([255, 0, 0, 255], 15)])), None);
+        assert_eq!(main_color(&image(&[([20, 20, 20, 255], 950), ([255, 0, 0, 255], 50)])), Some((255, 0, 0)));
+        // Transparent sides do not count.
+        let sides = image(&[([0, 0, 0, 0], 900), ([0, 120, 255, 255], 100)]);
+        assert_eq!(main_color(&sides), Some((0, 120, 255)));
+        assert_eq!(main_color(&[]), None);
+    }
+
+    #[test]
+    fn hues() {
+        assert_eq!(hue(255, 0, 0), 0);
+        assert_eq!(hue(255, 255, 0), 60);
+        assert_eq!(hue(0, 255, 0), 120);
+        assert_eq!(hue(0, 0, 255), 240);
+        assert_eq!(hue(255, 0, 128), 330);
+        assert_eq!(hue(9, 9, 9), 0);
     }
 
     #[test]

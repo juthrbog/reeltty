@@ -102,7 +102,9 @@ fn run_tui(paths: &Paths) -> Result<()> {
         // https://no-color.org: set and not empty.
         let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
         // Before the UI reads input, because the reply comes on stdin.
-        let light = (!no_color && config.theme == reeltty::theme::ThemeName::Auto)
+        let wants_background =
+            config.theme == reeltty::theme::ThemeName::Auto || config.accent == reeltty::config::Accent::Auto;
+        let light = (!no_color && wants_background)
             .then(reeltty::terminal::detect::background)
             .flatten()
             .map(reeltty::terminal::detect::is_light);
@@ -114,6 +116,8 @@ fn run_tui(paths: &Paths) -> Result<()> {
         app.max_quality = config.max_quality.height();
         app.reduce_motion = config.reduce_motion;
         app.density = config.density;
+        app.accent_from_thumbnail = config.accent == reeltty::config::Accent::Auto;
+        app.light_background = light;
         app.theme = if no_color {
             reeltty::theme::Theme::no_color()
         } else {

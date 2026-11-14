@@ -303,6 +303,9 @@ pub struct PlayerState {
     pub mini: bool,
     pub chapters: Vec<Chapter>,
     pub channel: Option<ChannelRef>,
+    /// The main color of the video's thumbnail, once one is loaded. It
+    /// stays when the thumbnail leaves memory.
+    pub accent: Option<(u8, u8, u8)>,
     /// From yt-dlp, for the history.
     duration_secs: Option<u32>,
     /// A live stream: the history keeps no position for it.
@@ -432,6 +435,14 @@ impl PlayerState {
 }
 
 impl App {
+    /// Gives the player the color of its video's thumbnail, if it has none
+    /// yet and the thumbnail is loaded.
+    pub(super) fn take_accent(&mut self) {
+        if let Some(p) = self.player.as_mut().filter(|p| p.accent.is_none()) {
+            p.accent = self.thumbnails.video_color(&p.id);
+        }
+    }
+
     /// Plays a video full size, or says why it cannot. The video that plays
     /// in the mini-player goes back to full size. After its end or a
     /// failure, it starts again.
@@ -516,6 +527,7 @@ impl App {
             mini,
             chapters: Vec::new(),
             channel: None,
+            accent: None,
             duration_secs: None,
             live: false,
             recorded: false,
@@ -548,6 +560,7 @@ impl App {
             effects.push(Effect::LoadSegments { session: state.session, id: state.id.clone() });
         }
         self.player = Some(state);
+        self.take_accent();
         effects
     }
 

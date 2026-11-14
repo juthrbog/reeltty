@@ -13,6 +13,7 @@ pub mod screens;
 pub mod search;
 pub mod thumbnails;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::keymap::{Action, KeyMap, KeyPress};
@@ -375,6 +376,17 @@ impl Selection {
     }
 }
 
+/// How much of a video in the history was watched, in thousandths: all of
+/// it after the end, else the position in its length. `None` if it was not
+/// watched past the start, or its length is not known.
+fn watched_permille(e: &HistoryEntry) -> Option<u16> {
+    if e.finished {
+        return Some(1000);
+    }
+    let duration = e.duration_secs.filter(|d| *d > 0 && e.position_secs > 0)?;
+    u16::try_from((u64::from(e.position_secs) * 1000 / u64::from(duration)).min(1000)).ok()
+}
+
 /// Rows of the UI around every list: the tab bar, the border, and the status bar.
 const CHROME_ROWS: u16 = 4;
 /// Rows above the list on the Search tab (the query line).
@@ -501,7 +513,16 @@ impl App {
     fn on_thumbnail(&mut self, url: &str, slot: Slot, result: Result<Arc<Picture>, String>) -> Vec<Effect> {
         self.thumbnails.loaded(url, slot, result);
         self.take_accent();
+        self.show_watched();
         Vec::new()
+    }
+
+    /// Draws on the thumbnails how much of each video in the history was
+    /// watched.
+    fn show_watched(&mut self) {
+        let watched: HashMap<&str, u16> =
+            self.history.iter().filter_map(|e| Some((e.video_id.as_str(), watched_permille(e)?))).collect();
+        self.thumbnails.show_watched(|id| watched.get(id).copied());
     }
 
     /// The blank rows after each list item, from the density setting.
@@ -1357,6 +1378,7 @@ impl App {
             Action::Delete => {
                 self.history.remove(self.history_selection.index);
                 self.history_selection.clamp(self.history.len(), rows);
+                self.show_watched();
                 Some(vec![Effect::ForgetWatch { video_id: e.video_id }])
             }
             Action::Details => Some(self.open(Target::open(&Item::Video(video)))),
@@ -1379,6 +1401,7 @@ impl App {
             self.history_selection.index = i;
         }
         self.history_selection.clamp(self.history.len(), self.plain_rows());
+        self.show_watched();
     }
 
     fn on_saved_key(&mut self, action: Option<Action>) -> Option<Vec<Effect>> {
@@ -1430,6 +1453,32 @@ fn saved_playlist(s: &PlaylistScreen) -> SavedPlaylist {
         channel_name: info.and_then(|i| i.channel.as_ref()).map(|c| c.name.clone()),
         videos_text: info.and_then(|i| i.videos_text.clone()),
         saved_at: 0,
+    }
+}
+
+#[cfg(test)]
+mod watched_tests {
+    use super::*;
+
+    #[test]
+    fn how_much_was_watched() {
+        let entry = |position_secs, duration_secs, finished| HistoryEntry {
+            video_id: "v".into(),
+            title: String::new(),
+            channel_id: None,
+            channel_name: None,
+            duration_secs,
+            position_secs,
+            finished,
+            watched_at: 0,
+        };
+        assert_eq!(watched_permille(&entry(0, Some(100), true)), Some(1000));
+        assert_eq!(watched_permille(&entry(25, Some(100), false)), Some(250));
+        assert_eq!(watched_permille(&entry(150, Some(100), false)), Some(1000));
+        // Not past the start, or no length: nothing to draw.
+        assert_eq!(watched_permille(&entry(0, Some(100), false)), None);
+        assert_eq!(watched_permille(&entry(25, None, false)), None);
+        assert_eq!(watched_permille(&entry(25, Some(0), false)), None);
     }
 }
 

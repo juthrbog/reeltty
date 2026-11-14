@@ -93,12 +93,83 @@ pub fn fit(bytes: &[u8], slot: Slot) -> Result<Picture> {
     limits.max_alloc = Some(64 * 1024 * 1024);
     reader.limits(limits);
     let image = reader.decode().context("decode")?;
-    let fitted = image.resize(slot.width, slot.height, FilterType::Triangle).to_rgba8();
+    let mut fitted = image.resize(slot.width, slot.height, FilterType::Triangle).to_rgba8();
+    round_corners(&mut fitted);
     let mut canvas = RgbaImage::new(slot.width, slot.height);
     let x = (slot.width - fitted.width().min(slot.width)) / 2;
     let y = (slot.height - fitted.height().min(slot.height)) / 2;
     image::imageops::overlay(&mut canvas, &fitted, i64::from(x), i64::from(y));
     Ok(Picture { width: slot.width, height: slot.height, cols: slot.cols, rows: slot.rows, rgba: canvas.into_raw() })
+}
+
+/// Makes the corners of `img` round, with soft edges. The radius is an
+/// eighth of the short side, and at least 2 pixels.
+fn round_corners(img: &mut RgbaImage) {
+    let (w, h) = img.dimensions();
+    let r = (w.min(h) / 8).max(2).min(w.min(h) / 2);
+    if r == 0 {
+        return;
+    }
+    let radius = f64::from(r);
+    for y in 0..r {
+        for x in 0..r {
+            // How much of the pixel is inside the circle at (r, r).
+            let (dx, dy) = (radius - (f64::from(x) + 0.5), radius - (f64::from(y) + 0.5));
+            let inside = (radius - dx.hypot(dy) + 0.5).clamp(0.0, 1.0);
+            if inside >= 1.0 {
+                continue;
+            }
+            for (cx, cy) in [(x, y), (w - 1 - x, y), (x, h - 1 - y), (w - 1 - x, h - 1 - y)] {
+                let alpha = &mut img.get_pixel_mut(cx, cy).0[3];
+                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "0 to 255")]
+                {
+                    *alpha = (f64::from(*alpha) * inside).round() as u8;
+                }
+            }
+        }
+    }
+}
+
+/// The parts of a thumbnail's bottom edge that show how much of the video
+/// was watched: red for the watched part, and darker for the rest.
+const WATCHED_RED: [u8; 3] = [255, 0, 0];
+
+/// `picture` with a bar along the bottom of its image that shows how much
+/// of the video was watched, in thousandths. The bar is a sixteenth of the
+/// image high, and at least 2 pixels. Transparent pixels, such as the
+/// round corners and the sides, stay transparent.
+pub fn with_watched(picture: &Picture, permille: u16) -> Picture {
+    let mut out = picture.clone();
+    let Some((left, top, right, bottom)) = opaque_bounds(picture) else { return out };
+    let height = ((bottom - top) / 16).max(2).min(bottom - top);
+    let watched_to = left + (right - left) * u32::from(permille.min(1000)) / 1000;
+    for y in bottom - height..bottom {
+        for x in left..right {
+            let i = ((y * picture.width + x) * 4) as usize;
+            let px = &mut out.rgba[i..i + 3];
+            if x < watched_to {
+                px.copy_from_slice(&WATCHED_RED);
+            } else {
+                for c in px {
+                    *c /= 3;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The box of the pixels that are not transparent, as left, top, right and
+/// bottom, the last two past the end. `None` for an empty picture.
+fn opaque_bounds(p: &Picture) -> Option<(u32, u32, u32, u32)> {
+    let opaque = |x: u32, y: u32| p.rgba.get(((y * p.width + x) * 4 + 3) as usize).is_some_and(|a| *a > 0);
+    let row = |y: &u32| (0..p.width).any(|x| opaque(x, *y));
+    let top = (0..p.height).find(row)?;
+    let bottom = (0..p.height).rev().find(row)?;
+    let col = |x: &u32| (top..=bottom).any(|y| opaque(*x, y));
+    let left = (0..p.width).find(col)?;
+    let right = (0..p.width).rev().find(col)?;
+    Some((left, top, right + 1, bottom + 1))
 }
 
 /// The main color of an RGBA image, or `None` if it is mostly grey, black,
@@ -329,6 +400,12 @@ mod tests {
         let px = |x: usize, y: usize| &p.rgba[(y * 40 + x) * 4..][..4];
         assert_eq!(px(20, 10), [255, 0, 0, 255]);
         assert_eq!(px(0, 10)[3], 0, "the sides are transparent");
+        // The image is 20 x 20 in the middle, with corners of radius 2.
+        // The corner pixel is mostly outside the circle, so mostly transparent.
+        assert!(px(10, 0)[3] < 128, "a round corner: {}", px(10, 0)[3]);
+        assert!(px(29, 19)[3] < 128, "the bottom right corner");
+        assert_eq!(px(11, 1)[3], 255, "inside the corner");
+        assert_eq!(px(20, 0)[3], 255, "the top edge");
         assert!(fit(b"not an image", slot).is_err());
     }
 
@@ -352,6 +429,36 @@ mod tests {
         let sides = image(&[([0, 0, 0, 0], 900), ([0, 120, 255, 255], 100)]);
         assert_eq!(main_color(&sides), Some((0, 120, 255)));
         assert_eq!(main_color(&[]), None);
+    }
+
+    #[test]
+    fn draws_how_much_was_watched() {
+        // A grey 10 x 32 image in the middle of a 20 x 32 picture.
+        let mut rgba = vec![0; 20 * 32 * 4];
+        for y in 0..32 {
+            for x in 5..15 {
+                rgba[(y * 20 + x) * 4..][..4].copy_from_slice(&[90, 90, 90, 255]);
+            }
+        }
+        let p = Picture { width: 20, height: 32, cols: 2, rows: 2, rgba };
+        let px = |p: &Picture, x: usize, y: usize| p.rgba[(y * 20 + x) * 4..][..4].to_vec();
+        let half = with_watched(&p, 500);
+        // The bar is the bottom 2 rows: red for the first half of the image, then darker.
+        for y in [30, 31] {
+            assert_eq!(px(&half, 5, y), [255, 0, 0, 255]);
+            assert_eq!(px(&half, 9, y), [255, 0, 0, 255]);
+            assert_eq!(px(&half, 10, y), [30, 30, 30, 255]);
+            assert_eq!(px(&half, 14, y), [30, 30, 30, 255]);
+            assert_eq!(px(&half, 4, y)[3], 0, "the side stays transparent");
+        }
+        assert_eq!(px(&half, 7, 29), [90, 90, 90, 255], "above the bar");
+        let all = with_watched(&p, 1000);
+        assert_eq!(px(&all, 14, 31), [255, 0, 0, 255]);
+        let none = with_watched(&p, 0);
+        assert_eq!(px(&none, 5, 31), [30, 30, 30, 255]);
+        // An empty picture stays as it is.
+        let empty = Picture { width: 4, height: 4, cols: 1, rows: 1, rgba: vec![0; 64] };
+        assert_eq!(with_watched(&empty, 500).rgba, empty.rgba);
     }
 
     #[test]

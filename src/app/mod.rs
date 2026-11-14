@@ -357,8 +357,8 @@ pub struct App {
     pub captions_on: bool,
     /// The largest video height, from `max_quality` in the configuration.
     pub max_quality: u32,
-    /// The Unix time when reeltty started, or of the last tick. The history
-    /// shows how long ago each video was watched from it.
+    /// The Unix time, set by the runtime before each draw. The history shows
+    /// how long ago each video was watched from it. `view` stays pure.
     pub clock: i64,
     /// Videos to play next, in order.
     pub queue: Vec<Video>,

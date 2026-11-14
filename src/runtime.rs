@@ -170,6 +170,7 @@ pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services
             return result;
         }
     }
+    app.clock = clock();
     frontend.draw(app)?;
 
     while let Some(msg) = rx.recv().await {
@@ -183,6 +184,7 @@ pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services
             }
             next = rx.try_recv().ok();
         }
+        app.clock = clock();
         frontend.draw(app)?;
     }
     Err(anyhow!("all message senders stopped"))
@@ -433,6 +435,11 @@ async fn ticks(tx: UnboundedSender<Message>, session: u64, count: u8) {
             return;
         }
     }
+}
+
+/// The Unix time for `App::clock`.
+fn clock() -> i64 {
+    i64::try_from(now_unix()).unwrap_or(i64::MAX)
 }
 
 fn now_unix() -> u64 {

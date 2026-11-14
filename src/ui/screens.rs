@@ -534,8 +534,7 @@ pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
         return;
     }
     let width = usize::from(inner.width).saturating_sub(2);
-    // Videos watched since the last tick are newer than the clock.
-    let now = app.history.iter().map(|e| e.watched_at).fold(app.clock, i64::max);
+    let now = app.clock;
     let rows = app
         .history
         .iter()

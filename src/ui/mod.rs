@@ -968,6 +968,19 @@ mod tests {
     }
 
     #[test]
+    fn player_hints_leave_out_unbound_keys() {
+        use crate::keymap::{KeyOverrides, PlayerAction, PlayerKeyOverrides};
+        let mut app = playing_app();
+        let text = render(&app, 80, 12);
+        assert!(text.contains("space pause"), "{text}");
+        let player = PlayerKeyOverrides::from([(PlayerAction::TogglePause, Vec::new())]);
+        app.keymap = KeyMap::new(&KeyOverrides::new(), &player).unwrap();
+        let text = render(&app, 80, 12);
+        assert!(!text.contains("pause"), "{text}");
+        assert!(text.contains("q back"), "{text}");
+    }
+
+    #[test]
     fn hints_leave_out_unbound_keys() {
         assert_eq!(hints([(Some("j"), "down"), (None, "up"), (Some("enter"), "play")]), "j down · enter play");
         assert_eq!(hints([(None::<&str>, "up")]), "");

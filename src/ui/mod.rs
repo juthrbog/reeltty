@@ -1730,6 +1730,88 @@ mod tests {
     }
 
     #[test]
+    fn the_status_line_can_hide_while_the_video_plays() {
+        use crate::app::player::PlayerEvent;
+        let mut app = playing_app();
+        let status_row = |app: &App| render(app, 40, 12).lines().nth(11).unwrap().trim().to_string();
+        let bar_row = |app: &App| render(app, 40, 12).lines().nth(10).unwrap().to_string();
+        // Off by default.
+        app.clock = 100;
+        assert!(status_row(&app).contains("Big Buck Bunny"));
+        app.autohide_status = true;
+        // 3 s after the start, only the progress bar stays.
+        assert_eq!(status_row(&app), "");
+        assert!(bar_row(&app).contains("1:05"), "the bar stays");
+        let video = app.player.as_ref().unwrap().geometry;
+        // A key shows it for 3 s.
+        press(&mut app, "right");
+        assert!(status_row(&app).contains("Big Buck Bunny"));
+        app.clock = 102;
+        assert!(!status_row(&app).is_empty());
+        app.clock = 103;
+        assert_eq!(status_row(&app), "");
+        assert_eq!(app.player.as_ref().unwrap().geometry, video, "the video does not move");
+        // Paused, it stays.
+        app.update(Message::Player { session: 1, event: PlayerEvent::Paused(true) });
+        app.clock = 200;
+        assert!(status_row(&app).contains("Paused"), "{}", status_row(&app));
+        app.update(Message::Player { session: 1, event: PlayerEvent::Paused(false) });
+        assert_eq!(status_row(&app), "");
+        // A message that comes without a key shows the line for 3 s too.
+        app.update(Message::OpenFailed("x".into()));
+        assert_eq!(app.player.as_ref().unwrap().status_until, 203);
+        // An error stays until a key.
+        app.clock = 203;
+        assert!(status_row(&app).contains("Could not open the link"), "{}", status_row(&app));
+        // Other messages hide with the line.
+        app.status = Some(StatusMessage::info("Skipped sponsor."));
+        assert_eq!(status_row(&app), "");
+        // The same message again shows the line again.
+        app.clock = 300;
+        app.update(Message::OpenFailed("x".into()));
+        assert_eq!(app.player.as_ref().unwrap().status_until, 303);
+        // A message that changes nothing keeps the one that shows.
+        app.update(Message::Player { session: 1, event: PlayerEvent::Position(70_000) });
+        assert!(app.status.is_some());
+        // The runtime draws again when the line hides, and then waits for messages.
+        assert_eq!(app.redraw_at(), Some(303));
+        app.clock = 303;
+        assert_eq!(app.redraw_at(), None);
+        app.autohide_status = false;
+        app.clock = 0;
+        assert_eq!(app.redraw_at(), None, "only with autohide_status");
+    }
+
+    #[test]
+    fn the_status_line_shows_when_the_video_starts() {
+        use crate::app::player::PlayerEvent;
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.autohide_status = true;
+        app.update(Message::Input(Input::Resize { width: 40, height: 12 }));
+        app.play("v1".into(), "Big Buck Bunny".into());
+        let streams = crate::source::streams::Streams {
+            video_url: "https://v".into(),
+            audio_url: None,
+            headers: Vec::new(),
+            available_at: None,
+            expires_at: None,
+            format: crate::source::streams::FormatInfo::default(),
+            chapters: Vec::new(),
+            channel: None,
+            duration_secs: None,
+            live: false,
+            qualities: Vec::new(),
+            captions: Vec::new(),
+        };
+        app.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(Box::new(streams)) });
+        // Finding the streams took 20 s.
+        app.clock = 20;
+        app.update(Message::Player { session: 1, event: PlayerEvent::FileLoaded });
+        assert_eq!(app.player.as_ref().unwrap().status_until, 23);
+        assert!(render(&app, 40, 12).lines().nth(11).unwrap().contains("Big Buck Bunny"));
+    }
+
+    #[test]
     fn player_messages_take_the_whole_status_line() {
         let mut app = playing_app();
         app.status = Some(StatusMessage::warn("This video has no captions in \"en\"."));

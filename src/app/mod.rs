@@ -444,6 +444,9 @@ pub struct App {
     pub accent_from_thumbnail: bool,
     /// Whether the terminal background is light, if the terminal said.
     pub light_background: Option<bool>,
+    /// The full player hides its status line while the video plays and no
+    /// key was pressed for a few seconds.
+    pub autohide_status: bool,
     /// Videos to play next, in order.
     pub queue: Vec<Video>,
     pub queue_selection: Selection,
@@ -496,6 +499,7 @@ impl App {
             density: crate::config::Density::Compact,
             accent_from_thumbnail: false,
             light_background: None,
+            autohide_status: false,
             queue: Vec::new(),
             queue_selection: Selection::default(),
             autoplay: true,
@@ -523,6 +527,15 @@ impl App {
         let watched: HashMap<&str, u16> =
             self.history.iter().filter_map(|e| Some((e.video_id.as_str(), watched_permille(e)?))).collect();
         self.thumbnails.show_watched(|id| watched.get(id).copied());
+    }
+
+    /// When the screen must draw again although no message comes: when the
+    /// full player's status line hides. mpv sends the position once a second
+    /// of video, which is less often at a low speed.
+    pub fn redraw_at(&self) -> Option<i64> {
+        let p =
+            self.player.as_ref().filter(|p| self.autohide_status && !p.mini && p.phase == player::Phase::Playing)?;
+        (self.clock < p.status_until).then_some(p.status_until)
     }
 
     /// The blank rows after each list item, from the density setting.
@@ -575,7 +588,19 @@ impl App {
     }
 
     pub fn update(&mut self, msg: Message) -> Vec<Effect> {
+        // Out while the message is handled, so that a message set again,
+        // even with the same text, counts as new. A key clears it.
+        let key = matches!(msg, Message::Input(Input::Key(_)));
+        let status = self.status.take();
         let mut effects = self.handle(msg);
+        if self.status.is_some() {
+            // A new message shows the player's status line, as a key does.
+            if let Some(p) = self.player.as_mut() {
+                p.status_until = self.clock + player::STATUS_SHOW_SECS;
+            }
+        } else if !key {
+            self.status = status;
+        }
         // Keep the place in the video that plays, before the app quits or fails.
         if effects.iter().any(|e| matches!(e, Effect::Quit | Effect::Fail(_)))
             && let Some(save) = self.save_watch(false)

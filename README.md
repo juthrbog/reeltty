@@ -138,6 +138,11 @@ theme = "ansi"
 # background. A video with a grey thumbnail keeps the theme's color.
 accent = "theme"
 
+# In the full player, hide the status line while the video plays and no
+# key was pressed for 3 seconds. The progress bar stays, and any key shows
+# the line again. A pause, an error, or the quality menu also shows it.
+autohide_status = false
+
 # Show Shorts and live streams in the subscriptions feed.
 [feed]
 shorts = false

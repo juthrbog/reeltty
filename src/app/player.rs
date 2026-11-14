@@ -48,6 +48,9 @@ const MINI_COLS: (u16, u16) = (24, 64);
 /// A smaller screen has no room for the mini-player. Playback goes on, and
 /// the status bar shows the video.
 const MINI_MIN_SCREEN: (u16, u16) = (72, 14);
+/// With `autohide_status`, the full player's status line shows this long
+/// after a key, in seconds.
+pub const STATUS_SHOW_SECS: i64 = 3;
 /// The video size when the mini-player does not show, in cells.
 const HIDDEN_CELLS: (u16, u16) = (16, 4);
 
@@ -306,6 +309,8 @@ pub struct PlayerState {
     /// The main color of the video's thumbnail, once one is loaded. It
     /// stays when the thumbnail leaves memory.
     pub accent: Option<(u8, u8, u8)>,
+    /// With `autohide_status`, the status line shows until this Unix time.
+    pub status_until: i64,
     /// From yt-dlp, for the history.
     duration_secs: Option<u32>,
     /// A live stream: the history keeps no position for it.
@@ -528,6 +533,7 @@ impl App {
             chapters: Vec::new(),
             channel: None,
             accent: None,
+            status_until: self.clock + STATUS_SHOW_SECS,
             duration_secs: None,
             live: false,
             recorded: false,
@@ -831,11 +837,14 @@ impl App {
         if event == PlayerEvent::Ended {
             return self.on_ended(session);
         }
+        let now = self.clock;
         let Some(p) = self.player_of(session) else { return Vec::new() };
         match event {
             PlayerEvent::FileLoaded => {
                 if p.phase == Phase::Loading {
                     p.phase = Phase::Playing;
+                    // The status line shows when the video starts, however long it took.
+                    p.status_until = now + STATUS_SHOW_SECS;
                 }
                 p.switch = None;
                 // Caption tracks belong to one file, and a quality change loads a new one.
@@ -900,6 +909,10 @@ impl App {
 
     pub(super) fn on_player_key(&mut self, key: KeyPress) -> Vec<Effect> {
         let action = self.keymap.player.action(key);
+        // Any key shows the status line again.
+        if let Some(p) = self.player.as_mut() {
+            p.status_until = self.clock + STATUS_SHOW_SECS;
+        }
         if self.player.as_ref().is_some_and(|p| p.quality_menu.is_some() && p.has_file()) {
             return self.on_quality_menu_key(key, action);
         }
@@ -937,6 +950,7 @@ impl App {
     pub(super) fn restore_player(&mut self) -> Vec<Effect> {
         let Some(p) = &mut self.player else { return Vec::new() };
         p.mini = false;
+        p.status_until = self.clock + STATUS_SHOW_SECS;
         self.refit_player()
     }
 

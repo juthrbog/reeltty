@@ -159,7 +159,7 @@ fn draw_items(app: &App, list: &ItemList, empty: &str, f: &mut Frame, area: Rect
                 Paragraph::new(error_line(t, format!("Could not load: {e}"))).wrap(Wrap { trim: true }),
                 area,
             ),
-            (None, Loading::FirstPage) => super::draw_skeleton(t, f, area, super::search::rows_per_item(app)),
+            (None, Loading::FirstPage) => super::draw_skeleton(app, f, area),
             (None, _) => super::draw_empty(t, f, area, empty, None),
         }
         return;
@@ -570,7 +570,7 @@ pub fn draw_feed(app: &App, f: &mut Frame, area: Rect) {
     f.render_widget(line, status);
     if feed.items.is_empty() {
         if feed.loading > 0 {
-            super::draw_skeleton(t, f, list, super::search::rows_per_item(app));
+            super::draw_skeleton(app, f, list);
         } else {
             super::draw_empty(t, f, list, "No videos yet", None);
         }

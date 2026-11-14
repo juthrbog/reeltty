@@ -112,7 +112,7 @@ pub fn draw_rows(
 
 /// The blank lines after each item of `lines` lines in a list `height`
 /// rows high: `gap`, or none when one item and its gap do not fit.
-fn fit_gap(lines: usize, gap: u16, height: u16) -> u16 {
+pub(crate) fn fit_gap(lines: usize, gap: u16, height: u16) -> u16 {
     if usize::from(height) >= lines + usize::from(gap) { gap } else { 0 }
 }
 

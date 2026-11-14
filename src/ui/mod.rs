@@ -152,9 +152,14 @@ pub(crate) fn press<K: std::fmt::Display>(key: Option<K>, what: &str) -> Option<
 }
 
 /// Dim bars where the rows will be, while the first page loads, so the
-/// layout does not jump when it comes. `lines` is the lines of each row.
-pub(crate) fn draw_skeleton(t: &Theme, f: &mut Frame, area: Rect, lines: usize) {
+/// layout does not jump when it comes. Each row has the lines of a list
+/// item, and the blank rows after it, as the list draws them.
+pub(crate) fn draw_skeleton(app: &App, f: &mut Frame, area: Rect) {
     const TITLES: [usize; 5] = [28, 20, 34, 24, 18];
+    let t = &app.theme;
+    let gap = app.gap();
+    let lines = usize::from(app.rows_per_item() - gap);
+    let lines = lines + usize::from(items::fit_gap(lines, gap, area.height));
     let width = usize::from(area.width).saturating_sub(items::MARK_WIDTH + 1);
     let mut rows = Vec::new();
     for i in 0.. {
@@ -1019,6 +1024,36 @@ mod tests {
         let buf = buffer(&app, 70, 20);
         let bar = (0..20).find(|y| buf[(14, *y)].symbol() == "▌").expect("the selection shows");
         assert!(pictures(&app).contains(&bar), "the selected item has its picture beside it");
+    }
+
+    #[test]
+    fn half_a_page_of_details_is_half_the_text() {
+        use crate::config::Density;
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        app.thumbnails = Thumbnails::new(true);
+        app.density = Density::Comfortable;
+        app.update(Message::Input(Input::Resize { width: 40, height: 30 }));
+        app.open(Target::Video { id: "v".into(), title: "t".into() });
+        let mut details = crate::app::tests::details("v", None);
+        details.description = Description { text: "word ".repeat(400), links: Vec::new() };
+        app.update(Message::VideoLoaded { request: 1, result: Ok(details) });
+        render(&app, 40, 30);
+        press(&mut app, "ctrl-d");
+        let Some(crate::app::screens::Screen::Video(s)) = app.screens.last() else { panic!("no video screen") };
+        // 30 - 4 - 2 = 24 rows of text, whatever the lists look like.
+        assert_eq!(s.scroll.get(), 12);
+    }
+
+    #[test]
+    fn skeletons_fit_short_lists_like_the_items() {
+        use crate::config::Density;
+        // 7 rows leave a list of 2 rows: one item of 2 lines, with no room for its gap.
+        let (mut app, _) = search_app(7, false);
+        app.density = Density::Comfortable;
+        press(&mut app, "/");
+        app.update(Message::Input(Input::Key(KeyPress::plain(KeyCode::Char('x')))));
+        press(&mut app, "enter");
+        assert!(render(&app, 70, 7).contains("▀▀▀"), "{}", render(&app, 70, 7));
     }
 
     #[test]

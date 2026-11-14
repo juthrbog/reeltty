@@ -864,7 +864,8 @@ impl App {
             Screen::Video(s) if s.pane == VideoPane::Comments => self.on_comments_action(action, rows),
             Screen::Video(s) => {
                 let max = s.max_scroll.get();
-                let half = u16::try_from(rows).unwrap_or(u16::MAX).max(1);
+                // Half of the text, which has no list items and so no gaps.
+                let half = (self.height.saturating_sub(CHROME_ROWS + SCREEN_HEADER_ROWS) / 2).max(1);
                 let scroll = s.scroll.get();
                 match action {
                     Action::Up => s.scroll.set(scroll.min(max).saturating_sub(1)),

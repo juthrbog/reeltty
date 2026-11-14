@@ -25,7 +25,12 @@ const DEFAULT_CELL: (u16, u16) = (10, 20);
 #[derive(Debug, Clone)]
 pub enum State {
     Loading,
-    Ready { id: u32, picture: Arc<Picture> },
+    /// `color` is the main color of the picture, if it has one.
+    Ready {
+        id: u32,
+        picture: Arc<Picture>,
+        color: Option<(u8, u8, u8)>,
+    },
     Failed,
 }
 
@@ -95,7 +100,7 @@ impl Thumbnails {
     /// The loaded thumbnails, for the frontend.
     pub fn ready(&self) -> impl Iterator<Item = (u32, &Picture)> {
         self.entries.values().filter_map(|e| match &e.state {
-            State::Ready { id, picture } => Some((*id, picture.as_ref())),
+            State::Ready { id, picture, .. } => Some((*id, picture.as_ref())),
             State::Loading | State::Failed => None,
         })
     }
@@ -134,13 +139,24 @@ impl Thumbnails {
             Ok(picture) => {
                 let id = self.next_id;
                 self.next_id = if id >= MAX_ID { FIRST_ID } else { id + 1 };
-                State::Ready { id, picture }
+                let color = crate::thumbnails::main_color(&picture.rgba);
+                State::Ready { id, picture, color }
             }
             Err(e) => {
                 tracing::debug!("thumbnail {url}: {e}");
                 State::Failed
             }
         };
+    }
+
+    /// The main color of a loaded thumbnail of the video `id`. YouTube
+    /// thumbnail URLs have the video ID in their path.
+    pub fn video_color(&self, id: &str) -> Option<(u8, u8, u8)> {
+        let paths = [format!("/vi/{id}/"), format!("/vi_webp/{id}/")];
+        self.entries.iter().find_map(|(url, e)| match e.state {
+            State::Ready { color, .. } if paths.iter().any(|p| url.contains(p.as_str())) => color,
+            _ => None,
+        })
     }
 
     /// Lets the failed thumbnails load again, for example after a network error.

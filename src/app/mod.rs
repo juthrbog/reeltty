@@ -428,6 +428,10 @@ pub struct App {
     pub reduce_motion: bool,
     /// Space between list items.
     pub density: crate::config::Density,
+    /// The player takes its accent color from the thumbnail of the video.
+    pub accent_from_thumbnail: bool,
+    /// Whether the terminal background is light, if the terminal said.
+    pub light_background: Option<bool>,
     /// Videos to play next, in order.
     pub queue: Vec<Video>,
     pub queue_selection: Selection,
@@ -478,6 +482,8 @@ impl App {
             spin: 0,
             reduce_motion: false,
             density: crate::config::Density::Compact,
+            accent_from_thumbnail: false,
+            light_background: None,
             queue: Vec::new(),
             queue_selection: Selection::default(),
             autoplay: true,
@@ -490,6 +496,12 @@ impl App {
             request: 0,
             session: 0,
         }
+    }
+
+    fn on_thumbnail(&mut self, url: &str, slot: Slot, result: Result<Arc<Picture>, String>) -> Vec<Effect> {
+        self.thumbnails.loaded(url, slot, result);
+        self.take_accent();
+        Vec::new()
     }
 
     /// The blank rows after each list item, from the density setting.
@@ -652,10 +664,7 @@ impl App {
                 self.status = Some(StatusMessage::error(format!("Could not open the link: {e}")));
                 Vec::new()
             }
-            Message::ThumbnailLoaded { url, slot, result } => {
-                self.thumbnails.loaded(&url, slot, result);
-                Vec::new()
-            }
+            Message::ThumbnailLoaded { url, slot, result } => self.on_thumbnail(&url, slot, result),
             Message::StreamsResolved { session, now, result } => self.on_streams(session, now, result),
             Message::Tick { session, now } => self.on_tick(session, now),
             Message::Player { session, event } => self.on_player_event(session, event),

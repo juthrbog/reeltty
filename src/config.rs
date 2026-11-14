@@ -49,6 +49,9 @@ pub struct Config {
     pub density: Density,
     /// The colors: the terminal's 16 (`"ansi"`), or a truecolor theme.
     pub theme: crate::theme::ThemeName,
+    /// The player's accent color: the theme's (`"theme"`), or the main color
+    /// of the video's thumbnail (`"auto"`).
+    pub accent: Accent,
     pub captions: Captions,
     pub feed: Feed,
     pub sponsorblock: SponsorBlock,
@@ -193,6 +196,17 @@ impl Density {
     }
 }
 
+/// The `accent` setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Accent {
+    /// The accent color of the theme.
+    #[default]
+    Theme,
+    /// The main color of the thumbnail of the video that plays.
+    Auto,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Keys {
@@ -311,6 +325,13 @@ mod tests {
         for name in [ThemeName::Ansi, ThemeName::Auto, ThemeName::CatppuccinMocha, ThemeName::CatppuccinLatte] {
             assert_eq!(theme(&format!("theme = \"{}\"", name.as_str())), name);
         }
+    }
+
+    #[test]
+    fn reads_the_accent() {
+        assert_eq!(Config::parse("").unwrap().accent, Accent::Theme);
+        assert_eq!(Config::parse("accent = \"auto\"").unwrap().accent, Accent::Auto);
+        assert!(Config::parse("accent = \"red\"").is_err());
     }
 
     #[test]

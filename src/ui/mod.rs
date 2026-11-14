@@ -800,6 +800,91 @@ mod tests {
         }
     }
 
+    /// Search results with thumbnails of one color, `rgb`, all loaded.
+    fn search_app_with_pictures(rgb: [u8; 3]) -> App {
+        let (mut app, effects) = search_app(20, true);
+        let slot = app.thumbnails.slot();
+        let rgba = [rgb[0], rgb[1], rgb[2], 255].repeat((slot.width * slot.height) as usize);
+        let picture = Picture { width: slot.width, height: slot.height, cols: slot.cols, rows: slot.rows, rgba };
+        for e in effects {
+            if let Effect::LoadThumbnail { url, .. } = e {
+                app.update(Message::ThumbnailLoaded { url, slot, result: Ok(Arc::new(picture.clone())) });
+            }
+        }
+        app
+    }
+
+    #[test]
+    fn the_player_can_take_its_accent_from_the_thumbnail() {
+        use crate::app::player::PlayerEvent;
+        let mut app = search_app_with_pictures([0, 90, 200]);
+        app.accent_from_thumbnail = true;
+        // Video "a", whose thumbnail is loaded.
+        app.play("a".into(), "Rust in 100 seconds".into());
+        assert_eq!(app.player.as_ref().unwrap().accent, Some((0, 90, 200)));
+        let streams = crate::source::streams::Streams {
+            video_url: "https://v".into(),
+            audio_url: None,
+            headers: Vec::new(),
+            available_at: None,
+            expires_at: None,
+            format: crate::source::streams::FormatInfo::default(),
+            chapters: Vec::new(),
+            channel: None,
+            duration_secs: None,
+            live: false,
+            qualities: Vec::new(),
+            captions: Vec::new(),
+        };
+        app.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(Box::new(streams)) });
+        for event in [PlayerEvent::FileLoaded, PlayerEvent::Duration(100_000), PlayerEvent::Position(50_000)] {
+            app.update(Message::Player { session: 1, event });
+        }
+        let (width, height) = (app.width, app.height);
+        let played = |app: &App| {
+            let buf = draw_only(app, width, height);
+            let y = height - 2;
+            let x = (0..width).find(|x| buf[(*x, y)].symbol() == "━").expect("a played cell");
+            (buf[(x, y)].fg, buf[(1, y)].fg)
+        };
+        // The blue, lighter so that it reads on a dark background, on the
+        // played part and the state mark.
+        let accent = |light| app.theme.with_accent((0, 90, 200), light).progress_played.fg.unwrap();
+        let (dark, light) = (accent(None), accent(Some(true)));
+        assert!(matches!(dark, Color::Rgb(red, green, blue) if blue > green && green > red), "still blue: {dark:?}");
+        assert_eq!(played(&app), (dark, dark));
+        // Darker on a light background.
+        app.light_background = Some(true);
+        assert_eq!(played(&app).0, light);
+        assert_ne!(light, dark);
+        // Off: the theme's accent.
+        app.accent_from_thumbnail = false;
+        assert_eq!(played(&app).0, app.theme.progress_played.fg.unwrap());
+    }
+
+    #[test]
+    fn a_thumbnail_that_loads_later_gives_the_accent() {
+        let (mut app, effects) = search_app(20, true);
+        app.play("a".into(), "Rust in 100 seconds".into());
+        assert_eq!(app.player.as_ref().unwrap().accent, None);
+        let slot = app.thumbnails.slot();
+        let url = effects
+            .into_iter()
+            .find_map(|e| match e {
+                Effect::LoadThumbnail { url, .. } if url.contains("/vi/a/") => Some(url),
+                _ => None,
+            })
+            .unwrap();
+        let rgba = [200, 20, 20, 255].repeat((slot.width * slot.height) as usize);
+        let picture = Picture { width: slot.width, height: slot.height, cols: slot.cols, rows: slot.rows, rgba };
+        app.update(Message::ThumbnailLoaded { url, slot, result: Ok(Arc::new(picture)) });
+        assert_eq!(app.player.as_ref().unwrap().accent, Some((200, 20, 20)));
+        // A grey thumbnail has no main color, so the theme's accent stays.
+        let mut app = search_app_with_pictures([90, 90, 90]);
+        app.play("a".into(), "Rust in 100 seconds".into());
+        assert_eq!(app.player.as_ref().unwrap().accent, None);
+    }
+
     #[test]
     fn the_no_color_theme_alone_has_no_colors() {
         let mut app = playing_app();

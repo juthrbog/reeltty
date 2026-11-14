@@ -43,6 +43,10 @@ struct Entry {
     state: State,
     /// The value of `clock` when the item was last visible.
     used: u64,
+    /// Only videos asked for this thumbnail. A playlist or a mix can use the
+    /// picture of its first video, and must not show that video's watched
+    /// part.
+    video: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -118,11 +122,22 @@ impl Thumbnails {
         let mut effects = Vec::new();
         for item in visible {
             let Some(url) = self.url(item) else { continue };
+            let video = matches!(item, Item::Video(_));
             if let Some(e) = self.entries.get_mut(url) {
                 e.used = self.clock;
+                if e.video && !video {
+                    e.video = false;
+                    // The plain picture, under a new ID, if it showed a watched part.
+                    if let State::Ready { id, picture, base, watched: shown @ Some(_), .. } = &mut e.state {
+                        *picture = Arc::clone(base);
+                        *shown = None;
+                        *id = self.next_id;
+                        self.next_id = if *id >= MAX_ID { FIRST_ID } else { *id + 1 };
+                    }
+                }
                 continue;
             }
-            self.entries.insert(url.to_string(), Entry { state: State::Loading, used: self.clock });
+            self.entries.insert(url.to_string(), Entry { state: State::Loading, used: self.clock, video });
             effects.push(Effect::LoadThumbnail { url: url.to_string(), slot: self.slot });
         }
         self.evict();
@@ -167,7 +182,7 @@ impl Thumbnails {
     pub fn show_watched(&mut self, watched: impl Fn(&str) -> Option<u16>) {
         for (url, entry) in &mut self.entries {
             let State::Ready { id, picture, base, watched: shown, .. } = &mut entry.state else { continue };
-            let now = video_id(url).and_then(&watched);
+            let now = if entry.video { video_id(url).and_then(&watched) } else { None };
             if now == *shown {
                 continue;
             }
@@ -295,6 +310,45 @@ mod tests {
         let plain = t.image(&items[0]).unwrap();
         assert_ne!(plain, new);
         assert_eq!(shown(&t, plain), *grey);
+    }
+
+    #[test]
+    fn playlists_with_a_watched_first_video_get_no_bar() {
+        use crate::source::model::Playlist;
+        let mut t = Thumbnails::new(true);
+        let Item::Video(v) = video(1) else { unreachable!() };
+        // A playlist that uses the picture of its first video, v1.
+        let playlist = Item::Playlist(Playlist {
+            id: "PL1".into(),
+            title: String::new(),
+            kind: crate::source::model::PlaylistKind::Playlist,
+            channel: None,
+            count_text: None,
+            thumbnails: v.thumbnails.clone(),
+            first_video_id: None,
+        });
+        t.want([&playlist]);
+        let slot = t.slot();
+        let grey = Arc::new(Picture { width: 4, height: 4, cols: 1, rows: 1, rgba: [90, 90, 90, 255].repeat(16) });
+        t.loaded("https://i.ytimg.com/vi/v1/a.jpg", slot, Ok(Arc::clone(&grey)));
+        let id = t.image(&playlist).unwrap();
+        t.show_watched(|_| Some(1000));
+        assert_eq!(t.image(&playlist), Some(id), "no bar on a playlist");
+        // A video alone gets the bar. When a playlist with the same picture
+        // shows too, the bar goes.
+        let mut t = Thumbnails::new(true);
+        let v1 = Item::Video(v);
+        t.want([&v1]);
+        t.loaded("https://i.ytimg.com/vi/v1/a.jpg", slot, Ok(Arc::clone(&grey)));
+        t.show_watched(|_| Some(1000));
+        let barred = t.image(&v1).unwrap();
+        assert_ne!(t.ready().find(|(i, _)| *i == barred).unwrap().1, &*grey);
+        t.want([&v1, &playlist]);
+        let plain = t.image(&v1).unwrap();
+        assert_ne!(plain, barred);
+        assert_eq!(t.ready().find(|(i, _)| *i == plain).unwrap().1, &*grey);
+        t.show_watched(|_| Some(1000));
+        assert_eq!(t.image(&v1), Some(plain), "it stays plain");
     }
 
     #[test]

@@ -6,10 +6,10 @@ expression: "format!(\"{loading}{}\", render(&app, 70, 8))"
 ╭ Playlist: Crust of Rust ───────────────────────────────────────────╮
 │                                                                    │
 │                                                                    │
-│ Loading…                                                           │
-│                                                                    │
+│   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀                                     │
+│   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀                                                 │
 ╰────────────────────────────────────────────────────────────────────╯
-Loading…                           ? help  / search  esc back  q quit 
+⠋ Loading…                         ? help  / search  esc back  q quit 
  Search · Feed · Subscriptions · Playlists · Queue · History          
 ╭ Playlist: Crust of Rust ───────────────────────────────────────────╮
 │                                                                    │

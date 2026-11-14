@@ -123,7 +123,7 @@ fn draw_channel(app: &App, s: &ChannelScreen, f: &mut Frame, area: Rect) {
         None => Vec::new(),
     };
     f.render_widget(Paragraph::new(lines), header);
-    draw_items(app, &s.list, "This channel has no videos.", f, list);
+    draw_items(app, &s.list, "This channel has no videos", f, list);
 }
 
 fn draw_playlist(app: &App, s: &PlaylistScreen, f: &mut Frame, area: Rect) {
@@ -148,18 +148,20 @@ fn draw_playlist(app: &App, s: &PlaylistScreen, f: &mut Frame, area: Rect) {
         None => Vec::new(),
     };
     f.render_widget(Paragraph::new(lines), header);
-    draw_items(app, &s.list, "This playlist has no videos.", f, list);
+    draw_items(app, &s.list, "This playlist has no videos", f, list);
 }
 
 fn draw_items(app: &App, list: &ItemList, empty: &str, f: &mut Frame, area: Rect) {
     let t = &app.theme;
     if list.items.is_empty() {
-        let text = match (&list.error, list.loading) {
-            (Some(e), _) => Paragraph::new(error_line(t, format!("Could not load: {e}"))).wrap(Wrap { trim: true }),
-            (None, Loading::FirstPage) => Paragraph::new(Line::styled("Loading…", t.status_progress)),
-            (None, _) => Paragraph::new(Line::styled(empty.to_string(), t.muted)),
-        };
-        f.render_widget(text, area);
+        match (&list.error, list.loading) {
+            (Some(e), _) => f.render_widget(
+                Paragraph::new(error_line(t, format!("Could not load: {e}"))).wrap(Wrap { trim: true }),
+                area,
+            ),
+            (None, Loading::FirstPage) => super::draw_skeleton(t, f, area, super::search::rows_per_item(app)),
+            (None, _) => super::draw_empty(t, f, area, empty, None),
+        }
         return;
     }
     items::draw_list(app, &list.items, list.selection, f, area);
@@ -302,15 +304,17 @@ fn draw_comments(app: &App, screen: &VideoScreen, list: &CommentsState, f: &mut 
     let inner = block.inner(area);
     f.render_widget(block, area);
     if list.rows.is_empty() {
-        let text = match (&list.error, list.loading, &list.note) {
-            (Some(e), _, _) => Paragraph::new(error_line(t, format!("Could not load the comments: {e}"))),
+        match (&list.error, list.loading, &list.note) {
+            (Some(e), _, _) => f.render_widget(
+                Paragraph::new(error_line(t, format!("Could not load the comments: {e}"))).wrap(Wrap { trim: true }),
+                inner,
+            ),
             (None, Loading::FirstPage | Loading::MorePages, _) => {
-                Paragraph::new(Line::styled("Loading comments…", t.status_progress))
+                f.render_widget(Paragraph::new(Line::styled("Loading comments…", t.status_progress)), inner);
             }
-            (None, _, Some(note)) => Paragraph::new(Line::styled(note.clone(), t.muted)),
-            (None, _, None) => Paragraph::new(Line::styled("No comments.", t.muted)),
-        };
-        f.render_widget(text.wrap(Wrap { trim: true }), inner);
+            (None, _, Some(note)) => super::draw_empty(t, f, inner, note.trim_end_matches('.'), None),
+            (None, _, None) => super::draw_empty(t, f, inner, "No comments", None),
+        }
         return;
     }
     let rows: Vec<RowView> =
@@ -511,9 +515,8 @@ pub fn draw_subscriptions(app: &App, f: &mut Frame, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
     if app.subscriptions.is_empty() {
-        let key = app.keymap.first_key(crate::keymap::Action::Toggle).map(|k| k.to_string()).unwrap_or_default();
-        let text = format!("No subscriptions yet. Press {key} on a channel to subscribe.");
-        f.render_widget(Paragraph::new(Line::styled(text, t.muted)).wrap(Wrap { trim: true }), inner);
+        let next = super::press(app.keymap.first_key(Action::Toggle), "on a channel to subscribe.");
+        super::draw_empty(t, f, inner, "No subscriptions yet", next);
         return;
     }
     let width = usize::from(inner.width).saturating_sub(items::MARK_WIDTH);
@@ -539,18 +542,24 @@ pub fn draw_feed(app: &App, f: &mut Frame, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
     if app.subscriptions.is_empty() {
-        let key = app.keymap.first_key(crate::keymap::Action::Toggle).map(|k| k.to_string()).unwrap_or_default();
-        let text = format!(
-            "No subscriptions yet. Press {key} on a channel to subscribe, or import your YouTube subscriptions \
-             with reeltty import (see the README)."
-        );
-        f.render_widget(Paragraph::new(Line::styled(text, t.muted)).wrap(Wrap { trim: true }), inner);
+        let import = "Import your YouTube subscriptions with reeltty import (see the README).";
+        let next = match app.keymap.first_key(Action::Toggle) {
+            Some(key) => format!("Press {key} on a channel to subscribe. {import}"),
+            None => import.to_string(),
+        };
+        super::draw_empty(t, f, inner, "No subscriptions yet", Some(next));
         return;
     }
     let [status, list] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
     let refresh = app.keymap.first_key(crate::keymap::Action::Refresh).map(|k| k.to_string()).unwrap_or_default();
     let line = match (&feed.error, feed.loading) {
-        (_, n) if n > 0 => Line::styled(format!("Loading {}…", crate::takeout::channels(n)), t.status_progress),
+        (_, n) if n > 0 => {
+            let text = Span::styled(format!("Loading {}…", crate::takeout::channels(n)), t.status_progress);
+            match super::spinner(app) {
+                Some(frame) => Line::from(vec![Span::styled(frame, t.accent), Span::from(" "), text]),
+                None => Line::from(text),
+            }
+        }
         (Some(e), _) => error_line(t, format!("Could not load {e}")),
         (None, _) => {
             let n = feed.items.len();
@@ -560,12 +569,11 @@ pub fn draw_feed(app: &App, f: &mut Frame, area: Rect) {
     };
     f.render_widget(line, status);
     if feed.items.is_empty() {
-        let text = if feed.loading > 0 {
-            Line::styled("Loading the feed…", t.status_progress)
+        if feed.loading > 0 {
+            super::draw_skeleton(t, f, list, super::search::rows_per_item(app));
         } else {
-            Line::styled("No videos yet.", t.muted)
-        };
-        f.render_widget(Paragraph::new(text), list);
+            super::draw_empty(t, f, list, "No videos yet", None);
+        }
         return;
     }
     items::draw_list(app, &feed.items, feed.selection, f, list);
@@ -577,8 +585,8 @@ pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
     if app.history.is_empty() {
-        let text = "No watch history yet. Videos you play show here, and play again from where you stopped.";
-        f.render_widget(Paragraph::new(Line::styled(text, t.muted)).wrap(Wrap { trim: true }), inner);
+        let next = "Videos you play show here, and play again from where you stopped.";
+        super::draw_empty(t, f, inner, "No watch history yet", Some(next.into()));
         return;
     }
     let width = usize::from(inner.width).saturating_sub(items::MARK_WIDTH);
@@ -641,11 +649,12 @@ pub fn draw_queue(app: &App, f: &mut Frame, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
     if app.queue.is_empty() {
-        let key = app.keymap.first_key(crate::keymap::Action::Enqueue).map(|k| k.to_string()).unwrap_or_default();
-        let text = format!(
-            "The queue is empty. Press {key} on a video to add it. Videos in the queue play after the one that plays now."
-        );
-        f.render_widget(Paragraph::new(Line::styled(text, t.muted)).wrap(Wrap { trim: true }), inner);
+        let after = "Videos in the queue play after the one that plays now.";
+        let next = match app.keymap.first_key(Action::Enqueue) {
+            Some(key) => format!("Press {key} on a video to add it. {after}"),
+            None => after.to_string(),
+        };
+        super::draw_empty(t, f, inner, "The queue is empty", Some(next));
         return;
     }
     let width = usize::from(inner.width).saturating_sub(items::MARK_WIDTH);
@@ -669,9 +678,8 @@ pub fn draw_saved(app: &App, f: &mut Frame, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
     if app.saved_playlists.is_empty() {
-        let key = app.keymap.first_key(crate::keymap::Action::Toggle).map(|k| k.to_string()).unwrap_or_default();
-        let text = format!("No saved playlists yet. Press {key} on a playlist to save it.");
-        f.render_widget(Paragraph::new(Line::styled(text, t.muted)).wrap(Wrap { trim: true }), inner);
+        let next = super::press(app.keymap.first_key(Action::Toggle), "on a playlist to save it.");
+        super::draw_empty(t, f, inner, "No saved playlists yet", next);
         return;
     }
     let width = usize::from(inner.width).saturating_sub(items::MARK_WIDTH);
@@ -729,8 +737,34 @@ mod tests {
 }
 
 #[cfg(test)]
-mod date_tests {
+mod helper_tests {
     use super::ago;
+
+    #[test]
+    fn empty_states_never_cut_without_an_ellipsis() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let t = crate::theme::Theme::ansi();
+        let draw = |w: u16, h: u16, heading: &str, next: Option<&str>| {
+            let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+            term.draw(|f| super::super::draw_empty(&t, f, f.area(), heading, next.map(Into::into))).unwrap();
+            let buf = term.backend().buffer().clone();
+            (0..h)
+                .map(|y| (0..w).map(|x| buf[(x, y)].symbol()).collect::<String>().trim_end().to_string())
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+        };
+        // A long heading wraps, whole.
+        let lines = draw(20, 10, "This channel has no videos", None);
+        assert_eq!(lines.join(" ").split_whitespace().collect::<Vec<_>>().join(" "), "○ This channel has no videos");
+        // With the next step too, when it all fits.
+        let lines = draw(18, 8, "No subscriptions yet", Some("Press s on a channel to subscribe."));
+        assert!(lines.join(" ").contains("subscribe."), "{lines:?}");
+        // Too short: one line with "…".
+        assert_eq!(draw(18, 2, "No subscriptions yet", Some("Press s.")), vec!["○ No subscription…"]);
+        // Very narrow.
+        assert_eq!(draw(2, 1, "No comments", None), vec!["N…"]);
+    }
 
     #[test]
     fn how_long_ago() {

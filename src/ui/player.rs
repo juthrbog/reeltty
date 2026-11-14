@@ -109,17 +109,33 @@ fn draw_quality_menu(t: &Theme, p: &PlayerState, f: &mut Frame, area: Rect) {
     f.render_stateful_widget(list, popup, &mut ListState::default().with_selected(Some(menu.selection)));
 }
 
-/// The mini-player in the `dock`: the video in a box, with the title, the
-/// progress bar, and the state under it. The video geometry is from the top
-/// left of the screen.
+/// The mini-player in the `dock`: the video in a box, with the title and
+/// the state under it. The box title says if the video plays and where,
+/// such as `▶ 1:05 / 10:35`, and the bottom edge of the box is the progress
+/// bar. The video geometry is from the top left of the screen.
 pub fn draw_mini(app: &App, p: &PlayerState, f: &mut Frame, dock: Rect) {
     let g = p.geometry;
     let frame = Rect::new(dock.x, g.y.saturating_sub(1), dock.width, g.rows.saturating_add(2)).intersection(dock);
     // Only the border takes a style: the video is inside the block.
     let theme = &app.theme;
-    let block = Block::bordered().border_type(BorderType::Rounded).border_style(theme.border);
+    let mut block = Block::bordered().border_type(BorderType::Rounded).border_style(theme.border);
+    if p.is_running() {
+        let times = match p.duration_ms {
+            Some(d) => format!(" {} / {} ", clock(p.position_ms), clock(d)),
+            None => format!(" {} ", clock(p.position_ms)),
+        };
+        block = block.title(Line::from(vec![
+            Span::from(" "),
+            Span::styled(state_mark(p), theme.now_playing),
+            Span::from(times),
+        ]));
+    }
     let inner = block.inner(frame);
     f.render_widget(block, frame);
+    if p.is_running() && frame.width > 2 && frame.height > 1 {
+        let edge = Rect::new(frame.x + 1, frame.bottom() - 1, frame.width - 2, 1);
+        f.render_widget(Line::from(bar(theme, p, usize::from(edge.width))), edge);
+    }
     if let (Phase::Ended, Some(up)) = (&p.phase, &p.up_next) {
         let header = match up.countdown {
             Some(n) => format!("Up next in {n} s"),
@@ -134,10 +150,9 @@ pub fn draw_mini(app: &App, p: &PlayerState, f: &mut Frame, dock: Rect) {
         draw_centered(f, inner, vec![phase_message(theme, p, super::spinner(app))]);
     }
     let info = Rect::new(dock.x, frame.bottom(), dock.width, MINI_INFO_ROWS).intersection(dock);
-    let [title, progress, state] = Layout::vertical([Constraint::Length(1); 3]).areas(info);
+    let [title, state] = Layout::vertical([Constraint::Length(1); 2]).areas(info);
     let width = usize::from(title.width).saturating_sub(1);
     f.render_widget(Line::styled(format!(" {}", truncate(&p.title, width)), theme.title), title);
-    draw_progress(theme, p, f, progress);
     draw_mini_state(app, p, f, state);
 }
 
@@ -219,7 +234,8 @@ pub fn status_message(p: &PlayerState) -> StatusMessage {
             None => format!(" {}", clock(p.position_ms)),
         },
     };
-    StatusMessage::info(format!("▶ {}{state}", p.title))
+    let mark = if p.is_running() { state_mark(p) } else { "▶" };
+    StatusMessage::info(format!("{mark} {}{state}", p.title))
 }
 
 /// The text in place of the video before it plays, or after it failed.
@@ -234,52 +250,97 @@ fn clock(ms: u64) -> String {
     if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m}:{s:02}") }
 }
 
+/// `▶` while the video plays, `⏸` while it is paused, and `■` after the end.
+fn state_mark(p: &PlayerState) -> &'static str {
+    match p.phase {
+        Phase::Ended => "■",
+        _ if p.paused => "⏸",
+        _ => "▶",
+    }
+}
+
+/// The full player's progress line: ` ▶ 1:05 ━━━━╾──── 10:35 `.
 fn draw_progress(t: &Theme, p: &PlayerState, f: &mut Frame, area: Rect) {
     if !p.is_running() {
         return;
     }
     let left = clock(p.position_ms);
     let right = p.duration_ms.map(clock).unwrap_or_default();
-    let bar_width = usize::from(area.width).saturating_sub(left.width() + right.width() + 4);
-    let mut spans = vec![Span::from(format!(" {left} "))];
+    let bar_width = usize::from(area.width).saturating_sub(left.width() + right.width() + 6);
+    let mut spans = vec![Span::from(" "), Span::styled(state_mark(p), t.now_playing), Span::from(format!(" {left} "))];
     spans.extend(bar(t, p, bar_width));
     spans.push(Span::from(format!(" {right} ")));
     f.render_widget(Line::from(spans), area);
 }
 
-/// The progress bar, `width` cells wide. Parts that SponsorBlock skips have
-/// a color and glyphs of their own: `┅` played and `┄` not played.
+/// A chapter mark shows only when it is this many cells from the mark
+/// before it, from the start, and from the end. Closer marks would run
+/// together.
+const MIN_CHAPTER_CELLS: usize = 3;
+
+/// The cells of a bar `width` cells wide for a video of `d` ms where a
+/// chapter starts, other than the first one. A mark too close to the one
+/// before it is left out.
+fn chapter_cells(p: &PlayerState, d: u64, width: usize) -> Vec<usize> {
+    let mut cells = Vec::new();
+    let mut last = 0;
+    for c in &p.chapters {
+        let start = u64::from(c.start_secs) * 1000;
+        let Ok(cell) = usize::try_from(u128::from(start) * width as u128 / u128::from(d)) else { continue };
+        if cell >= last + MIN_CHAPTER_CELLS && cell + MIN_CHAPTER_CELLS <= width {
+            cells.push(cell);
+            last = cell;
+        }
+    }
+    cells
+}
+
+/// The progress bar, `width` cells wide: `━` played and `─` not played.
+/// - The cell that plays now shows `╾` from a quarter to three quarters
+///   through, so the bar moves in half cells.
+/// - A chapter starts after a short gap: `╸` or `╴`.
+/// - Parts that SponsorBlock skips have a color and glyphs of their own:
+///   `┅` played and `┄` not played.
 fn bar(t: &Theme, p: &PlayerState, width: usize) -> Vec<Span<'static>> {
     let Some(d) = p.duration_ms.filter(|d| *d > 0) else {
         return vec![Span::styled("─".repeat(width), t.progress_track)];
     };
     let segments = p.skip_segments();
+    let chapters = chapter_cells(p, d, width);
+    let position = p.position_ms.min(d);
     // The time at the start of cell `i`.
     let at = |i: usize| u64::try_from(u128::from(d) * i as u128 / width.max(1) as u128).unwrap_or(d);
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut run = String::new();
-    let mut run_style: Option<(Style, bool)> = None;
+    let mut run_style: Option<Style> = None;
     for i in 0..width {
         let (start, end) = (at(i), at(i + 1));
-        let played = end <= p.position_ms.min(d);
-        let skipped = segments.iter().any(|s| s.start_ms < end && start < s.end_ms);
-        let style = match (played, skipped) {
-            (_, true) => t.progress_sponsor,
-            (true, false) => t.progress_played,
-            (false, false) => t.progress_track,
+        // How far the cell is played, in quarters.
+        let quarters = if end <= position {
+            4
+        } else if position <= start {
+            0
+        } else {
+            (position - start) * 4 / (end - start).max(1)
         };
-        if run_style.is_some_and(|s| s != (style, played)) {
-            spans.push(Span::styled(std::mem::take(&mut run), run_style.map_or_else(Style::new, |s| s.0)));
+        let skipped = segments.iter().any(|s| s.start_ms < end && start < s.end_ms);
+        let gap = chapters.contains(&(i + 1));
+        let (glyph, style) = match (quarters, skipped) {
+            (2.., true) => ('┅', t.progress_sponsor),
+            (_, true) => ('┄', t.progress_sponsor),
+            (3.., false) if gap => ('╸', t.progress_played),
+            (3.., false) => ('━', t.progress_played),
+            (1..=2, false) => ('╾', t.progress_played),
+            (_, false) if gap => ('╴', t.progress_track),
+            (_, false) => ('─', t.progress_track),
+        };
+        if run_style.is_some_and(|s| s != style) {
+            spans.push(Span::styled(std::mem::take(&mut run), run_style.unwrap_or_default()));
         }
-        run.push(match (played, skipped) {
-            (true, true) => '┅',
-            (false, true) => '┄',
-            (true, false) => '━',
-            (false, false) => '─',
-        });
-        run_style = Some((style, played));
+        run.push(glyph);
+        run_style = Some(style);
     }
-    if let Some((style, _)) = run_style {
+    if let Some(style) = run_style {
         spans.push(Span::styled(run, style));
     }
     spans

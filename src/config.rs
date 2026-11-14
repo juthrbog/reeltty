@@ -52,6 +52,9 @@ pub struct Config {
     /// The player's accent color: the theme's (`"theme"`), or the main color
     /// of the video's thumbnail (`"auto"`).
     pub accent: Accent,
+    /// The full player hides its status line while the video plays and no
+    /// key was pressed for 3 seconds. The progress bar stays.
+    pub autohide_status: bool,
     pub captions: Captions,
     pub feed: Feed,
     pub sponsorblock: SponsorBlock,
@@ -332,6 +335,12 @@ mod tests {
         assert_eq!(Config::parse("").unwrap().accent, Accent::Theme);
         assert_eq!(Config::parse("accent = \"auto\"").unwrap().accent, Accent::Auto);
         assert!(Config::parse("accent = \"red\"").is_err());
+    }
+
+    #[test]
+    fn reads_autohide_status() {
+        assert!(!Config::parse("").unwrap().autohide_status);
+        assert!(Config::parse("autohide_status = true").unwrap().autohide_status);
     }
 
     #[test]

@@ -15,7 +15,7 @@ use unicode_width::UnicodeWidthStr as _;
 use super::items::{draw_image, truncate};
 use super::{bordered, error_line};
 use crate::app::player::{MINI_INFO_ROWS, Phase, PlayerState, UpNext};
-use crate::app::{App, StatusMessage};
+use crate::app::{App, StatusKind, StatusMessage};
 use crate::keymap::Action;
 use crate::keymap::PlayerAction;
 use crate::source::model::Item;
@@ -51,7 +51,23 @@ pub fn draw(app: &App, p: &PlayerState, f: &mut Frame) {
         draw_message(t, p, super::spinner(app), f, video);
     }
     draw_progress(t, p, f, progress);
-    draw_status(app, p, f, status);
+    if !status_hidden(app, p) {
+        draw_status(app, p, f, status);
+    }
+}
+
+/// With `autohide_status`, the status line hides while the video plays, a
+/// few seconds after the last key or message. It shows while anything
+/// needs it: a pause, buffering, an error, work that goes on, or the
+/// quality menu. Its row stays empty, so the video does not move.
+fn status_hidden(app: &App, p: &PlayerState) -> bool {
+    app.autohide_status
+        && p.phase == Phase::Playing
+        && !p.paused
+        && !p.buffering
+        && p.quality_menu.is_none()
+        && !app.status.as_ref().is_some_and(|s| matches!(s.kind, StatusKind::Error | StatusKind::Progress))
+        && app.clock >= p.status_until
 }
 
 /// The list of videos that can play next, after the video ended. It takes

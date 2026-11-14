@@ -444,6 +444,9 @@ pub struct App {
     pub accent_from_thumbnail: bool,
     /// Whether the terminal background is light, if the terminal said.
     pub light_background: Option<bool>,
+    /// The full player hides its status line while the video plays and no
+    /// key was pressed for a few seconds.
+    pub autohide_status: bool,
     /// Videos to play next, in order.
     pub queue: Vec<Video>,
     pub queue_selection: Selection,
@@ -496,6 +499,7 @@ impl App {
             density: crate::config::Density::Compact,
             accent_from_thumbnail: false,
             light_background: None,
+            autohide_status: false,
             queue: Vec::new(),
             queue_selection: Selection::default(),
             autoplay: true,
@@ -575,7 +579,15 @@ impl App {
     }
 
     pub fn update(&mut self, msg: Message) -> Vec<Effect> {
+        let status = self.status.clone();
         let mut effects = self.handle(msg);
+        // A new message shows the player's status line, as a key does.
+        if self.status.is_some()
+            && self.status != status
+            && let Some(p) = self.player.as_mut()
+        {
+            p.status_until = self.clock + player::STATUS_SHOW_SECS;
+        }
         // Keep the place in the video that plays, before the app quits or fails.
         if effects.iter().any(|e| matches!(e, Effect::Quit | Effect::Fail(_)))
             && let Some(save) = self.save_watch(false)

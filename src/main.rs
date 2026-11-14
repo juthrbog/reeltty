@@ -118,6 +118,7 @@ fn run_tui(paths: &Paths) -> Result<()> {
         app.density = config.density;
         app.accent_from_thumbnail = config.accent == reeltty::config::Accent::Auto;
         app.light_background = light;
+        app.autohide_status = config.autohide_status;
         app.theme = if no_color {
             reeltty::theme::Theme::no_color()
         } else {

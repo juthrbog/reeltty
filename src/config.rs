@@ -45,6 +45,8 @@ pub struct Config {
     pub max_quality: MaxQuality,
     /// No spinner while things load.
     pub reduce_motion: bool,
+    /// Space between list items.
+    pub density: Density,
     pub captions: Captions,
     pub feed: Feed,
     pub sponsorblock: SponsorBlock,
@@ -162,6 +164,33 @@ impl MaxQuality {
     }
 }
 
+/// Space between list items: none (`"compact"`), a blank row
+/// (`"comfortable"`), or a blank row only on a screen with room for it
+/// (`"auto"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Density {
+    #[default]
+    Compact,
+    Comfortable,
+    Auto,
+}
+
+impl Density {
+    /// With `"auto"`, a screen this many rows high or higher has a blank row
+    /// between list items.
+    pub const AUTO_MIN_HEIGHT: u16 = 40;
+
+    /// The blank rows after each list item on a screen `height` rows high.
+    pub fn gap(self, height: u16) -> u16 {
+        match self {
+            Self::Compact => 0,
+            Self::Comfortable => 1,
+            Self::Auto => u16::from(height >= Self::AUTO_MIN_HEIGHT),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Keys {
@@ -253,6 +282,19 @@ mod tests {
         assert!(!Config::parse("").unwrap().reduce_motion);
         assert!(Config::parse("reduce_motion = true").unwrap().reduce_motion);
         assert!(Config::parse("reduce_motion = \"yes\"").is_err());
+    }
+
+    #[test]
+    fn reads_the_density() {
+        let density = |text: &str| Config::parse(text).unwrap().density;
+        assert_eq!(density(""), Density::Compact);
+        assert_eq!(density("density = \"comfortable\""), Density::Comfortable);
+        assert_eq!(density("density = \"auto\""), Density::Auto);
+        assert!(Config::parse("density = \"cozy\"").is_err());
+        assert_eq!(Density::Compact.gap(60), 0);
+        assert_eq!(Density::Comfortable.gap(10), 1);
+        assert_eq!(Density::Auto.gap(39), 0);
+        assert_eq!(Density::Auto.gap(40), 1);
     }
 
     #[test]

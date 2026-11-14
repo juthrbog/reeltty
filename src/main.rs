@@ -106,6 +106,7 @@ fn run_tui(paths: &Paths) -> Result<()> {
         app.captions_on = config.captions.on;
         app.max_quality = config.max_quality.height();
         app.reduce_motion = config.reduce_motion;
+        app.density = config.density;
         // https://no-color.org: set and not empty.
         app.theme = if std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {
             reeltty::theme::Theme::no_color()

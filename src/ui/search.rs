@@ -84,9 +84,10 @@ fn draw_results(app: &App, f: &mut Frame, area: Rect) {
     items::draw_list(app, &s.results, s.selection, f, area);
 }
 
-/// The lines of each row: three beside thumbnails, else two.
+/// The lines of each row: three beside thumbnails, else two, and the blank
+/// rows after it.
 pub(crate) fn rows_per_item(app: &App) -> usize {
-    if app.thumbnails.enabled { 3 } else { 2 }
+    usize::from(app.rows_per_item())
 }
 
 fn draw_filter_menu(app: &App, f: &mut Frame, area: Rect) {

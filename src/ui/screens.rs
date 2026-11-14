@@ -532,7 +532,7 @@ pub fn draw_subscriptions(app: &App, f: &mut Frame, area: Rect) {
             ]
         })
         .collect();
-    items::draw_rows(t, rows, app.subscriptions_selection, f, inner);
+    items::draw_rows(t, rows, app.subscriptions_selection, app.gap(), f, inner);
 }
 
 pub fn draw_feed(app: &App, f: &mut Frame, area: Rect) {
@@ -615,7 +615,7 @@ pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
             ]
         })
         .collect();
-    items::draw_rows(t, rows, app.history_selection, f, inner);
+    items::draw_rows(t, rows, app.history_selection, app.gap(), f, inner);
 }
 
 /// How long before `now` the Unix time `then` was, as YouTube writes it:
@@ -668,7 +668,7 @@ pub fn draw_queue(app: &App, f: &mut Frame, area: Rect) {
             items::rows(t, &Item::Video(v.clone()), None, width, false, state)
         })
         .collect();
-    items::draw_rows(t, rows, app.queue_selection, f, inner);
+    items::draw_rows(t, rows, app.queue_selection, app.gap(), f, inner);
 }
 
 pub fn draw_saved(app: &App, f: &mut Frame, area: Rect) {
@@ -695,7 +695,7 @@ pub fn draw_saved(app: &App, f: &mut Frame, area: Rect) {
             ]
         })
         .collect();
-    items::draw_rows(t, rows, app.saved_selection, f, inner);
+    items::draw_rows(t, rows, app.saved_selection, app.gap(), f, inner);
 }
 
 #[cfg(test)]

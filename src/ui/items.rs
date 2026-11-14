@@ -50,14 +50,16 @@ pub fn draw_list(app: &App, items: &[Item], selection: Selection, f: &mut Frame,
         let state = RowState { selected: i == selected(selection, items.len()), playing: plays };
         rows(theme, item, entry, width, three, state)
     };
-    let offset = draw_rows(theme, items.iter().enumerate().map(rows_of).collect(), selection, f, text);
+    let offset = draw_rows(theme, items.iter().enumerate().map(rows_of).collect(), selection, app.gap(), f, text);
     let Some(pictures) = pictures else { return };
+    let gap = fit_gap(usize::from(slot.rows), app.gap(), pictures.height);
     for (n, item) in items.iter().skip(offset).enumerate() {
-        // The List draws only whole items, so a picture is drawn only where it fits whole.
+        // The List draws only whole items with their blank rows, so a
+        // picture is drawn only where its item fits whole.
         let Some(y) = u16::try_from(n)
             .ok()
-            .and_then(|n| n.checked_mul(slot.rows))
-            .filter(|y| y.saturating_add(slot.rows) <= pictures.height)
+            .and_then(|n| n.checked_mul(slot.rows + gap))
+            .filter(|y| y.saturating_add(slot.rows + gap) <= pictures.height)
         else {
             break;
         };
@@ -67,20 +69,22 @@ pub fn draw_list(app: &App, items: &[Item], selection: Selection, f: &mut Frame,
     }
 }
 
-/// Draws prepared rows (all with the same number of lines). The selected
-/// row gets a bar before each of its lines, and the others a space, so the
-/// rows must be `MARK_WIDTH` narrower than `area`. Returns the first visible
-/// row.
+/// Draws prepared rows (all with the same number of lines), with `gap`
+/// blank lines after each one. The selected row gets a bar before each of
+/// its lines, and the others a space, so the rows must be `MARK_WIDTH`
+/// narrower than `area`. Returns the first visible row.
 pub fn draw_rows(
     theme: &Theme,
     rows: Vec<Vec<Line<'static>>>,
     selection: Selection,
+    gap: u16,
     f: &mut Frame,
     area: Rect,
 ) -> usize {
     // A list area too small for a whole item shows titles only, so that the selection is still visible.
     let lines = rows.first().map_or(1, Vec::len);
     let whole = usize::from(area.height) >= lines;
+    let gap = fit_gap(lines, gap, area.height);
     let index = selected(selection, rows.len());
     let items: Vec<ListItem> = rows
         .into_iter()
@@ -93,6 +97,10 @@ pub fn draw_rows(
             for line in &mut lines {
                 line.spans.insert(0, mark.clone());
             }
+            // No bar on the blank lines, so the gap shows.
+            if whole {
+                lines.extend(std::iter::repeat_n(Line::default(), usize::from(gap)));
+            }
             ListItem::new(lines)
         })
         .collect();
@@ -100,6 +108,12 @@ pub fn draw_rows(
     let mut state = ListState::default().with_offset(selection.offset).with_selected(Some(index));
     f.render_stateful_widget(list, area, &mut state);
     state.offset()
+}
+
+/// The blank lines after each item of `lines` lines in a list `height`
+/// rows high: `gap`, or none when one item and its gap do not fit.
+fn fit_gap(lines: usize, gap: u16, height: u16) -> u16 {
+    if usize::from(height) >= lines + usize::from(gap) { gap } else { 0 }
 }
 
 /// Fills `area` with the placeholder cells of image `id`.

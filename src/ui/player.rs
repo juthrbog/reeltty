@@ -44,13 +44,18 @@ pub fn draw(app: &App, p: &PlayerState, f: &mut Frame) {
 /// The list of videos that can play next, after the video ended. It takes
 /// the place of the last frame.
 fn draw_up_next(app: &App, up: &UpNext, f: &mut Frame, area: Rect) {
-    let key = |a| app.keymap.first_key(a).map(|k| k.to_string()).unwrap_or_default();
-    let back = app.keymap.player.first_key(PlayerAction::Back).map(|k| k.to_string()).unwrap_or_default();
+    let key = |a| app.keymap.first_key(a);
     let header = match up.countdown {
         Some(n) => format!("Up next in {n} s"),
         None => "Up next".to_string(),
     };
-    let help = format!("{}/{} choose · {} play · {back} back", key(Action::Down), key(Action::Up), key(Action::Open));
+    // Both keys or no "choose" hint, so it never shows as `j/ choose`.
+    let choose = key(Action::Down).zip(key(Action::Up)).map(|(d, u)| format!("{d}/{u}"));
+    let help = super::hints([
+        (choose, "choose"),
+        (key(Action::Open).map(|k| k.to_string()), "play"),
+        (app.keymap.player.first_key(PlayerAction::Back).map(|k| k.to_string()), "back"),
+    ]);
     let width = area.width.min(100);
     let [_, column, _] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(width), Constraint::Fill(1)]).areas(area);
@@ -257,11 +262,14 @@ fn draw_status(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
         return;
     }
     let mut parts = status_parts(p);
-    let key = |a| app.keymap.player.first_key(a).map(|k| k.to_string()).unwrap_or_default();
-    let hint = |a, label: &'static str| vec![Span::from("  "), Span::from(key(a)).bold(), Span::from(label)];
-    let mut pause = p.is_running().then(|| hint(PlayerAction::TogglePause, " pause"));
-    let mut mini = app.keymap.player.first_key(PlayerAction::Minimize).map(|_| hint(PlayerAction::Minimize, " mini"));
-    let mut back = Some(hint(PlayerAction::Back, " back"));
+    // A hint whose key is not bound is left out. Back is always bound.
+    let hint = |a, label: &'static str| {
+        let key = app.keymap.player.first_key(a)?;
+        Some(vec![Span::from("  "), Span::from(key.to_string()).bold(), Span::from(label)])
+    };
+    let mut pause = p.is_running().then(|| hint(PlayerAction::TogglePause, " pause")).flatten();
+    let mut mini = hint(PlayerAction::Minimize, " mini");
+    let mut back = hint(PlayerAction::Back, " back");
     // Leave room for the title. Drop the mini and pause hints first, then
     // the state from its end, and the back hint last.
     let right = loop {

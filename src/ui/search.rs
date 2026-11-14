@@ -6,7 +6,7 @@ use ratatui::style::{Modifier, Style, Stylize as _};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Row, Table, Wrap};
 
-use super::items::{tail, thousands};
+use super::items::tail;
 use super::{centered, items};
 use crate::app::App;
 use crate::app::search::{FilterRow, Loading, SearchState};
@@ -14,14 +14,15 @@ use crate::app::thumbnails::Thumbnails;
 use crate::keymap::Action;
 use crate::source::filters::SearchFilters;
 use crate::source::model::Spelling;
+use crate::source::ytdlp::compact;
 use crate::store::HistoryEntry;
 
 pub fn draw(app: &App, f: &mut Frame, area: Rect) {
     let s = &app.search;
+    // The query line shows the query, so the title does not.
     let title = match (&s.query, s.estimated_results) {
-        (Some(q), Some(n)) => format!("Search: {} ({} results)", q.text, thousands(n)),
-        (Some(q), None) => format!("Search: {}", q.text),
-        (None, _) => "Search".to_string(),
+        (Some(_), Some(n)) => format!(" Search · {} results ", compact(n)),
+        _ => " Search ".to_string(),
     };
     let block = Block::bordered().title(title);
     let inner = block.inner(area);
@@ -31,7 +32,7 @@ pub fn draw(app: &App, f: &mut Frame, area: Rect) {
     f.render_widget(query_line(app, usize::from(query.width)), query);
     draw_results(s, &app.thumbnails, &app.history, f, list);
     if s.filter_menu.is_some() {
-        draw_filter_menu(s, f, area);
+        draw_filter_menu(app, f, area);
     }
 }
 
@@ -72,7 +73,7 @@ fn draw_results(s: &SearchState, thumbnails: &Thumbnails, history: &[HistoryEntr
     }
     if s.results.is_empty() {
         let text = match (s.loading, &s.query, &s.error) {
-            (Loading::FirstPage, _, _) => "Searching...",
+            (Loading::FirstPage, _, _) => "Searching…",
             (_, Some(_), None) => "No results.",
             _ => "",
         };
@@ -82,7 +83,8 @@ fn draw_results(s: &SearchState, thumbnails: &Thumbnails, history: &[HistoryEntr
     items::draw_list(&s.results, s.selection, thumbnails, history, f, area);
 }
 
-fn draw_filter_menu(s: &SearchState, f: &mut Frame, area: Rect) {
+fn draw_filter_menu(app: &App, f: &mut Frame, area: Rect) {
+    let s = &app.search;
     let Some(menu) = s.filter_menu else { return };
     let rows: Vec<Row> = FilterRow::ALL
         .iter()
@@ -94,7 +96,12 @@ fn draw_filter_menu(s: &SearchState, f: &mut Frame, area: Rect) {
         .collect();
     let height = u16::try_from(FilterRow::ALL.len()).unwrap_or(u16::MAX) + 2;
     let popup = centered(area, 40, height);
-    let block = Block::bordered().title("Filters").title_bottom(Line::from(" enter: change  esc: done ").dim());
+    let mut block = Block::bordered().title(" Filters ");
+    let hints =
+        super::hints([(app.keymap.first_key(Action::Open), "change"), (app.keymap.first_key(Action::Back), "done")]);
+    if !hints.is_empty() {
+        block = block.title_bottom(Line::from(format!(" {hints} ")).dim());
+    }
     let table = Table::new(rows, [Constraint::Length(14), Constraint::Min(0)]).block(block);
     f.render_widget(Clear, popup);
     f.render_widget(table, popup);
@@ -106,8 +113,8 @@ pub fn status(s: &SearchState) -> Option<(String, bool)> {
         return Some((format!("Search failed: {e}"), true));
     }
     match s.loading {
-        Loading::FirstPage => return Some(("Searching...".into(), false)),
-        Loading::MorePages => return Some(("Loading more...".into(), false)),
+        Loading::FirstPage => return Some(("Searching…".into(), false)),
+        Loading::MorePages => return Some(("Loading more…".into(), false)),
         Loading::Idle => {}
     }
     if let Some(n) = &s.note {

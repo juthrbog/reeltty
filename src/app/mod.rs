@@ -357,6 +357,9 @@ pub struct App {
     pub captions_on: bool,
     /// The largest video height, from `max_quality` in the configuration.
     pub max_quality: u32,
+    /// The Unix time, set by the runtime before each draw. The history shows
+    /// how long ago each video was watched from it. `view` stays pure.
+    pub clock: i64,
     /// Draw the UI without colors, from the `NO_COLOR` environment variable.
     pub no_color: bool,
     /// Videos to play next, in order.
@@ -404,6 +407,7 @@ impl App {
             captions_language: "en".into(),
             captions_on: false,
             max_quality: 1080,
+            clock: 0,
             no_color: false,
             queue: Vec::new(),
             queue_selection: Selection::default(),

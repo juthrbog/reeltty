@@ -57,12 +57,15 @@ fn main() -> Result<()> {
     }
 }
 
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}
+
 fn import(paths: &Paths, path: &std::path::Path) -> Result<()> {
     let store = Store::open(&paths.database)?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
-    let s = takeout::import(&store, path, now)?;
+    let s = takeout::import(&store, path, unix_now())?;
     let (added, already) = (takeout::channels(s.added), takeout::channels(s.already));
     let were = if s.already == 1 { "was" } else { "were" };
     println!("Added {added}. {already} {were} there already.");

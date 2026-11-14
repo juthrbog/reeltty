@@ -3,7 +3,7 @@ source: src/ui/mod.rs
 expression: "render(&app, 70, 18)"
 ---
  Search   Feed   Subscriptions   Playlists   Queue   History          
-┌Video: But what is a neural network?────────────────────────────────┐
+┌ Video ─────────────────────────────────────────────────────────────┐
 │But what is a neural network?                                       │
 │3Blue1Brown · 8.73M subscribers                                     │
 │25,037,755 views · Oct 5, 2017 · 568K likes · 18:32                 │

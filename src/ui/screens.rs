@@ -43,15 +43,15 @@ pub fn status(screen: &Screen) -> Option<(String, bool)> {
             }
             return match (&s.error, s.loading) {
                 (Some(e), _) => Some((format!("Could not load the video: {e}"), true)),
-                (None, true) => Some(("Loading...".into(), false)),
+                (None, true) => Some(("Loading…".into(), false)),
                 (None, false) => None,
             };
         }
     };
     match (&list.error, list.loading) {
         (Some(e), _) => Some((format!("Could not load: {e}"), true)),
-        (None, Loading::FirstPage) => Some(("Loading...".into(), false)),
-        (None, Loading::MorePages) => Some(("Loading more...".into(), false)),
+        (None, Loading::FirstPage) => Some(("Loading…".into(), false)),
+        (None, Loading::MorePages) => Some(("Loading more…".into(), false)),
         (None, Loading::Idle) => None,
     }
 }
@@ -78,16 +78,18 @@ fn comments_status(c: &CommentsState, video_id: &str) -> Option<(String, bool)> 
         return Some((link_status(&link.target, video_id), false));
     }
     let text = match c.loading {
-        Loading::FirstPage => "Loading comments...",
-        Loading::MorePages => "Loading more comments...",
-        Loading::Idle if c.loading_replies.is_some() => "Loading replies...",
+        Loading::FirstPage => "Loading comments…",
+        Loading::MorePages => "Loading more comments…",
+        Loading::Idle if c.loading_replies.is_some() => "Loading replies…",
         Loading::Idle => return None,
     };
     Some((text.into(), false))
 }
 
 /// A bordered block with a header of `SCREEN_HEADER_ROWS` rows above a list.
-fn header_and_list(title: Line<'static>, f: &mut Frame, area: Rect) -> (Rect, Rect) {
+fn header_and_list(mut title: Line<'static>, f: &mut Frame, area: Rect) -> (Rect, Rect) {
+    title.spans.insert(0, " ".into());
+    title.spans.push(" ".into());
     let block = Block::bordered().title(title);
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -147,7 +149,7 @@ fn draw_items(app: &App, list: &ItemList, empty: &str, f: &mut Frame, area: Rect
     if list.items.is_empty() {
         let text = match (&list.error, list.loading) {
             (Some(e), _) => Paragraph::new(format!("Could not load: {e}")).red().wrap(Wrap { trim: true }),
-            (None, Loading::FirstPage) => Paragraph::new("Loading...").dim(),
+            (None, Loading::FirstPage) => Paragraph::new("Loading…").dim(),
             (None, _) => Paragraph::new(empty.to_string()).dim(),
         };
         f.render_widget(text, area);
@@ -160,7 +162,8 @@ fn draw_video(app: &App, s: &VideoScreen, f: &mut Frame, area: Rect) {
     if let (VideoPane::Comments, Some(c)) = (s.pane, &s.comments) {
         return draw_comments(app, s, c, f, area);
     }
-    let block = Block::bordered().title(format!("Video: {}", s.title));
+    // The details show the title in full, so the box title is short.
+    let block = Block::bordered().title(" Video ");
     let inner = block.inner(area);
     let (text, link_line) = match (&s.details, &s.error) {
         (Some(d), _) => {
@@ -180,7 +183,7 @@ fn draw_video(app: &App, s: &VideoScreen, f: &mut Frame, area: Rect) {
             (lines, link_line)
         }
         (None, Some(e)) => (vec![Line::from(format!("Could not load the video: {e}")).red()], None),
-        (None, None) => (vec![Line::from("Loading...").dim()], None),
+        (None, None) => (vec![Line::from("Loading…").dim()], None),
     };
     let paragraph = Paragraph::new(text).wrap(Wrap { trim: false });
     let lines = u16::try_from(paragraph.line_count(inner.width)).unwrap_or(u16::MAX);
@@ -263,24 +266,30 @@ fn video_lines(app: &App, d: &VideoDetails, link: Option<usize>) -> (Vec<Line<'s
 /// bar on the left.
 fn draw_comments(app: &App, screen: &VideoScreen, list: &CommentsState, f: &mut Frame, area: Rect) {
     let count = list.count_text.clone().or_else(|| screen.details.as_ref().and_then(|d| d.comments_count_text.clone()));
-    let mut title: Vec<String> = vec!["Comments".into()];
-    title.extend(count);
+    // YouTube's count already says "Comments", as in "1.2K Comments".
+    let mut title = vec![match count {
+        Some(c) if c.to_lowercase().contains("comment") => c,
+        Some(c) => format!("Comments · {c}"),
+        None => "Comments".into(),
+    }];
     title.extend(list.sort().map(|o| o.label.clone()));
-    let mut block = Block::bordered().title(title.join(" · "));
-    let hints: Vec<String> =
-        [(Action::Open, "replies"), (Action::NextLink, "link"), (Action::Sort, "order"), (Action::Comments, "details")]
-            .into_iter()
-            .filter_map(|(a, label)| app.keymap.first_key(a).map(|k| format!("{k} {label}")))
-            .collect();
+    let mut block = Block::bordered().title(format!(" {} ", title.join(" · ")));
+    let key = |a| app.keymap.first_key(a);
+    let hints = super::hints([
+        (key(Action::Open), "replies"),
+        (key(Action::NextLink), "link"),
+        (key(Action::Sort), "order"),
+        (key(Action::Comments), "details"),
+    ]);
     if !hints.is_empty() {
-        block = block.title_bottom(Line::from(format!(" {} ", hints.join(" · "))).dim());
+        block = block.title_bottom(Line::from(format!(" {hints} ")).dim());
     }
     let inner = block.inner(area);
     f.render_widget(block, area);
     if list.rows.is_empty() {
         let text = match (&list.error, list.loading, &list.note) {
             (Some(e), _, _) => Paragraph::new(format!("Could not load the comments: {e}")).red(),
-            (None, Loading::FirstPage | Loading::MorePages, _) => Paragraph::new("Loading comments...").dim(),
+            (None, Loading::FirstPage | Loading::MorePages, _) => Paragraph::new("Loading comments…").dim(),
             (None, _, Some(note)) => Paragraph::new(note.clone()).dim(),
             (None, _, None) => Paragraph::new("No comments.").dim(),
         };
@@ -345,7 +354,7 @@ fn row_view(c: &CommentsState, row: &CommentRow, selected: bool, width: u16) -> 
     let (comment, expanded) = match row {
         CommentRow::MoreReplies { parent, .. } => {
             let label =
-                if c.loading_replies.as_deref() == Some(parent) { "Loading replies..." } else { "Show more replies" };
+                if c.loading_replies.as_deref() == Some(parent) { "Loading replies…" } else { "Show more replies" };
             return RowView { header: Line::from(label).cyan(), text: None, text_lines: 0, stats: None, reply: true };
         }
         CommentRow::Comment { comment, expanded } => (comment, *expanded),
@@ -459,7 +468,7 @@ fn duration(secs: u32) -> String {
 }
 
 pub fn draw_subscriptions(app: &App, f: &mut Frame, area: Rect) {
-    let block = Block::bordered().title(format!("Subscriptions ({})", app.subscriptions.len()));
+    let block = Block::bordered().title(format!(" Subscriptions ({}) ", app.subscriptions.len()));
     let inner = block.inner(area);
     f.render_widget(block, area);
     if app.subscriptions.is_empty() {
@@ -483,7 +492,7 @@ pub fn draw_subscriptions(app: &App, f: &mut Frame, area: Rect) {
 
 pub fn draw_feed(app: &App, f: &mut Frame, area: Rect) {
     let feed = &app.feed;
-    let block = Block::bordered().title(format!("Feed ({})", crate::takeout::channels(app.subscriptions.len())));
+    let block = Block::bordered().title(format!(" Feed ({}) ", crate::takeout::channels(app.subscriptions.len())));
     let inner = block.inner(area);
     f.render_widget(block, area);
     if app.subscriptions.is_empty() {
@@ -516,7 +525,7 @@ pub fn draw_feed(app: &App, f: &mut Frame, area: Rect) {
 }
 
 pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
-    let block = Block::bordered().title(format!("History ({})", app.history.len()));
+    let block = Block::bordered().title(format!(" History ({}) ", app.history.len()));
     let inner = block.inner(area);
     f.render_widget(block, area);
     if app.history.is_empty() {
@@ -525,6 +534,7 @@ pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
         return;
     }
     let width = usize::from(inner.width).saturating_sub(2);
+    let now = app.clock;
     let rows = app
         .history
         .iter()
@@ -535,7 +545,7 @@ pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
                 (false, Some(d)) => format!("{} of {}", clock(e.position_secs), clock(d)),
                 (false, None) => format!("stopped at {}", clock(e.position_secs)),
             });
-            parts.push(date(e.watched_at));
+            parts.push(ago(now, e.watched_at));
             vec![
                 Line::from(e.title.clone()).bold(),
                 Line::from(format!("  {}", items::truncate(&parts.join(" · "), width))).dim(),
@@ -545,23 +555,33 @@ pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
     items::draw_rows(rows, app.history_selection, f, inner);
 }
 
-/// `2026-10-30` from Unix seconds, in UTC.
-fn date(unix: i64) -> String {
-    // Howard Hinnant's civil_from_days.
-    let z = unix.div_euclid(86_400) + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!("{year}-{month:02}-{day:02}")
+/// How long before `now` the Unix time `then` was, as YouTube writes it:
+/// "just now", "5 minutes ago", "1 day ago", "3 years ago".
+fn ago(now: i64, then: i64) -> String {
+    const MINUTE: i64 = 60;
+    const HOUR: i64 = 60 * MINUTE;
+    const DAY: i64 = 24 * HOUR;
+    let secs = (now - then).max(0);
+    let (n, unit) = if secs < MINUTE {
+        return "just now".into();
+    } else if secs < HOUR {
+        (secs / MINUTE, "minute")
+    } else if secs < DAY {
+        (secs / HOUR, "hour")
+    } else if secs < 7 * DAY {
+        (secs / DAY, "day")
+    } else if secs < 30 * DAY {
+        (secs / (7 * DAY), "week")
+    } else if secs < 365 * DAY {
+        (secs / (30 * DAY), "month")
+    } else {
+        (secs / (365 * DAY), "year")
+    };
+    format!("{n} {unit}{} ago", if n == 1 { "" } else { "s" })
 }
 
 pub fn draw_queue(app: &App, f: &mut Frame, area: Rect) {
-    let block = Block::bordered().title(format!("Queue ({})", app.queue.len()));
+    let block = Block::bordered().title(format!(" Queue ({}) ", app.queue.len()));
     let inner = block.inner(area);
     f.render_widget(block, area);
     if app.queue.is_empty() {
@@ -578,7 +598,8 @@ pub fn draw_queue(app: &App, f: &mut Frame, area: Rect) {
 }
 
 pub fn draw_saved(app: &App, f: &mut Frame, area: Rect) {
-    let block = Block::bordered().title(format!("Saved playlists ({})", app.saved_playlists.len()));
+    // The same name as the tab.
+    let block = Block::bordered().title(format!(" Playlists ({}) ", app.saved_playlists.len()));
     let inner = block.inner(area);
     f.render_widget(block, area);
     if app.saved_playlists.is_empty() {
@@ -638,11 +659,25 @@ mod tests {
 
 #[cfg(test)]
 mod date_tests {
+    use super::ago;
+
     #[test]
-    fn dates_from_unix_time() {
-        assert_eq!(super::date(0), "1970-01-01");
-        assert_eq!(super::date(951_782_400), "2000-02-29");
-        assert_eq!(super::date(1_793_373_867), "2026-10-30");
-        assert_eq!(super::date(-86_400), "1969-12-31");
+    fn how_long_ago() {
+        let now = 1_793_373_867;
+        assert_eq!(ago(now, now), "just now");
+        assert_eq!(ago(now, now + 30), "just now", "a time in the future");
+        assert_eq!(ago(now, now - 59), "just now");
+        assert_eq!(ago(now, now - 60), "1 minute ago");
+        assert_eq!(ago(now, now - 5 * 60), "5 minutes ago");
+        assert_eq!(ago(now, now - 3600), "1 hour ago");
+        assert_eq!(ago(now, now - 23 * 3600), "23 hours ago");
+        assert_eq!(ago(now, now - 86_400), "1 day ago");
+        assert_eq!(ago(now, now - 6 * 86_400), "6 days ago");
+        assert_eq!(ago(now, now - 7 * 86_400), "1 week ago");
+        assert_eq!(ago(now, now - 29 * 86_400), "4 weeks ago");
+        assert_eq!(ago(now, now - 30 * 86_400), "1 month ago");
+        assert_eq!(ago(now, now - 364 * 86_400), "12 months ago");
+        assert_eq!(ago(now, now - 365 * 86_400), "1 year ago");
+        assert_eq!(ago(now, now - 3 * 365 * 86_400), "3 years ago");
     }
 }

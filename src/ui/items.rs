@@ -219,27 +219,12 @@ pub fn tail(s: &str, width: usize) -> String {
     s[start..].to_string()
 }
 
-pub fn thousands(n: u64) -> String {
-    let digits = n.to_string();
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn formats_numbers_and_truncates() {
-        assert_eq!(thousands(0), "0");
-        assert_eq!(thousands(999), "999");
-        assert_eq!(thousands(6_192_373), "6,192,373");
         assert_eq!(truncate("héllo wörld", 6), "héllo…");
         assert_eq!(truncate("short", 6), "short");
         // Wide characters take two columns.

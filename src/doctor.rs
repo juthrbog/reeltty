@@ -9,6 +9,7 @@ use crate::config::{self, Config, Paths};
 use crate::player;
 use crate::store::Store;
 use crate::terminal::detect::{self, Graphics};
+use crate::theme::ThemeName;
 
 /// yt-dlp older than this gets a warning. YouTube breakage follows the
 /// upstream releases closely.
@@ -76,6 +77,7 @@ pub fn run(paths: &Paths) -> bool {
         emit(c);
     }
     emit(check_terminal());
+    emit(check_theme(config.theme, std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty())));
 
     !checks.iter().any(|c| c.status == Status::Fail)
 }
@@ -148,6 +150,31 @@ fn check_terminal() -> Check {
             Status::Warn,
             format!("{} Browsing works without thumbnails.", g.message().unwrap_or_default()),
         ),
+    }
+}
+
+fn check_theme(name: ThemeName, no_color: bool) -> Check {
+    if no_color {
+        return check("theme", Status::Ok, "none, because NO_COLOR is set");
+    }
+    if name != ThemeName::Auto {
+        return check("theme", Status::Ok, name.as_str());
+    }
+    check("theme", Status::Ok, auto_theme(detect::background()))
+}
+
+/// What `theme = "auto"` picks for the terminal `background`.
+fn auto_theme(background: Option<(u8, u8, u8)>) -> String {
+    match background {
+        Some(c @ (r, g, b)) => {
+            let (name, kind) = if detect::is_light(c) {
+                (ThemeName::CatppuccinLatte, "light")
+            } else {
+                (ThemeName::CatppuccinMocha, "dark")
+            };
+            format!("auto: {} (the background #{r:02x}{g:02x}{b:02x} is {kind})", name.as_str())
+        }
+        None => format!("auto: {} (the terminal did not say its background)", ThemeName::CatppuccinMocha.as_str()),
     }
 }
 
@@ -237,6 +264,15 @@ mod tests {
         let info = parse_yt_dlp_debug(text);
         assert_eq!(info.ejs, None);
         assert_eq!(info.js_runtimes, None);
+    }
+
+    #[test]
+    fn says_what_auto_picks() {
+        assert_eq!(auto_theme(Some((0xef, 0xf1, 0xf5))), "auto: catppuccin-latte (the background #eff1f5 is light)");
+        assert_eq!(auto_theme(Some((0x1e, 0x1e, 0x2e))), "auto: catppuccin-mocha (the background #1e1e2e is dark)");
+        assert_eq!(auto_theme(None), "auto: catppuccin-mocha (the terminal did not say its background)");
+        assert_eq!(check_theme(ThemeName::TokyoNight, false).detail, "tokyo-night");
+        assert_eq!(check_theme(ThemeName::Auto, true).detail, "none, because NO_COLOR is set");
     }
 
     #[test]

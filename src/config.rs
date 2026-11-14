@@ -47,6 +47,8 @@ pub struct Config {
     pub reduce_motion: bool,
     /// Space between list items.
     pub density: Density,
+    /// The colors: the terminal's 16 (`"ansi"`), or a truecolor theme.
+    pub theme: crate::theme::ThemeName,
     pub captions: Captions,
     pub feed: Feed,
     pub sponsorblock: SponsorBlock,
@@ -295,6 +297,20 @@ mod tests {
         assert_eq!(Density::Comfortable.gap(10), 1);
         assert_eq!(Density::Auto.gap(39), 0);
         assert_eq!(Density::Auto.gap(40), 1);
+    }
+
+    #[test]
+    fn reads_the_theme() {
+        use crate::theme::ThemeName;
+        let theme = |text: &str| Config::parse(text).unwrap().theme;
+        assert_eq!(theme(""), ThemeName::Ansi);
+        assert_eq!(theme("theme = \"auto\""), ThemeName::Auto);
+        assert_eq!(theme("theme = \"catppuccin-latte\""), ThemeName::CatppuccinLatte);
+        assert_eq!(theme("theme = \"tokyo-night\""), ThemeName::TokyoNight);
+        assert!(Config::parse("theme = \"dracula\"").is_err());
+        for name in [ThemeName::Ansi, ThemeName::Auto, ThemeName::CatppuccinMocha, ThemeName::CatppuccinLatte] {
+            assert_eq!(theme(&format!("theme = \"{}\"", name.as_str())), name);
+        }
     }
 
     #[test]

@@ -723,16 +723,20 @@ mod tests {
         assert!(plain[(x, y)].modifier.contains(Modifier::UNDERLINED), "the selected title");
     }
 
-    /// Every image cell keeps its ID color and no style, and no other cell
-    /// has a background or a color that only a truecolor terminal shows.
-    fn assert_images_untouched(buf: &ratatui::buffer::Buffer) -> usize {
+    /// Every image cell keeps its ID color and no style. With the ANSI and
+    /// `NO_COLOR` themes, no other cell has a background or a color that
+    /// only a truecolor terminal shows.
+    fn assert_images_untouched(buf: &ratatui::buffer::Buffer, theme: &crate::theme::Theme) -> usize {
+        let theme_colors: Vec<Color> = theme.styles().into_iter().flat_map(|(_, s)| [s.fg, s.bg]).flatten().collect();
+        let truecolor = theme_colors.iter().any(|c| matches!(c, Color::Rgb(..)));
         let mut images = 0;
         for cell in &buf.content {
             if cell.symbol().starts_with(kitty::PLACEHOLDER) {
                 assert!(matches!(cell.fg, Color::Rgb(..)), "an image cell keeps its ID color");
+                assert!(!theme_colors.contains(&cell.fg), "no theme color on an image cell");
                 assert_eq!((cell.bg, cell.modifier), (Color::Reset, Modifier::empty()), "an image cell has no style");
                 images += 1;
-            } else {
+            } else if !truecolor {
                 assert_eq!(cell.bg, Color::Reset, "no background: {:?}", cell.symbol());
                 assert!(
                     !matches!(cell.fg, Color::Rgb(..) | Color::Indexed(_)),
@@ -747,7 +751,12 @@ mod tests {
     #[test]
     fn no_theme_touches_images() {
         use crate::theme::Theme;
-        for theme in [Theme::ansi(), Theme::no_color()] {
+        let themes = [Theme::ansi(), Theme::no_color()].into_iter().chain(
+            [crate::theme::CATPPUCCIN_MOCHA, crate::theme::CATPPUCCIN_LATTE, crate::theme::TOKYO_NIGHT]
+                .iter()
+                .map(Theme::truecolor),
+        );
+        for theme in themes {
             let (mut app, effects) = search_app(20, true);
             for url in effects.into_iter().filter_map(|e| match e {
                 Effect::LoadThumbnail { url, .. } => Some(url),
@@ -761,13 +770,33 @@ mod tests {
             }
             app.theme = theme;
             // The first result is selected, and its row has an image.
-            assert!(assert_images_untouched(&draw_only(&app, 70, 20)) > 0);
+            assert!(assert_images_untouched(&draw_only(&app, 70, 20), &theme) > 0);
             let mut app = playing_app();
             app.theme = theme;
-            assert!(assert_images_untouched(&draw_only(&app, 40, 12)) > 0);
+            assert!(assert_images_untouched(&draw_only(&app, 40, 12), &theme) > 0);
             let mut app = mini_app(100, 24, true);
             app.theme = theme;
-            assert!(assert_images_untouched(&draw_only(&app, 100, 24)) > 0);
+            assert!(assert_images_untouched(&draw_only(&app, 100, 24), &theme) > 0);
+        }
+    }
+
+    #[test]
+    fn truecolor_themes_paint_only_the_selection_and_pills() {
+        let mut app = search_app(16, false).0;
+        let t = crate::theme::Theme::truecolor(&crate::theme::CATPPUCCIN_LATTE);
+        app.theme = t;
+        press(&mut app, "f");
+        let buf = draw_only(&app, 70, 16);
+        let backgrounds: std::collections::HashSet<Color> =
+            buf.content.iter().map(|c| c.bg).filter(|bg| *bg != Color::Reset).collect();
+        let allowed: Vec<Color> =
+            [t.selection, t.wordmark, t.badge_live, t.badge_members, t.status_warn, t.badge_owner]
+                .iter()
+                .filter_map(|s| s.bg)
+                .collect();
+        assert!(!backgrounds.is_empty(), "the filter menu selection");
+        for bg in backgrounds {
+            assert!(allowed.contains(&bg), "{bg:?}");
         }
     }
 

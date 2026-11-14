@@ -9,6 +9,10 @@
 //!
 //! Do not trust the `e=` feature query key yet. kitty 0.49 does not reply to
 //! it, and Ghostty 1.3.1 replies OK without support.
+//!
+//! [`background`] asks for the background color (OSC 11), for
+//! `theme = "auto"`. It works over tmux and SSH too, when the terminal
+//! answers.
 
 use std::io::Write as _;
 use std::time::{Duration, Instant};
@@ -75,6 +79,36 @@ pub fn detect() -> Graphics {
             Graphics::Unavailable(format!("{} (probe failed: {e})", terminal_name()))
         }
     }
+}
+
+/// The background color of the terminal, from an OSC 11 query, or `None`
+/// if the terminal does not say. Call it before the UI starts reading
+/// input, because it reads the reply from stdin.
+pub fn background() -> Option<(u8, u8, u8)> {
+    match query_background() {
+        Ok(color) => color,
+        Err(e) => {
+            tracing::debug!("background query failed: {e:#}");
+            None
+        }
+    }
+}
+
+/// Whether `color` is a light background: its luminance is over half.
+pub fn is_light((r, g, b): (u8, u8, u8)) -> bool {
+    2126 * u32::from(r) + 7152 * u32::from(g) + 722 * u32::from(b) > 10_000 * 127
+}
+
+fn query_background() -> Result<Option<(u8, u8, u8)>> {
+    use std::os::fd::AsRawFd as _;
+
+    let mut tty = std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty").context("open /dev/tty")?;
+    let fd = tty.as_raw_fd();
+    let _raw = RawMode::enter(fd)?;
+    // DA1 after the query: every terminal answers it, so the wait ends.
+    write!(tty, "\x1b]11;?\x1b\\\x1b[c")?;
+    tty.flush()?;
+    Ok(read_reply(fd, PROBE_TIMEOUT)?.background)
 }
 
 fn terminal_name() -> String {
@@ -187,6 +221,25 @@ struct ProbeReply {
     /// `Some(true)` for `OK`, `Some(false)` for an error reply, `None` for no reply.
     kitty_ok: Option<bool>,
     da1: bool,
+    /// The reply to an OSC 11 query.
+    background: Option<(u8, u8, u8)>,
+}
+
+/// An OSC 11 reply: `ESC ] 11 ; rgb:RRRR/GGGG/BBBB`, ended by BEL or ST.
+/// Each part has 1 to 4 hex digits.
+fn parse_background(s: &str) -> Option<(u8, u8, u8)> {
+    let body = &s[s.find("\x1b]11;")? + 5..];
+    let end = body.find(['\x07', '\x1b'])?;
+    let spec = body[..end].strip_prefix("rgb:").or_else(|| body[..end].strip_prefix("rgba:"))?;
+    let mut parts = spec.split('/').map(|hex| {
+        if hex.is_empty() || hex.len() > 4 {
+            return None;
+        }
+        let value = u32::from_str_radix(hex, 16).ok()?;
+        let max = (1u32 << (4 * hex.len())) - 1;
+        u8::try_from(value * 255 / max).ok()
+    });
+    Some((parts.next()??, parts.next()??, parts.next()??))
 }
 
 fn parse_reply(buf: &[u8]) -> ProbeReply {
@@ -208,6 +261,7 @@ fn parse_reply(buf: &[u8]) -> ProbeReply {
     if let Some(i) = s.find("\x1b[?") {
         reply.da1 = s[i + 3..].bytes().any(|b| b == b'c');
     }
+    reply.background = parse_background(&s);
     reply
 }
 
@@ -232,24 +286,50 @@ mod tests {
     #[test]
     fn parses_ok_then_da1() {
         let r = parse_reply(b"\x1b_Gi=31;OK\x1b\\\x1b[?62;22;52c");
-        assert_eq!(r, ProbeReply { kitty_ok: Some(true), da1: true });
+        assert_eq!(r, ProbeReply { kitty_ok: Some(true), da1: true, background: None });
     }
 
     #[test]
     fn parses_error_reply() {
         let r = parse_reply(b"\x1b_Gi=31;EBADF:could not open\x1b\\\x1b[?62c");
-        assert_eq!(r, ProbeReply { kitty_ok: Some(false), da1: true });
+        assert_eq!(r, ProbeReply { kitty_ok: Some(false), da1: true, background: None });
     }
 
     #[test]
     fn da1_alone_means_no_support() {
-        assert_eq!(parse_reply(b"\x1b[?1;2c"), ProbeReply { kitty_ok: None, da1: true });
+        assert_eq!(parse_reply(b"\x1b[?1;2c"), ProbeReply { kitty_ok: None, da1: true, background: None });
     }
 
     #[test]
     fn partial_reply_waits() {
         assert_eq!(parse_reply(b"\x1b_Gi=31;O"), ProbeReply::default());
         assert_eq!(parse_reply(b"\x1b[?62;2"), ProbeReply::default());
+    }
+
+    #[test]
+    fn parses_the_background() {
+        let r = parse_reply(b"\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\\x1b[?62c");
+        assert_eq!((r.background, r.da1), (Some((0x1e, 0x1e, 0x2e)), true));
+        // Ended by BEL, and with 2 digits or 1 digit for each part.
+        assert_eq!(parse_background("\x1b]11;rgb:ef/f1/f5\x07"), Some((0xef, 0xf1, 0xf5)));
+        assert_eq!(parse_background("\x1b]11;rgb:f/0/8\x07"), Some((255, 0, 136)));
+        assert_eq!(parse_background("\x1b]11;rgba:ffff/ffff/ffff/ffff\x07"), Some((255, 255, 255)));
+        // Cut off, or not a color.
+        assert_eq!(parse_background("\x1b]11;rgb:1e1e/1e1e"), None);
+        assert_eq!(parse_background("\x1b]11;rgb:1e1e/zz/2e2e\x07"), None);
+        assert_eq!(parse_background("\x1b]11;rgb:12345/0/0\x07"), None);
+        assert_eq!(parse_background("\x1b]11;?\x07"), None);
+    }
+
+    #[test]
+    fn light_and_dark_backgrounds() {
+        assert!(is_light((0xef, 0xf1, 0xf5)));
+        assert!(is_light((255, 255, 255)));
+        assert!(!is_light((0x1e, 0x1e, 0x2e)));
+        assert!(!is_light((0, 0, 0)));
+        // Mid grey is dark, just.
+        assert!(!is_light((127, 127, 127)));
+        assert!(is_light((128, 128, 128)));
     }
 
     #[test]

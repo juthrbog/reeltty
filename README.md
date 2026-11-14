@@ -124,6 +124,14 @@ reduce_motion = false
 # or "auto" (a blank row on screens 40 rows or taller).
 density = "compact"
 
+# The colors. "ansi" uses the 16 colors of your terminal theme, and works
+# everywhere. The others are truecolor themes: "catppuccin-mocha",
+# "catppuccin-latte" (light), and "tokyo-night". "auto" asks the terminal
+# for its background color, and picks Catppuccin Latte on a light
+# background and Catppuccin Mocha on a dark one, or when the terminal does
+# not say. NO_COLOR turns all colors off.
+theme = "ansi"
+
 # Show Shorts and live streams in the subscriptions feed.
 [feed]
 shorts = false

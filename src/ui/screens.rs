@@ -553,7 +553,13 @@ pub fn draw_feed(app: &App, f: &mut Frame, area: Rect) {
     let [status, list] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
     let refresh = app.keymap.first_key(crate::keymap::Action::Refresh).map(|k| k.to_string()).unwrap_or_default();
     let line = match (&feed.error, feed.loading) {
-        (_, n) if n > 0 => Line::styled(format!("Loading {}…", crate::takeout::channels(n)), t.status_progress),
+        (_, n) if n > 0 => {
+            let text = Span::styled(format!("Loading {}…", crate::takeout::channels(n)), t.status_progress);
+            match super::spinner(app) {
+                Some(frame) => Line::from(vec![Span::styled(frame, t.accent), Span::from(" "), text]),
+                None => Line::from(text),
+            }
+        }
         (Some(e), _) => error_line(t, format!("Could not load {e}")),
         (None, _) => {
             let n = feed.items.len();
@@ -731,8 +737,34 @@ mod tests {
 }
 
 #[cfg(test)]
-mod date_tests {
+mod helper_tests {
     use super::ago;
+
+    #[test]
+    fn empty_states_never_cut_without_an_ellipsis() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let t = crate::theme::Theme::ansi();
+        let draw = |w: u16, h: u16, heading: &str, next: Option<&str>| {
+            let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+            term.draw(|f| super::super::draw_empty(&t, f, f.area(), heading, next.map(Into::into))).unwrap();
+            let buf = term.backend().buffer().clone();
+            (0..h)
+                .map(|y| (0..w).map(|x| buf[(x, y)].symbol()).collect::<String>().trim_end().to_string())
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+        };
+        // A long heading wraps, whole.
+        let lines = draw(20, 10, "This channel has no videos", None);
+        assert_eq!(lines.join(" ").split_whitespace().collect::<Vec<_>>().join(" "), "○ This channel has no videos");
+        // With the next step too, when it all fits.
+        let lines = draw(18, 8, "No subscriptions yet", Some("Press s on a channel to subscribe."));
+        assert!(lines.join(" ").contains("subscribe."), "{lines:?}");
+        // Too short: one line with "…".
+        assert_eq!(draw(18, 2, "No subscriptions yet", Some("Press s.")), vec!["○ No subscription…"]);
+        // Very narrow.
+        assert_eq!(draw(2, 1, "No comments", None), vec!["N…"]);
+    }
 
     #[test]
     fn how_long_ago() {

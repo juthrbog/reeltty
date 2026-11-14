@@ -108,18 +108,23 @@ pub(crate) fn spinner(app: &App) -> Option<&'static str> {
 pub(crate) fn draw_empty(t: &Theme, f: &mut Frame, area: Rect, heading: &str, next: Option<String>) {
     let mark = || Span::styled("○ ", t.muted);
     let next_text = next.unwrap_or_default();
-    let next_lines = if next_text.is_empty() {
-        0
-    } else {
-        u16::try_from(Paragraph::new(next_text.as_str()).wrap(Wrap { trim: true }).line_count(area.width))
-            .unwrap_or(u16::MAX)
+    let rows = |text: Line<'_>| {
+        u16::try_from(Paragraph::new(text).wrap(Wrap { trim: true }).line_count(area.width)).unwrap_or(u16::MAX)
     };
+    // A long heading wraps too.
+    let heading_lines = rows(Line::from(vec![mark(), Span::from(heading)]));
+    let next_lines = if next_text.is_empty() { 0 } else { rows(Line::from(next_text.as_str())) };
     // The heading, a blank line, and what to do next.
-    let height = if next_lines == 0 { 1 } else { next_lines.saturating_add(2) };
+    let height = if next_lines == 0 { heading_lines } else { heading_lines.saturating_add(next_lines + 1) };
     if height > area.height {
         // One line, cut to fit with "…".
         let full = if next_text.is_empty() { heading.to_string() } else { format!("{heading}. {next_text}") };
-        let shown = items::truncate(&full, usize::from(area.width).saturating_sub(2));
+        let width = usize::from(area.width);
+        if width < 3 {
+            f.render_widget(Line::styled(items::truncate(&full, width), t.title), area);
+            return;
+        }
+        let shown = items::truncate(&full, width - 2);
         let mut spans = vec![mark()];
         match shown.strip_prefix(heading) {
             Some(rest) => {

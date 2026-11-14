@@ -10,7 +10,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Clear, Padding, Paragraph, Row, Table};
+use ratatui::widgets::{Block, BorderType, Clear, Padding, Paragraph, Row, Table, Wrap};
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::app::player::{Phase, dock};
@@ -93,6 +93,75 @@ pub(crate) fn hint_title<'a, K: std::fmt::Display>(
     spans.insert(0, Span::from(" "));
     spans.push(Span::from(" "));
     Some(Line::from(spans))
+}
+
+/// The frames of the loading spinner.
+const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/// The spinner frame to show, or none with `reduce_motion`.
+pub(crate) fn spinner(app: &App) -> Option<&'static str> {
+    (!app.reduce_motion).then(|| SPINNER[usize::from(app.spin) % SPINNER.len()])
+}
+
+/// A view with nothing to show: a mark and a heading, then what to do next,
+/// in the middle of `area`. In a short area, all on one line.
+pub(crate) fn draw_empty(t: &Theme, f: &mut Frame, area: Rect, heading: &str, next: Option<String>) {
+    let mark = || Span::styled("○ ", t.muted);
+    let next_text = next.unwrap_or_default();
+    let next_lines = if next_text.is_empty() {
+        0
+    } else {
+        u16::try_from(Paragraph::new(next_text.as_str()).wrap(Wrap { trim: true }).line_count(area.width))
+            .unwrap_or(u16::MAX)
+    };
+    // The heading, a blank line, and what to do next.
+    let height = if next_lines == 0 { 1 } else { next_lines.saturating_add(2) };
+    if height > area.height {
+        // One line, cut to fit with "…".
+        let full = if next_text.is_empty() { heading.to_string() } else { format!("{heading}. {next_text}") };
+        let shown = items::truncate(&full, usize::from(area.width).saturating_sub(2));
+        let mut spans = vec![mark()];
+        match shown.strip_prefix(heading) {
+            Some(rest) => {
+                spans.push(Span::styled(heading.to_string(), t.title));
+                spans.push(Span::styled(rest.to_string(), t.muted));
+            }
+            None => spans.push(Span::styled(shown, t.title)),
+        }
+        f.render_widget(Line::from(spans), area);
+        return;
+    }
+    let mut lines = vec![Line::from(vec![mark(), Span::styled(heading.to_string(), t.title)])];
+    if !next_text.is_empty() {
+        lines.push(Line::default());
+        lines.push(Line::styled(next_text, t.muted));
+    }
+    let [_, middle, _] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(height), Constraint::Fill(2)]).areas(area);
+    f.render_widget(Paragraph::new(lines).centered().wrap(Wrap { trim: true }), middle);
+}
+
+/// "Press KEY to …", or nothing when the key is not bound.
+pub(crate) fn press<K: std::fmt::Display>(key: Option<K>, what: &str) -> Option<String> {
+    key.map(|k| format!("Press {k} {what}"))
+}
+
+/// Dim bars where the rows will be, while the first page loads, so the
+/// layout does not jump when it comes. `lines` is the lines of each row.
+pub(crate) fn draw_skeleton(t: &Theme, f: &mut Frame, area: Rect, lines: usize) {
+    const TITLES: [usize; 5] = [28, 20, 34, 24, 18];
+    let width = usize::from(area.width).saturating_sub(items::MARK_WIDTH + 1);
+    let mut rows = Vec::new();
+    for i in 0.. {
+        if rows.len() + lines > usize::from(area.height) {
+            break;
+        }
+        let title = TITLES[i % TITLES.len()].min(width);
+        rows.push(Line::styled(format!("  {}", "▀".repeat(title)), t.muted));
+        rows.push(Line::styled(format!("  {}", "▀".repeat((title * 3 / 5).min(width))), t.muted));
+        rows.extend(std::iter::repeat_n(Line::default(), lines.saturating_sub(2)));
+    }
+    f.render_widget(Paragraph::new(rows), area);
 }
 
 /// An error in the body of a view: "✗ " and the text.
@@ -236,7 +305,7 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect, no_dock: bool) {
         // A lasting note, so not a warning: it would stay on screen in every
         // tmux session.
         .or_else(|| app.graphics.message().map(StatusMessage::info));
-    let message = message.map(|m| status_line(t, &m));
+    let message = message.map(|m| status_line(t, &m, spinner(app)));
     // A message that does not fit next to the hints gets the whole bar.
     let hints_width = u16::try_from(hints.width()).unwrap_or(u16::MAX);
     let message_width = message.as_ref().map_or(0, |m| u16::try_from(m.width()).unwrap_or(u16::MAX));
@@ -254,11 +323,19 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect, no_dock: bool) {
 /// A status bar message, marked and styled by its kind: "✓" for a change
 /// that worked, "!" for a warning and "✗" for an error. The mark also shows
 /// the kind without color.
-pub(crate) fn status_line(t: &Theme, m: &StatusMessage) -> Line<'static> {
+/// Work that is going on gets the `spin` frame before it.
+pub(crate) fn status_line(t: &Theme, m: &StatusMessage, spin: Option<&str>) -> Line<'static> {
     let text = m.text.clone();
     match m.kind {
         StatusKind::Info => Line::from(text),
-        StatusKind::Progress => Line::styled(text, t.status_progress),
+        StatusKind::Progress => match spin {
+            Some(frame) => Line::from(vec![
+                Span::styled(frame.to_string(), t.accent),
+                Span::from(" "),
+                Span::styled(text, t.status_progress),
+            ]),
+            None => Line::from(Span::styled(text, t.status_progress)),
+        },
         StatusKind::Success => Line::from(vec![Span::styled("✓", t.status_success), Span::from(" "), Span::from(text)]),
         StatusKind::Warn => {
             Line::from(vec![Span::styled("!", t.status_warn), Span::from(" "), Span::styled(text, t.title)])
@@ -738,11 +815,15 @@ mod tests {
     #[test]
     fn status_marks_by_kind() {
         let t = crate::theme::Theme::ansi();
-        let line = |m: StatusMessage| status_line(&t, &m);
+        let line = |m: StatusMessage| status_line(&t, &m, None);
         let text = |l: &Line| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
         assert_eq!(text(&line(StatusMessage::info("Note"))), "Note");
         assert_eq!(text(&line(StatusMessage::progress("Loading…"))), "Loading…");
-        assert_eq!(line(StatusMessage::progress("Loading…")).style, t.status_progress);
+        assert_eq!(line(StatusMessage::progress("Loading…")).spans[0].style, t.status_progress);
+        // With the spinner, its frame comes first.
+        let spinning = status_line(&t, &StatusMessage::progress("Loading…"), Some("⠹"));
+        assert_eq!(text(&spinning), "⠹ Loading…");
+        assert_eq!((spinning.spans[0].style, spinning.spans[2].style), (t.accent, t.status_progress));
         let ok = line(StatusMessage::success("Saved"));
         assert_eq!((text(&ok), ok.spans[0].style), ("✓ Saved".to_string(), t.status_success));
         let warn = line(StatusMessage::warn("No chapters"));
@@ -770,6 +851,45 @@ mod tests {
         // Too narrow for even the selected tab: it shows, cut off.
         assert_eq!(tab_window(&widths, 2, 4), 2..3);
         assert_eq!(tab_window(&[], 0, 10), 0..0);
+    }
+
+    #[test]
+    fn empty_states_fit_short_windows() {
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        press(&mut app, "shift-tab");
+        press(&mut app, "shift-tab");
+        assert_eq!(app.tab, Tab::Queue);
+        // 6 rows leave 2 inside the box: one line, cut with "…".
+        let text = render(&app, 40, 6);
+        let line = text.lines().nth(2).unwrap();
+        assert_eq!(line, "│ ○ The queue is empty. Press a on a … │");
+        assert_eq!(line.width(), 40);
+        // An unbound key is left out of the next step.
+        let keys = crate::keymap::KeyOverrides::from([(Action::Enqueue, Vec::new())]);
+        app.keymap = KeyMap::new(&keys, &crate::keymap::PlayerKeyOverrides::new()).unwrap();
+        let text = render(&app, 70, 12);
+        assert!(text.contains("Videos in the queue play after the one that plays now."), "{text}");
+        assert!(!text.contains("Press"), "{text}");
+    }
+
+    #[test]
+    fn the_spinner_turns_while_loading() {
+        let (mut app, _) = search_app(16, false);
+        assert!(!app.busy(), "the results are in");
+        press(&mut app, "/");
+        for c in "go".chars() {
+            app.update(Message::Input(Input::Key(KeyPress::plain(KeyCode::Char(c)))));
+        }
+        press(&mut app, "enter");
+        assert!(app.busy());
+        let first = render(&app, 70, 16);
+        assert!(first.lines().last().unwrap().starts_with("⠋ Searching…"), "{first}");
+        assert!(first.contains("▀▀▀"), "a skeleton while the first page loads: {first}");
+        app.update(Message::Spin);
+        assert!(render(&app, 70, 16).lines().last().unwrap().starts_with("⠙ Searching…"));
+        // Without motion, only the text.
+        app.reduce_motion = true;
+        assert!(render(&app, 70, 16).lines().last().unwrap().starts_with("Searching…"));
     }
 
     #[test]
@@ -1028,7 +1148,7 @@ mod tests {
         app.update(Message::Input(Input::Key("C".parse().unwrap())));
         let page = CommentPage { note: Some("Comments are turned off.".into()), ..CommentPage::default() };
         app.update(Message::CommentsLoaded { request: 1, generation: 2, slot: CommentsSlot::First, result: Ok(page) });
-        assert!(render(&app, 60, 8).contains("Comments are turned off."));
+        assert!(render(&app, 60, 8).contains("○ Comments are turned off"));
     }
 
     #[test]

@@ -9,7 +9,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use unicode_width::UnicodeWidthStr as _;
 
 use super::items::{draw_image, truncate};
@@ -53,16 +53,22 @@ fn draw_up_next(app: &App, up: &UpNext, f: &mut Frame, area: Rect) {
     };
     // Both keys or no "choose" hint, so it never shows as `j/ choose`.
     let choose = key(Action::Down).zip(key(Action::Up)).map(|(d, u)| format!("{d}/{u}"));
-    let help = super::hints([
-        (choose, "choose"),
-        (key(Action::Open).map(|k| k.to_string()), "play"),
-        (app.keymap.player.first_key(PlayerAction::Back).map(|k| k.to_string()), "back"),
-    ]);
+    let t = &app.theme;
+    let help = super::hint_title(
+        t,
+        [
+            (choose, "choose"),
+            (key(Action::Open).map(|k| k.to_string()), "play"),
+            (app.keymap.player.first_key(PlayerAction::Back).map(|k| k.to_string()), "back"),
+        ],
+    );
     let width = area.width.min(100);
     let [_, column, _] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(width), Constraint::Fill(1)]).areas(area);
-    let t = &app.theme;
-    let block = bordered(t, format!(" {header} ")).title_bottom(Line::styled(format!(" {help} "), t.key_label));
+    let mut block = bordered(t, format!(" {header} "));
+    if let Some(help) = help {
+        block = block.title_bottom(help);
+    }
     let inner = block.inner(column);
     f.render_widget(block, column);
     let text_width = usize::from(inner.width);
@@ -104,7 +110,7 @@ pub fn draw_mini(app: &App, p: &PlayerState, f: &mut Frame, dock: Rect) {
     let frame = Rect::new(dock.x, g.y.saturating_sub(1), dock.width, g.rows.saturating_add(2)).intersection(dock);
     // Only the border takes a style: the video is inside the block.
     let theme = &app.theme;
-    let block = Block::bordered().border_style(theme.border);
+    let block = Block::bordered().border_type(BorderType::Rounded).border_style(theme.border);
     let inner = block.inner(frame);
     f.render_widget(block, frame);
     if let (Phase::Ended, Some(up)) = (&p.phase, &p.up_next) {

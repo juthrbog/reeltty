@@ -3,10 +3,10 @@ source: src/ui/mod.rs
 expression: "render(&app, 60, 8)"
 ---
  Search · Feed · Subscriptions · Playlists · Queue · History
-┌ Comments ────────────────────────────────────────────────┐
-│Loading comments…                                         │
+╭ Comments ────────────────────────────────────────────────╮
+│ Loading comments…                                        │
 │                                                          │
 │                                                          │
 │                                                          │
-└ enter replies · n link · o order · C details ────────────┘
-Loading comments…       ? help  / search  esc back  q quit
+╰ enter replies  n link  o order  C details ───────────────╯
+Loading comments…        ? help  / search  esc back  q quit

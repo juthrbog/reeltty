@@ -1,10 +1,10 @@
 //! Screens on top of the tabs, and the Subscriptions and Playlists tabs.
 
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap};
 
 use super::items::{self, truncate};
 use super::{bordered, error_line};
@@ -205,6 +205,10 @@ fn draw_video(app: &App, s: &VideoScreen, f: &mut Frame, area: Rect) {
     }
     f.render_widget(block, area);
     f.render_widget(paragraph.scroll((s.scroll.get().min(max), 0)), inner);
+    if max > 0 {
+        let content = usize::from(max) + usize::from(inner.height);
+        draw_scrollbar(&app.theme, f, area, content, usize::from(s.scroll.get().min(max)), usize::from(inner.height));
+    }
 }
 
 /// The lines of the details, with the selected link marked, and the index
@@ -239,23 +243,17 @@ fn video_lines(app: &App, d: &VideoDetails, link: Option<usize>) -> (Vec<Line<'s
     }
     spans.push(Span::styled(facts.join(" · "), t.muted));
     lines.push(Line::from(spans));
-    let mut hints = Vec::new();
-    if let Some(key) = app.keymap.first_key(Action::Comments).filter(|_| !d.live) {
-        let count = d.comments_count_text.as_ref().map(|c| format!(" ({c})")).unwrap_or_default();
-        hints.push((format!("Comments{count}: press "), key));
-    }
-    if let Some(key) = app.keymap.first_key(Action::NextLink).filter(|_| !d.description.links.is_empty()) {
-        hints.push(("Links: press ".to_string(), key));
-    }
+    // YouTube's count already says "Comments", as in "1.2K Comments".
+    let comments = match &d.comments_count_text {
+        Some(c) if c.to_lowercase().contains("comment") => c.to_lowercase(),
+        Some(c) => format!("comments ({c})"),
+        None => "comments".into(),
+    };
+    let comments_key = app.keymap.first_key(Action::Comments).filter(|_| !d.live);
+    let links_key = app.keymap.first_key(Action::NextLink).filter(|_| !d.description.links.is_empty());
+    let hints = super::hint_spans(t, [(comments_key, comments.as_str()), (links_key, "links")]);
     if !hints.is_empty() {
-        let mut spans = Vec::new();
-        for (i, (text, key)) in hints.into_iter().enumerate() {
-            if i > 0 {
-                spans.push(Span::styled(" · ", t.muted));
-            }
-            spans.extend([Span::styled(text, t.key_label), Span::styled(key.to_string(), t.key)]);
-        }
-        lines.push(Line::from(spans));
+        lines.push(Line::from(hints));
     }
 
     if !d.chapters.is_empty() {
@@ -289,14 +287,17 @@ fn draw_comments(app: &App, screen: &VideoScreen, list: &CommentsState, f: &mut 
     let t = &app.theme;
     let mut block = bordered(t, format!(" {} ", title.join(" · ")));
     let key = |a| app.keymap.first_key(a);
-    let hints = super::hints([
-        (key(Action::Open), "replies"),
-        (key(Action::NextLink), "link"),
-        (key(Action::Sort), "order"),
-        (key(Action::Comments), "details"),
-    ]);
-    if !hints.is_empty() {
-        block = block.title_bottom(Line::styled(format!(" {hints} "), t.key_label));
+    let hints = super::hint_title(
+        t,
+        [
+            (key(Action::Open), "replies"),
+            (key(Action::NextLink), "link"),
+            (key(Action::Sort), "order"),
+            (key(Action::Comments), "details"),
+        ],
+    );
+    if let Some(hints) = hints {
+        block = block.title_bottom(hints);
     }
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -316,6 +317,13 @@ fn draw_comments(app: &App, screen: &VideoScreen, list: &CommentsState, f: &mut 
         list.rows.iter().enumerate().map(|(i, r)| row_view(t, list, r, i == list.selected, inner.width)).collect();
     let top = first_visible(&rows, list.selected, list.top.get(), inner.height);
     list.top.set(top);
+    // Each row and the blank line after it.
+    let heights: Vec<usize> = rows.iter().map(|r| usize::from(r.height()) + 1).collect();
+    let content = heights.iter().sum::<usize>().saturating_sub(1);
+    if content > usize::from(inner.height) {
+        let above = heights[..top].iter().sum();
+        draw_scrollbar(t, f, area, content, above, usize::from(inner.height));
+    }
     let mut row_y = inner.y;
     for (i, row) in rows.iter().enumerate().skip(top) {
         if row_y >= inner.bottom() {
@@ -474,6 +482,21 @@ fn description_lines(t: &Theme, d: &Description, selected: Option<usize>) -> Vec
         lines.push(Line::from(spans));
     }
     lines
+}
+
+/// A thin scrollbar on the right border of `area`, a bordered block, for
+/// `content` lines of which `viewport` show from `position`.
+fn draw_scrollbar(t: &Theme, f: &mut Frame, area: Rect, content: usize, position: usize, viewport: usize) {
+    let bar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(None)
+        .thumb_symbol("┃")
+        .thumb_style(t.scrollbar);
+    // The scrollbar counts the positions that the top line can take.
+    let mut state =
+        ScrollbarState::new(content.saturating_sub(viewport) + 1).viewport_content_length(viewport).position(position);
+    f.render_stateful_widget(bar, area.inner(Margin { vertical: 1, horizontal: 0 }), &mut state);
 }
 
 /// "4:05", "1:02:03".

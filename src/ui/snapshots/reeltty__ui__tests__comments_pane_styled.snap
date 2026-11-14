@@ -3,26 +3,26 @@ source: src/ui/mod.rs
 expression: "styled(&draw_only(&app, 60, 24))"
 ---
 {M b} Search {/}{d}· Feed · Subscriptions · Playlists · Queue · History{/}
-{d}┌{/}{b} 10,645,363 Comments · Top {/}{d}───────────────────────────────┐{/}
-{d}│{/}{M}▌{/} {b}@SanDiegoZoo{/} ✓{d} · 6 years ago{/}{b} [Pinned]{/}{M} ♥{/}                 {d}│{/}
-{d}│{/}{M}▌{/} We're so honored that the first ever YouTube video was  {d}│{/}
-{d}│{/}{M}▌{/} filmed here!                                            {d}│{/}
-{d}│{/}{M}▌{/} {d}4.8M likes · 986 replies · open{/}                         {d}│{/}
+{d}╭{/}{b} 10,645,363 Comments · Top {/}{d}───────────────────────────────╮{/}
+{d}│{/} {M}▌{/} {b}@SanDiegoZoo{/} ✓{d} · 6 years ago{/}{b} [Pinned]{/}{M} ♥{/}                ┃
+{d}│{/} {M}▌{/} We're so honored that the first ever YouTube video was ┃
+{d}│{/} {M}▌{/} filmed here!                                           ┃
+{d}│{/} {M}▌{/} {d}4.8M likes · 986 replies · open{/}                        ┃
+{d}│{/}                                                          ┃
+{d}│{/}       {b}@reply{/}{d} · 6 years ago{/}                               ┃
+{d}│{/}       Very cool!                                         ┃
+{d}│{/}       {d}4.8M likes · 986 replies{/}                           ┃
+{d}│{/}                                                          ┃
+{d}│{/}       {M}Show more replies{/}                                  ┃
+{d}│{/}                                                          ┃
+{d}│{/}   {M r}@jawed{/}{d} · 6 years ago (edited){/}                          ┃
+{d}│{/}   line 1                                                 ┃
+{d}│{/}   line 2                                                 ┃
+{d}│{/}   line 3                                                 ┃
+{d}│{/}   line 4                                                 ┃
+{d}│{/}   line 5                                                 ┃
+{d}│{/}   line 6                                                 {d}│{/}
+{d}│{/}   {d}more…{/}                                                  {d}│{/}
 {d}│{/}                                                          {d}│{/}
-{d}│{/}      {b}@reply{/}{d} · 6 years ago{/}                                {d}│{/}
-{d}│{/}      Very cool!                                          {d}│{/}
-{d}│{/}      {d}4.8M likes · 986 replies{/}                            {d}│{/}
-{d}│{/}                                                          {d}│{/}
-{d}│{/}      {M}Show more replies{/}                                   {d}│{/}
-{d}│{/}                                                          {d}│{/}
-{d}│{/}  {M r}@jawed{/}{d} · 6 years ago (edited){/}                           {d}│{/}
-{d}│{/}  line 1                                                  {d}│{/}
-{d}│{/}  line 2                                                  {d}│{/}
-{d}│{/}  line 3                                                  {d}│{/}
-{d}│{/}  line 4                                                  {d}│{/}
-{d}│{/}  line 5                                                  {d}│{/}
-{d}│{/}  line 6                                                  {d}│{/}
-{d}│{/}  {d}more…{/}                                                   {d}│{/}
-{d}│{/}                                                          {d}│{/}
-{d}└ enter replies · n link · o order · C details ────────────┘{/}
-                        {b}?{/}{d} help  {/}{b}/{/}{d} search  {/}{b}esc{/}{d} back  {/}{b}q{/}{d} quit  {/}
+{d}╰ {/}{b}enter{/}{d} replies  {/}{b}n{/}{d} link  {/}{b}o{/}{d} order  {/}{b}C{/}{d} details ───────────────╯{/}
+                         {b}?{/}{d} help{/}  {b}/{/}{d} search{/}  {b}esc{/}{d} back{/}  {b}q{/}{d} quit{/}

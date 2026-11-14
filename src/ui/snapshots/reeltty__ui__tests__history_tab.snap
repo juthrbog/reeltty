@@ -3,12 +3,12 @@ source: src/ui/mod.rs
 expression: "render(&app, 60, 10)"
 ---
  Search · Feed · Subscriptions · Playlists · Queue · History
-┌ History (3) ─────────────────────────────────────────────┐
-│Video a                                                   │
-│  Fireship · 4:12 of 10:35 · 1 minute ago                 │
-│Video b                                                   │
-│  Fireship · watched · 3 hours ago                        │
-│Video c                                                   │
-│  Fireship · stopped at 1:10 · 1 month ago                │
-└──────────────────────────────────────────────────────────┘
-                                  ? help  / search  q quit
+╭ History (3) ─────────────────────────────────────────────╮
+│ Video a                                                  │
+│   Fireship · 4:12 of 10:35 · 1 minute ago                │
+│ Video b                                                  │
+│   Fireship · watched · 3 hours ago                       │
+│ Video c                                                  │
+│   Fireship · stopped at 1:10 · 1 month ago               │
+╰──────────────────────────────────────────────────────────╯
+                                   ? help  / search  q quit

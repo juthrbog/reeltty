@@ -3,10 +3,10 @@ source: src/ui/mod.rs
 expression: "render(&app, 60, 8)"
 ---
  Search · Feed · Subscriptions · Playlists · Queue · History
-┌ Search ──────────────────────────────────────────────────┐
-│Press / to search, f for filters.                         │
+╭ Search ──────────────────────────────────────────────────╮
+│ Press / to search, f for filters.                        │
 │                                                          │
 │                                                          │
 │                                                          │
-└──────────────────────────────────────────────────────────┘
-                       ? help  / search  f filters  q quit
+╰──────────────────────────────────────────────────────────╯
+                        ? help  / search  f filters  q quit

@@ -99,6 +99,13 @@ fn run_tui(paths: &Paths) -> Result<()> {
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
+        // https://no-color.org: set and not empty.
+        let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
+        // Before the UI reads input, because the reply comes on stdin.
+        let light = (!no_color && config.theme == reeltty::theme::ThemeName::Auto)
+            .then(reeltty::terminal::detect::background)
+            .flatten()
+            .map(reeltty::terminal::detect::is_light);
         let mut frontend = TerminalFrontend::start();
         let mut app = App::new(keymap, frontend.graphics().clone());
         app.subscriptions = subscriptions;
@@ -107,11 +114,10 @@ fn run_tui(paths: &Paths) -> Result<()> {
         app.max_quality = config.max_quality.height();
         app.reduce_motion = config.reduce_motion;
         app.density = config.density;
-        // https://no-color.org: set and not empty.
-        app.theme = if std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {
+        app.theme = if no_color {
             reeltty::theme::Theme::no_color()
         } else {
-            reeltty::theme::Theme::ansi()
+            reeltty::theme::Theme::named(config.theme, light)
         };
         app.autoplay = config.autoplay.0;
         let sponsorblock = start_sponsorblock(config.sponsorblock.skipped());

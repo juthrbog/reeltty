@@ -9,10 +9,17 @@
 //! carries meaning alone. No state depends on color
 //! alone: each one also has a modifier, a mark or a word.
 //!
+//! Truecolor themes are opt-in, with the `theme` setting. They are made from
+//! the default theme, so they have the same roles and modifiers: each ANSI
+//! color becomes a color of the palette, and dim text becomes the palette's
+//! muted color. They never paint the background behind text, only the
+//! selection and pills, so images and the terminal background show through.
+//!
 //! Image cells (Kitty placeholders) never take a theme style. Their color
 //! holds the image ID.
 
 use ratatui::style::{Color, Modifier, Style};
+use serde::Deserialize;
 
 /// Declares the roles once, so the struct, `ansi()`, `no_color()` and the
 /// test list cannot get out of step.
@@ -38,6 +45,11 @@ macro_rules! theme {
             pub const fn no_color() -> Self {
                 let a = Self::ansi();
                 Self { colors: false, $($role: plain(a.$role),)* }
+            }
+
+            /// Each role's style, changed by `f`.
+            fn map(self, f: impl Fn(Style) -> Style) -> Self {
+                Self { colors: self.colors, $($role: f(self.$role),)* }
             }
 
             /// Every role and its style.
@@ -153,6 +165,134 @@ impl Default for Theme {
     }
 }
 
+/// The colors of a truecolor theme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Palette {
+    /// Text, titles and keys.
+    pub text: Color,
+    /// Details, borders and other dim text.
+    pub muted: Color,
+    /// The background of the selection.
+    pub surface: Color,
+    /// The text on a pill: the background color of the theme.
+    pub base: Color,
+    pub accent: Color,
+    pub green: Color,
+    pub red: Color,
+    pub yellow: Color,
+}
+
+const fn rgb(hex: u32) -> Color {
+    Color::from_u32(hex)
+}
+
+/// <https://catppuccin.com/palette>
+pub const CATPPUCCIN_MOCHA: Palette = Palette {
+    text: rgb(0x00cd_d6f4),
+    muted: rgb(0x007f_849c),
+    surface: rgb(0x0045_475a),
+    base: rgb(0x001e_1e2e),
+    accent: rgb(0x00cb_a6f7),
+    green: rgb(0x00a6_e3a1),
+    red: rgb(0x00f3_8ba8),
+    yellow: rgb(0x00f9_e2af),
+};
+
+/// The light Catppuccin flavor.
+pub const CATPPUCCIN_LATTE: Palette = Palette {
+    text: rgb(0x004c_4f69),
+    muted: rgb(0x008c_8fa1),
+    surface: rgb(0x00cc_d0da),
+    base: rgb(0x00ef_f1f5),
+    accent: rgb(0x0088_39ef),
+    green: rgb(0x0040_a02b),
+    red: rgb(0x00d2_0f39),
+    yellow: rgb(0x00df_8e1d),
+};
+
+/// <https://github.com/folke/tokyonight.nvim>, the "night" style.
+pub const TOKYO_NIGHT: Palette = Palette {
+    text: rgb(0x00c0_caf5),
+    muted: rgb(0x0073_7aa2),
+    surface: rgb(0x0033_467c),
+    base: rgb(0x001a_1b26),
+    accent: rgb(0x00bb_9af7),
+    green: rgb(0x009e_ce6a),
+    red: rgb(0x00f7_768e),
+    yellow: rgb(0x00e0_af68),
+};
+
+impl Theme {
+    /// A truecolor theme from `p`, with the roles of the default theme.
+    pub fn truecolor(p: &Palette) -> Self {
+        Self::ansi().map(|s| {
+            let color = |c: Option<Color>| match c {
+                Some(Color::Magenta) => Some(p.accent),
+                Some(Color::Green) => Some(p.green),
+                Some(Color::Red) => Some(p.red),
+                Some(Color::Yellow) => Some(p.yellow),
+                other => other,
+            };
+            let mut s = Style { fg: color(s.fg), ..s };
+            if s.add_modifier.contains(DIM) {
+                // Dim text: the muted color, which is clearer than DIM on any palette.
+                s = Style { fg: s.fg.or(Some(p.muted)), add_modifier: s.add_modifier - DIM, ..s };
+            } else if s.fg.is_none() {
+                s.fg = Some(p.text);
+            }
+            if s.add_modifier.contains(REVERSED) {
+                // A pill, or the selection, which has no color of its own.
+                s = match s.fg {
+                    Some(fg) if fg != p.text => Style { fg: Some(p.base), bg: Some(fg), ..s },
+                    _ => Style { fg: Some(p.text), bg: Some(p.surface), ..s },
+                };
+                s.add_modifier -= REVERSED;
+            }
+            s
+        })
+    }
+
+    /// The theme for `name`. `light` is whether the terminal background is
+    /// light, if the terminal said. `"auto"` picks the light Catppuccin
+    /// theme on a light background, and the dark one otherwise.
+    pub fn named(name: ThemeName, light: Option<bool>) -> Self {
+        match name {
+            ThemeName::Ansi => Self::ansi(),
+            ThemeName::Auto if light == Some(true) => Self::truecolor(&CATPPUCCIN_LATTE),
+            ThemeName::Auto | ThemeName::CatppuccinMocha => Self::truecolor(&CATPPUCCIN_MOCHA),
+            ThemeName::CatppuccinLatte => Self::truecolor(&CATPPUCCIN_LATTE),
+            ThemeName::TokyoNight => Self::truecolor(&TOKYO_NIGHT),
+        }
+    }
+}
+
+/// The `theme` setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ThemeName {
+    /// The 16 ANSI colors of the terminal.
+    #[default]
+    Ansi,
+    /// Catppuccin Latte on a light background, else Catppuccin Mocha.
+    Auto,
+    CatppuccinMocha,
+    CatppuccinLatte,
+    TokyoNight,
+}
+
+impl ThemeName {
+    /// The name as in the configuration file.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ansi => "ansi",
+            Self::Auto => "auto",
+            Self::CatppuccinMocha => "catppuccin-mocha",
+            Self::CatppuccinLatte => "catppuccin-latte",
+            Self::TokyoNight => "tokyo-night",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +323,39 @@ mod tests {
             assert!(s.sub_modifier.contains(DIM));
             assert!(s.add_modifier.contains(BOLD));
         }
+    }
+
+    #[test]
+    fn truecolor_themes_follow_the_default_roles() {
+        let a = Theme::ansi();
+        for p in [CATPPUCCIN_MOCHA, CATPPUCCIN_LATTE, TOKYO_NIGHT] {
+            let t = Theme::truecolor(&p);
+            assert!(t.colors);
+            for ((role, ansi), (_, style)) in a.styles().into_iter().zip(t.styles()) {
+                assert!(matches!(style.fg, Some(Color::Rgb(..))), "{role}: {style:?}");
+                assert!(!style.add_modifier.intersects(DIM | REVERSED), "{role}: {style:?}");
+                // The same other modifiers, so every state shows as before.
+                assert_eq!(style.add_modifier, ansi.add_modifier - DIM - REVERSED, "{role}");
+                // Only pills and the selection paint the background.
+                assert_eq!(style.bg.is_some(), ansi.add_modifier.contains(REVERSED), "{role}");
+            }
+            assert_eq!(t.accent.fg, Some(p.accent));
+            assert_eq!(t.muted.fg, Some(p.muted));
+            assert_eq!(t.title.fg, Some(p.text));
+            assert_eq!((t.selection.fg, t.selection.bg), (Some(p.text), Some(p.surface)));
+            assert_eq!((t.badge_live.fg, t.badge_live.bg), (Some(p.base), Some(p.red)));
+            assert_eq!((t.wordmark.fg, t.wordmark.bg), (Some(p.base), Some(p.accent)));
+        }
+    }
+
+    #[test]
+    fn auto_follows_the_background() {
+        assert_eq!(Theme::named(ThemeName::Ansi, Some(true)), Theme::ansi());
+        assert_eq!(Theme::named(ThemeName::Auto, Some(true)), Theme::truecolor(&CATPPUCCIN_LATTE));
+        assert_eq!(Theme::named(ThemeName::Auto, Some(false)), Theme::truecolor(&CATPPUCCIN_MOCHA));
+        // No answer from the terminal: dark.
+        assert_eq!(Theme::named(ThemeName::Auto, None), Theme::truecolor(&CATPPUCCIN_MOCHA));
+        assert_eq!(Theme::named(ThemeName::TokyoNight, Some(true)), Theme::truecolor(&TOKYO_NIGHT));
     }
 
     #[test]

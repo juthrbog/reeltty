@@ -1352,9 +1352,9 @@ mod tests {
         insta::assert_snapshot!("player_progress_styled", styled(&draw_only(&app, 40, 12)));
         app.status = None;
         let buf = buffer(&app, 40, 12);
-        // " 0:50 " comes first, then a bar of 40 - 6 - 6 = 28 cells for 100 s.
+        // " ▶ 0:50 " comes first, then a bar of 40 - 8 - 6 = 26 cells for 100 s.
         let y = 10;
-        let cell = |secs: u16| &buf[(6 + secs * 28 / 100, y)];
+        let cell = |secs: u16| &buf[(8 + secs * 26 / 100, y)];
         let t = app.theme;
         // Skipped parts have glyphs of their own, so they show without color too.
         for (secs, style, symbol) in [
@@ -1366,6 +1366,43 @@ mod tests {
             assert_eq!(cell(secs).symbol(), symbol, "at {secs} s");
             assert!(has_style(cell(secs), style), "at {secs} s: {:?}", cell(secs));
         }
+    }
+
+    /// The bar of the full player at 40 x 12, for a video of 100 s at
+    /// `position_ms`: 26 cells, each 100 / 26 s long.
+    fn bar_at(app: &mut App, position_ms: u64) -> String {
+        use crate::app::player::PlayerEvent;
+        let event = |e| Message::Player { session: 1, event: e };
+        app.update(event(PlayerEvent::Duration(100_000)));
+        app.update(event(PlayerEvent::Position(position_ms)));
+        let buf = buffer(app, 40, 12);
+        (8..34).map(|x| buf[(x, 10)].symbol()).collect()
+    }
+
+    #[test]
+    fn the_progress_bar_moves_in_half_cells() {
+        let mut app = playing_app();
+        // A cell is 3846 ms. Its first quarter shows nothing yet.
+        assert_eq!(bar_at(&mut app, 500), format!("─{}", "─".repeat(25)));
+        assert_eq!(bar_at(&mut app, 1_000), format!("╾{}", "─".repeat(25)));
+        assert_eq!(bar_at(&mut app, 2_900), format!("━{}", "─".repeat(25)));
+        assert_eq!(bar_at(&mut app, 100_000), "━".repeat(26));
+        // The state mark goes before the time.
+        let text = render(&app, 40, 12);
+        assert!(text.lines().nth(10).unwrap().starts_with(" ▶ 1:40 "), "{text}");
+        app.update(Message::Player { session: 1, event: crate::app::player::PlayerEvent::Paused(true) });
+        assert!(render(&app, 40, 12).lines().nth(10).unwrap().starts_with(" ⏸ 1:40 "));
+    }
+
+    #[test]
+    fn chapters_start_after_a_gap() {
+        let mut app = playing_app();
+        let chapter = |start_secs| Chapter { title: String::new(), start_secs };
+        // Chapters at 50 s (cell 13), 55 s (cell 14: too close, so no mark),
+        // and 98 s (cell 25: too close to the end).
+        app.player.as_mut().unwrap().chapters = vec![chapter(0), chapter(50), chapter(55), chapter(98)];
+        assert_eq!(bar_at(&mut app, 0), format!("{}╴{}", "─".repeat(12), "─".repeat(13)));
+        assert_eq!(bar_at(&mut app, 70_000), format!("{}╸{}{}", "━".repeat(12), "━".repeat(5), "─".repeat(8)));
     }
 
     /// Whether `cell` shows `style`: its colors (or none), and its
@@ -1547,6 +1584,20 @@ mod tests {
     }
 
     #[test]
+    fn the_mini_player_box_shows_the_state_and_progress() {
+        let app = mini_app(100, 24, true);
+        let buf = buffer(&app, 100, 24);
+        let g = app.player.as_ref().unwrap().geometry;
+        let row = |y: u16| ((g.x - 1)..=(g.x + g.cols)).map(|x| buf[(x, y)].symbol()).collect::<String>();
+        assert!(row(g.y - 1).starts_with("╭ ▶ 1:05 / 10:35 ─"), "{}", row(g.y - 1));
+        // The bottom edge is the bar: 65 s of 635 s in 31 cells is 3.2 cells.
+        let bottom = row(g.y + g.rows);
+        assert!(bottom.starts_with("╰━━━──"), "{bottom}");
+        assert!(bottom.ends_with("─╯"), "{bottom}");
+        assert!(has_style(&buf[(g.x, g.y + g.rows)], app.theme.progress_played));
+    }
+
+    #[test]
     fn mini_player_before_and_after_playback() {
         use crate::app::player::PlayerEvent;
         let app = mini_app(80, 16, false);
@@ -1701,7 +1752,8 @@ mod tests {
         app.player.as_mut().unwrap().id = "a".into();
         let text = render(&app, 100, 24);
         assert!(text.contains("▶ Rust in 100 seconds"), "{text}");
-        assert_eq!(text.matches('▶').count(), 1, "only that video: {text}");
+        // That video, and the mini-player's box title.
+        assert_eq!(text.matches('▶').count(), 2, "{text}");
         let buf = draw_only(&app, 100, 24);
         let y =
             (0..24).find(|y| (0..100).map(|x| buf[(x, *y)].symbol()).collect::<String>().contains("▶ Rust")).unwrap();

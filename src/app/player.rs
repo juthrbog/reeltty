@@ -40,9 +40,9 @@ const PLAYED_MAX: usize = 50;
 /// Going to the previous chapter in the first seconds of a chapter goes to
 /// the one before it, as in mpv.
 const CHAPTER_GRACE_MS: u64 = 2000;
-/// Rows under the mini-player's video for the title, the progress bar, and
-/// the state.
-pub const MINI_INFO_ROWS: u16 = 3;
+/// Rows under the mini-player's video for the title and the state. The
+/// progress bar is the bottom edge of the box.
+pub const MINI_INFO_ROWS: u16 = 2;
 /// The mini-player takes a third of the screen width, within these limits.
 const MINI_COLS: (u16, u16) = (24, 64);
 /// A smaller screen has no room for the mini-player. Playback goes on, and
@@ -2016,7 +2016,7 @@ mod tests {
         // 38 cells of 10 px is 380 px wide, so 214 px high: 11 rows.
         assert_eq!((g.cols, g.rows), (38, 11));
         assert_eq!(g.x, 81);
-        // The box ends above the 3 info rows, on the last row of the dock.
+        // The box ends above the 2 info rows, on the last row of the dock.
         assert_eq!(g.y + g.rows + 1 + MINI_INFO_ROWS, dock.y + dock.rows);
         // A portrait video takes at most half of the dock.
         let (dock, g) = mini_layout(120, 40, (10, 20), (9, 16)).unwrap();

@@ -63,13 +63,13 @@ You can also give the path of `subscriptions.csv`. Channels you follow already s
 
 The Feed tab shows the newest videos of the channels you follow, newest first. reeltty loads each channel at most every 30 minutes, four at a time, and keeps the feed on your computer, so it shows at once when reeltty starts. Press `r` on the Feed tab to load all channels again. Shorts, live streams, and members-only videos are hidden.
 
-To play a video, select it and press `enter`. `i` shows its details. `a` adds a video to the queue, or takes it out. The Queue tab shows the queue, and `enter` there plays a video from it.
+To play a video, select it and press `enter`. `i` shows its details. `a` adds a video to the queue, or takes it out. `s` subscribes to a channel or saves a playlist, and `s` again undoes it. On a video, `c` opens its channel; on the details screen, `s` subscribes to the video's channel. The Queue tab shows the queue, and `enter` there plays a video from it.
 
 On the details screen, `C` shows the comments, and `C` again shows the details. In the comments, `j` and `k` move, `enter` shows or hides the replies of a comment, `o` switches between the Top and Newest order, `c` opens the channel of the comment's author, and `r` loads the comments again. A long comment shows in full when you select it. The comments work well with the mini-player: the video plays on while you read.
 
 In a description or the selected comment, `n` and `N` select the next or previous link, and `enter` follows it: a web link opens in your browser (with `xdg-open`, or `open` on macOS; only `http` and `https` links), a time like 1:05 plays the video from there (or seeks, if it plays already), another video plays, and a channel opens. `esc` clears the selection, and without a selected link `enter` works as before.
 
-The History tab shows the videos you played, newest first, and how far you got. In the other lists, a video you played says "watched", or where you stopped, such as "stopped at 4:12". A video you stopped in the middle plays again from where you stopped. With thumbnails on, a red bar along the bottom of a video's thumbnail shows how much of it you watched. `d` deletes an entry from the history (or from the queue in the Queue tab). In the player, the keys are mostly the same as mpv's:
+The History tab shows the videos you played, newest first, and how far you got. In the other lists, a video you played says "watched", or where you stopped, such as "stopped at 4:12". A video you stopped in the middle plays again from where you stopped. With thumbnails on, a red bar along the bottom of a video's thumbnail shows how much of it you watched. On the Subscriptions, Playlists, Queue, and History tabs, `d` removes the selected entry. In the player, the keys are mostly the same as mpv's:
 
 | Key | Action |
 |---|---|

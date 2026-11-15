@@ -9,7 +9,7 @@ expression: "render(&app, 120, 24)"
 │       │ Browse                           go to the channel  c             forward 5 s        right          │        │
 │       │ quit               q, ctrl-c     subscribe or save  s             back 5 s           left           │        │
 │       │ move up            k, up         add to the queue   a             forward 1 min      up             │        │
-│       │ move down          j, down       delete an entry    d             back 1 min         down           │        │
+│       │ move down          j, down       remove an entry    d             back 1 min         down           │        │
 │       │ go to the top      g, home       full-size player   v             volume up          0, *           │        │
 │       │ go to the bottom   G, end        stop mini-player   x             volume down        9              │        │
 │       │ half a page up     ctrl-u, pgup  comments           C             mute or unmute     m              │        │

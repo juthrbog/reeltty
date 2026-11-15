@@ -14,7 +14,9 @@ use crate::app::player::clock;
 use crate::app::screens::{ChannelScreen, PlaylistScreen, Screen, VideoPane, VideoScreen};
 use crate::app::{App, SCREEN_HEADER_ROWS, StatusMessage};
 use crate::keymap::{Action, KeyPress};
+use crate::source::download::size_text;
 use crate::source::model::{Comment, Description, Item, LinkTarget, VideoDetails};
+use crate::store::DownloadState;
 use crate::theme::Theme;
 
 /// A comment that is not selected shows at most this many lines of text.
@@ -607,11 +609,12 @@ pub fn draw_history(app: &App, f: &mut Frame, area: Rect) {
                 (false, Some(d)) => format!("{} of {}", clock(e.position_secs), clock(d)),
                 (false, None) => format!("stopped at {}", clock(e.position_secs)),
             };
-            let lead = if playing == Some(e.video_id.as_str()) {
+            let mut lead = if playing == Some(e.video_id.as_str()) {
                 vec![Span::styled("▶", t.now_playing), Span::from(" ")]
             } else {
                 Vec::new()
             };
+            lead.extend(app.downloads.mark(&e.video_id).map(|m| items::download_badge(t, m)).into_iter().flatten());
             let rest = [progress, ago(now, e.watched_at)];
             vec![
                 items::title_line(t, lead, &e.title, None, width, i == selected),
@@ -668,11 +671,86 @@ pub fn draw_queue(app: &App, f: &mut Frame, area: Rect) {
         .iter()
         .enumerate()
         .map(|(i, v)| {
-            let state = items::RowState { selected: i == selected, playing: false };
+            let state =
+                items::RowState { selected: i == selected, playing: false, download: app.downloads.mark(&v.id) };
             items::rows(t, &Item::Video(v.clone()), None, width, false, state)
         })
         .collect();
     items::draw_rows(t, rows, app.queue_selection, app.gap(), f, inner);
+}
+
+pub fn draw_downloads(app: &App, f: &mut Frame, area: Rect) {
+    let t = &app.theme;
+    let downloads = &app.downloads;
+    let size = downloads.saved_bytes();
+    let title = if size > 0 {
+        format!(" Downloads ({}) · {} ", downloads.rows.len(), size_text(size))
+    } else {
+        format!(" Downloads ({}) ", downloads.rows.len())
+    };
+    let block = bordered(t, title);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    if downloads.rows.is_empty() {
+        let next = super::press(
+            app.keymap.first_key(Action::Download),
+            "on a video to download it, and watch it without a network.",
+        );
+        super::draw_empty(t, f, inner, "No downloads yet", next);
+        return;
+    }
+    let width = usize::from(inner.width).saturating_sub(items::MARK_WIDTH);
+    let shown = downloads.shown();
+    let selected = items::selected(app.downloads_selection, shown.len());
+    let playing = app.player.as_ref().map(|p| p.id.as_str());
+    let rows = shown
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            let v = &row.video;
+            let mut lead = Vec::new();
+            if playing == Some(v.id.as_str()) {
+                lead.extend([Span::styled("▶", t.now_playing), Span::from(" ")]);
+            }
+            lead.extend(downloads.mark(&v.id).map(|m| items::download_badge(t, m)).into_iter().flatten());
+            let rest: Vec<String> = match row.state {
+                DownloadState::Done => {
+                    let mut rest: Vec<String> = row
+                        .format
+                        .width
+                        .zip(row.format.height)
+                        .map(|(w, h)| format!("{}p", w.min(h)))
+                        .into_iter()
+                        .collect();
+                    rest.extend(row.size_bytes.map(size_text));
+                    rest.extend(row.finished_at.map(|at| format!("saved {}", ago(app.clock, at))));
+                    rest
+                }
+                DownloadState::Queued if downloads.running.as_deref() == Some(v.id.as_str()) => {
+                    match downloads.progress {
+                        Some(progress) => {
+                            let mut rest = vec![match progress.total {
+                                Some(total) => format!("{} of {}", size_text(progress.done), size_text(total)),
+                                None => size_text(progress.done),
+                            }];
+                            rest.extend(progress.speed.filter(|s| *s > 0).map(|s| format!("{}/s", size_text(s))));
+                            rest
+                        }
+                        None => vec!["starting".into()],
+                    }
+                }
+                DownloadState::Queued => vec!["waiting".into()],
+                DownloadState::Failed => vec![row.error.clone().unwrap_or_else(|| "failed".into())],
+            };
+            let duration = v.duration_secs.map(duration);
+            let who = v.channels.first().map(|c| c.name.as_str());
+            vec![
+                items::title_line(t, lead, &v.title, duration.as_deref(), width, i == selected),
+                items::detail_line(t, who, &rest, width),
+            ]
+        })
+        .collect();
+    items::draw_rows(t, rows, app.downloads_selection, app.gap(), f, inner);
 }
 
 pub fn draw_saved(app: &App, f: &mut Frame, area: Rect) {

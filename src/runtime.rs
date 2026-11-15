@@ -143,6 +143,28 @@ impl Downloads {
     }
 }
 
+impl Downloads {
+    /// Removes the files of a download, and its unfinished files.
+    fn delete(&mut self, id: String, files: Vec<std::path::PathBuf>, temp: std::path::PathBuf) {
+        self.cancel(&id);
+        tokio::spawn(async move {
+            // After a stop, yt-dlp can still be ending and writing its files.
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let _ = tokio::task::spawn_blocking(move || {
+                for file in &files {
+                    if let Err(e) = std::fs::remove_file(file)
+                        && e.kind() != std::io::ErrorKind::NotFound
+                    {
+                        tracing::warn!("cannot remove {}: {e}", file.display());
+                    }
+                }
+                crate::source::download::sweep(&temp, |other| other != id);
+            })
+            .await;
+        });
+    }
+}
+
 impl Drop for Downloads {
     /// Quitting never waits for a download. It goes on at the next start.
     fn drop(&mut self) {
@@ -504,6 +526,12 @@ fn handle(
         Effect::SaveDownload(d) => writer.write(move |store| store.save_download(&d)),
         Effect::StartDownload(request) => downloads.start(*request, tx),
         Effect::CancelDownload { id } => downloads.cancel(&id),
+        Effect::DeleteDownload { id, files, temp } => {
+            // The row goes first: a file that cannot be removed is only space.
+            let forget = id.clone();
+            writer.write(move |store| store.forget_download(&forget));
+            downloads.delete(id, files, temp);
+        }
         // Pending work, as a stream search is: a new video stops it.
         Effect::PlayLocal { session, id, streams } => {
             let tx = tx.clone();

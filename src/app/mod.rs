@@ -335,6 +335,12 @@ pub enum Effect {
         id: String,
         streams: Box<Streams>,
     },
+    /// Forget a download, and remove its files and its unfinished files in `temp`.
+    DeleteDownload {
+        id: String,
+        files: Vec<std::path::PathBuf>,
+        temp: std::path::PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -345,11 +351,12 @@ pub enum Tab {
     Playlists,
     Queue,
     History,
+    Downloads,
 }
 
 impl Tab {
-    pub const ALL: [Self; 6] =
-        [Self::Search, Self::Feed, Self::Subscriptions, Self::Playlists, Self::Queue, Self::History];
+    pub const ALL: [Self; 7] =
+        [Self::Search, Self::Feed, Self::Subscriptions, Self::Playlists, Self::Queue, Self::History, Self::Downloads];
 
     pub const fn title(self) -> &'static str {
         match self {
@@ -359,6 +366,7 @@ impl Tab {
             Self::Playlists => "Playlists",
             Self::Queue => "Queue",
             Self::History => "History",
+            Self::Downloads => "Downloads",
         }
     }
 
@@ -375,6 +383,7 @@ impl Tab {
             Action::TabPlaylists => Some(Self::Playlists),
             Action::TabQueue => Some(Self::Queue),
             Action::TabHistory => Some(Self::History),
+            Action::TabDownloads => Some(Self::Downloads),
             _ => None,
         }
     }
@@ -512,6 +521,7 @@ pub struct App {
     pub sponsorblock: bool,
     /// Videos saved to watch without a network.
     pub downloads: downloads::Downloads,
+    pub downloads_selection: Selection,
     /// The videos played before the one that plays now, oldest first. It
     /// lasts until the player closes.
     played: Vec<Video>,
@@ -567,6 +577,7 @@ impl App {
             autoplay: true,
             sponsorblock: false,
             downloads: downloads::Downloads::default(),
+            downloads_selection: Selection::default(),
             played: Vec::new(),
             forward: Vec::new(),
             width: 80,
@@ -834,6 +845,7 @@ impl App {
         self.saved_selection.clamp(self.saved_playlists.len(), plain);
         self.queue_selection.clamp(self.queue.len(), plain);
         self.history_selection.clamp(self.history.len(), plain);
+        self.downloads_selection.clamp(self.downloads.rows.len(), plain);
         let feed = self.rows(FEED_HEADER_ROWS);
         self.feed.selection.clamp(self.feed.items.len(), feed);
         for screen in self.screens.iter_mut().chain(self.parked.values_mut().flatten()) {
@@ -848,6 +860,8 @@ impl App {
         if key == KeyPress::ctrl('c') {
             return vec![Effect::Quit];
         }
+        // A delete waits for its second press, and any other key forgets it.
+        let confirm = self.downloads.confirm.take();
         // The help takes the keys while it shows, over any screen.
         if self.show_help {
             self.on_help_key(key);
@@ -916,6 +930,11 @@ impl App {
             }
             Tab::History => {
                 if let Some(effects) = self.on_history_key(action) {
+                    return effects;
+                }
+            }
+            Tab::Downloads => {
+                if let Some(effects) = self.on_downloads_key(action, confirm.as_deref()) {
                     return effects;
                 }
             }
@@ -1813,7 +1832,7 @@ pub(crate) mod tests {
     fn tabs_wrap_around() {
         let mut a = app();
         key(&mut a, "shift-tab");
-        assert_eq!(a.tab, Tab::History);
+        assert_eq!(a.tab, Tab::Downloads);
         key(&mut a, "tab");
         key(&mut a, "tab");
         assert_eq!(a.tab, Tab::Feed);

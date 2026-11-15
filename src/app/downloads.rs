@@ -29,6 +29,38 @@ pub struct Downloads {
     pub format: FileFormat,
     /// Another reeltty runs the downloads, so this one starts none.
     pub elsewhere: bool,
+    /// The video whose delete waits for a second press.
+    pub confirm: Option<String>,
+}
+
+/// The state of a video's download, for a mark on its row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownloadMark {
+    Queued,
+    /// The percent, when it is known.
+    Running(Option<u8>),
+    Stopped,
+    Failed,
+    Saved,
+}
+
+impl DownloadMark {
+    pub fn text(self) -> String {
+        match self {
+            Self::Queued => "QUEUED".into(),
+            Self::Running(Some(p)) => format!("↓ {p}%"),
+            Self::Running(None) => "↓".into(),
+            Self::Stopped => "STOPPED".into(),
+            Self::Failed => "FAILED".into(),
+            Self::Saved => "SAVED".into(),
+        }
+    }
+}
+
+/// The percent of a download, rounded down.
+pub fn percent(p: Progress) -> Option<u8> {
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a percent")]
+    p.fraction().map(|f| (f * 100.0).floor() as u8)
 }
 
 impl Downloads {
@@ -75,6 +107,41 @@ impl Downloads {
     /// The temporary folder for files that download.
     pub fn temp(&self) -> PathBuf {
         self.dir.join(".part")
+    }
+
+    /// The mark for the row of a video, if it has a download.
+    pub fn mark(&self, id: &str) -> Option<DownloadMark> {
+        let d = self.get(id)?;
+        Some(match d.state {
+            DownloadState::Done => DownloadMark::Saved,
+            DownloadState::Queued if self.running.as_deref() == Some(id) => {
+                DownloadMark::Running(self.progress.and_then(percent))
+            }
+            DownloadState::Queued => DownloadMark::Queued,
+            DownloadState::Failed if d.error.as_deref() == Some(STOPPED) => DownloadMark::Stopped,
+            DownloadState::Failed => DownloadMark::Failed,
+        })
+    }
+
+    /// The downloads in the order of the Downloads tab: the one that runs,
+    /// the ones that wait, the ones that failed or stopped, then the saved
+    /// ones, newest first.
+    pub fn shown(&self) -> Vec<&Download> {
+        let group = |d: &Download| match d.state {
+            DownloadState::Queued if self.running.as_deref() == Some(d.video.id.as_str()) => 0,
+            DownloadState::Queued => 1,
+            DownloadState::Failed => 2,
+            DownloadState::Done => 3,
+        };
+        let mut shown: Vec<&Download> = self.rows.iter().collect();
+        // A stable sort keeps the order they were added in each group.
+        shown.sort_by_key(|d| (group(d), if d.state == DownloadState::Done { -d.finished_at.unwrap_or(0) } else { 0 }));
+        shown
+    }
+
+    /// The size of the saved files.
+    pub fn saved_bytes(&self) -> u64 {
+        self.rows.iter().filter(|d| d.state == DownloadState::Done).filter_map(|d| d.size_bytes).sum()
     }
 }
 
@@ -258,13 +325,80 @@ impl App {
         effects
     }
 
+    /// Keys on the Downloads tab. `confirm` is the video whose delete
+    /// waits for a second press.
+    pub(super) fn on_downloads_key(
+        &mut self,
+        action: Option<super::Action>,
+        confirm: Option<&str>,
+    ) -> Option<Vec<Effect>> {
+        use super::Action;
+        let action = action?;
+        let rows = self.plain_rows();
+        let len = self.downloads.rows.len();
+        if self.downloads_selection.apply(action, len, rows) {
+            return Some(Vec::new());
+        }
+        let d = self.downloads.shown().get(self.downloads_selection.index).map(|d| (*d).clone())?;
+        let video = d.video.clone();
+        match action {
+            Action::Open => Some(self.play(video.id, video.title)),
+            Action::Download => Some(self.toggle_download(&video)),
+            // `r` tries a failed download again.
+            Action::Refresh if d.state == DownloadState::Failed => Some(self.toggle_download(&video)),
+            Action::Refresh => Some(Vec::new()),
+            Action::Delete if confirm == Some(video.id.as_str()) => Some(self.delete_download(&d)),
+            Action::Delete => {
+                let what = match d.size_bytes.filter(|_| d.state == DownloadState::Done) {
+                    Some(size) => format!("delete {} ({})", video.title, size_text(size)),
+                    None => format!("remove {} from the downloads", video.title),
+                };
+                let again =
+                    self.keymap.first_key(Action::Delete).map_or_else(|| "the key".to_string(), |k| k.to_string());
+                self.status = Some(StatusMessage::warn(format!("Press {again} again to {what}.")));
+                self.downloads.confirm = Some(video.id);
+                Some(Vec::new())
+            }
+            Action::Enqueue => {
+                self.toggle_queued(&video);
+                Some(Vec::new())
+            }
+            Action::Details => Some(self.open(super::screens::Target::open(&Item::Video(video)))),
+            Action::Channel => match super::screens::Target::channel_of(&Item::Video(video)) {
+                Some(t) => Some(self.open(t)),
+                None => Some(Vec::new()),
+            },
+            _ => None,
+        }
+    }
+
+    /// Deletes a download and its files, and stops it if it runs.
+    fn delete_download(&mut self, d: &Download) -> Vec<Effect> {
+        let id = d.video.id.clone();
+        let mut effects = Vec::new();
+        if self.downloads.running.as_deref() == Some(id.as_str()) {
+            self.downloads.running = None;
+            self.downloads.progress = None;
+            effects.push(Effect::CancelDownload { id: id.clone() });
+        }
+        self.downloads.rows.retain(|r| r.video.id != id);
+        self.downloads_selection.clamp(self.downloads.rows.len(), self.plain_rows());
+        let files = [&d.video_file, &d.audio_file].into_iter().flatten().map(|f| self.downloads.dir.join(f)).collect();
+        effects.push(Effect::DeleteDownload { id, files, temp: self.downloads.temp() });
+        self.status = Some(StatusMessage::success(match d.size_bytes.filter(|_| d.state == DownloadState::Done) {
+            Some(size) => format!("Deleted {} ({}).", d.video.title, size_text(size)),
+            None => format!("Removed {} from the downloads.", d.video.title),
+        }));
+        effects.extend(self.next_download());
+        effects
+    }
+
     /// The lasting status line of the downloads: "↓ title 42% · 2 queued".
     pub fn download_status(&self) -> Option<StatusMessage> {
         let id = self.downloads.running.as_deref()?;
         let title = self.downloads.get(id).map_or(id, |d| d.video.title.as_str());
-        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a percent")]
-        let percent = match self.downloads.progress.and_then(|p| p.fraction()) {
-            Some(f) => format!("{}%", (f * 100.0).floor() as u8),
+        let percent = match self.downloads.progress.and_then(percent) {
+            Some(p) => format!("{p}%"),
             None => "…".to_string(),
         };
         let waiting = match self.downloads.waiting() {
@@ -513,5 +647,89 @@ mod tests {
         let effects = a.update(Message::Player { session, event });
         assert!(!effects.iter().any(|e| matches!(e, Effect::ResolveStreams { .. })), "{effects:?}");
         assert!(matches!(a.player.as_ref().unwrap().phase, Phase::Failed(_)));
+    }
+
+    fn deleted(effects: &[Effect]) -> Option<(&str, &[PathBuf])> {
+        effects.iter().find_map(|e| match e {
+            Effect::DeleteDownload { id, files, temp } => {
+                assert_eq!(temp, Path::new("/d/.part"));
+                Some((id.as_str(), files.as_slice()))
+            }
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn the_downloads_tab_deletes_on_the_second_press() {
+        let mut a = app();
+        key(&mut a, "D");
+        finish(&mut a, "a", Ok(Box::new(done("a"))));
+        key(&mut a, "7");
+        assert!(key(&mut a, "d").is_empty());
+        assert_eq!(a.status.as_deref(), Some("Press d again to delete Video a (412 MB)."));
+        // Any other key forgets the first press.
+        key(&mut a, "j");
+        assert!(deleted(&key(&mut a, "d")).is_none());
+        let effects = key(&mut a, "d");
+        let files = [PathBuf::from("/d/a.f136.mp4"), PathBuf::from("/d/a.f251.webm")];
+        assert_eq!(deleted(&effects), Some(("a", &files[..])));
+        assert_eq!(a.status.as_deref(), Some("Deleted Video a (412 MB)."));
+        assert!(a.downloads.rows.is_empty());
+        assert_eq!(a.downloads.mark("a"), None);
+    }
+
+    #[test]
+    fn deleting_the_running_download_stops_it_and_starts_the_next() {
+        let mut a = app();
+        key(&mut a, "D");
+        key(&mut a, "j");
+        key(&mut a, "D");
+        key(&mut a, "7");
+        // The running one is first.
+        key(&mut a, "d");
+        assert_eq!(a.status.as_deref(), Some("Press d again to remove Video a from the downloads."));
+        let effects = key(&mut a, "d");
+        assert!(effects.contains(&Effect::CancelDownload { id: "a".into() }));
+        assert_eq!(deleted(&effects), Some(("a", &[][..])));
+        assert_eq!(started(&effects), ["b"]);
+        assert_eq!(a.status.as_deref(), Some("Removed Video a from the downloads."));
+    }
+
+    #[test]
+    fn r_tries_a_failed_download_again() {
+        let mut a = app();
+        key(&mut a, "D");
+        finish(&mut a, "a", Err("HTTP 403".into()));
+        key(&mut a, "7");
+        let effects = key(&mut a, "r");
+        assert_eq!(saved_states(&effects), [("a", DownloadState::Queued)]);
+        assert_eq!(started(&effects), ["a"]);
+        // On a download that runs, r does nothing.
+        assert!(key(&mut a, "r").is_empty());
+    }
+
+    #[test]
+    fn the_tab_orders_by_state_and_marks_each_row() {
+        let mut a = app();
+        let row = |id: &str, state, finished_at, error: Option<&str>| Download {
+            state,
+            finished_at,
+            error: error.map(String::from),
+            ..Download::queued(video(id), 720, FileFormat::Separate, 0)
+        };
+        a.downloads.rows = vec![
+            row("old", DownloadState::Done, Some(1), None),
+            row("stopped", DownloadState::Failed, None, Some(STOPPED)),
+            row("new", DownloadState::Done, Some(5), None),
+            row("wait", DownloadState::Queued, None, None),
+            row("run", DownloadState::Queued, None, None),
+        ];
+        a.downloads.running = Some("run".into());
+        a.downloads.progress = Some(Progress { done: 1, total: Some(4), speed: None });
+        let ids: Vec<&str> = a.downloads.shown().iter().map(|d| d.video.id.as_str()).collect();
+        assert_eq!(ids, ["run", "wait", "stopped", "new", "old"]);
+        let marks: Vec<String> = ids.iter().map(|id| a.downloads.mark(id).unwrap().text()).collect();
+        assert_eq!(marks, ["↓ 25%", "QUEUED", "STOPPED", "SAVED", "SAVED"]);
+        assert_eq!(DownloadMark::Failed.text(), "FAILED");
     }
 }

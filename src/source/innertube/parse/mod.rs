@@ -138,7 +138,7 @@ fn dispatch(key: &str, value: &Value) -> Option<Vec<Item>> {
 }
 
 fn keys(v: &Value) -> Vec<&str> {
-    v.as_object().map(|o| o.keys().map(String::as_str).collect()).unwrap_or_default()
+    v.as_object().map_or_default(|o| o.keys().map(String::as_str).collect())
 }
 
 /// A channel `browse` response for the Videos tab.

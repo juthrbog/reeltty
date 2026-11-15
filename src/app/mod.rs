@@ -1009,7 +1009,7 @@ impl App {
                     Action::Channel => {
                         let channel = s.details.as_ref().and_then(|d| d.channel.clone());
                         let Some(c) = channel else { return Vec::new() };
-                        return Target::channel(&c).map(|t| self.open(t)).unwrap_or_default();
+                        return Target::channel(&c).map_or_default(|t| self.open(t));
                     }
                     Action::Toggle | Action::Enqueue => return self.on_video_screen_item(action),
                     Action::Open => {
@@ -1183,7 +1183,7 @@ impl App {
             Action::Channel => {
                 let Some(CommentRow::Comment { comment, .. }) = c.selected_row() else { return Vec::new() };
                 let author = comment.author.clone();
-                return Target::channel(&author).map(|t| self.open(t)).unwrap_or_default();
+                return Target::channel(&author).map_or_default(|t| self.open(t));
             }
             _ => c.navigate(action, page).flatten(),
         };

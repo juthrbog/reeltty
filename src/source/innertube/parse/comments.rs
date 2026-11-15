@@ -168,7 +168,7 @@ fn comment(vm: &Value, entities: &HashMap<&str, &Value>, video_id: &str) -> Opti
 }
 
 fn keys(v: &Value) -> Vec<&str> {
-    v.as_object().map(|o| o.keys().map(String::as_str).collect()).unwrap_or_default()
+    v.as_object().map_or_default(|o| o.keys().map(String::as_str).collect())
 }
 
 #[cfg(test)]

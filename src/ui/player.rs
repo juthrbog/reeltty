@@ -181,7 +181,7 @@ pub fn draw_mini(app: &App, p: &PlayerState, f: &mut Frame, dock: Rect) {
             Some(n) => format!("Up next in {n} s"),
             None => "Up next".to_string(),
         };
-        let title = up.videos.get(up.selection).map(|v| v.title.clone()).unwrap_or_default();
+        let title = up.videos.get(up.selection).map_or_default(|v| v.title.clone());
         draw_centered(f, inner, vec![Line::styled(header, theme.muted), Line::styled(title, theme.title)]);
     } else if p.is_running() {
         let area = Rect::new(g.x, g.y, g.cols, g.rows).intersection(inner);
@@ -314,7 +314,7 @@ fn draw_progress(t: &Theme, p: &PlayerState, f: &mut Frame, area: Rect) {
         return;
     }
     let left = clock(p.position_ms);
-    let right = p.duration_ms.map(clock).unwrap_or_default();
+    let right = p.duration_ms.map_or_default(clock);
     let bar_width = usize::from(area.width).saturating_sub(left.width() + right.width() + 6);
     let mut spans = vec![Span::from(" "), Span::styled(state_mark(p), t.now_playing), Span::from(format!(" {left} "))];
     spans.extend(bar(t, p, bar_width));

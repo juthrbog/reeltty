@@ -36,7 +36,7 @@ pub fn draw(app: &App, f: &mut Frame, area: Rect) {
 fn query_line(app: &App, width: usize) -> Paragraph<'static> {
     let s = &app.search;
     let t = &app.theme;
-    let key = |a| app.keymap.first_key(a).map(|k| k.to_string()).unwrap_or_default();
+    let key = |a| app.keymap.first_key(a).map_or_default(|k| k.to_string());
     if let Some(input) = &s.input {
         // Show the end of a long query, so the cursor stays on screen.
         let shown = tail(input, width.saturating_sub(3));

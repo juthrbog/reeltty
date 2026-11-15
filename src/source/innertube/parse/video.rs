@@ -264,8 +264,7 @@ fn bar_chapters(next: &Value, key: &str) -> Vec<Chapter> {
     array(next, PLAYER_BAR)
         .iter()
         .find(|m| m["key"] == key)
-        .map(|m| array(m, "/value/chapters"))
-        .unwrap_or_default()
+        .map_or_default(|m| array(m, "/value/chapters"))
         .iter()
         .filter_map(|c| {
             let c = c.get("chapterRenderer")?;
@@ -280,8 +279,7 @@ fn panel_chapters(next: &Value, panel: &str) -> Vec<Chapter> {
         .iter()
         .filter_map(|p| p.get("engagementPanelSectionListRenderer"))
         .find(|p| p["panelIdentifier"] == panel)
-        .map(|p| array(p, "/content/macroMarkersListRenderer/contents"))
-        .unwrap_or_default()
+        .map_or_default(|p| array(p, "/content/macroMarkersListRenderer/contents"))
         .iter()
         .filter_map(|c| {
             let c = c.get("macroMarkersListItemRenderer")?;

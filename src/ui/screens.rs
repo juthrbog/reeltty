@@ -555,7 +555,7 @@ pub fn draw_feed(app: &App, f: &mut Frame, area: Rect) {
         return;
     }
     let [status, list] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
-    let refresh = app.keymap.first_key(crate::keymap::Action::Refresh).map(|k| k.to_string()).unwrap_or_default();
+    let refresh = app.keymap.first_key(crate::keymap::Action::Refresh).map_or_default(|k| k.to_string());
     let line = match (&feed.error, feed.loading) {
         (_, n) if n > 0 => {
             let text = Span::styled(format!("Loading {}…", crate::takeout::channels(n)), t.status_progress);

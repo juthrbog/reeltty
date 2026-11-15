@@ -994,7 +994,7 @@ impl App {
     fn player_action(&mut self, action: Option<PlayerAction>) -> Vec<Effect> {
         match action {
             Some(PlayerAction::NextVideo) => {
-                let next = self.player.as_ref().map(|p| self.next_videos(p)).unwrap_or_default();
+                let next = self.player.as_ref().map_or_default(|p| self.next_videos(p));
                 if let Some(v) = next.into_iter().next() {
                     return self.play_next(v);
                 }

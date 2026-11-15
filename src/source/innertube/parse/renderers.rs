@@ -181,7 +181,7 @@ fn lockup_video(l: &Value, short: bool) -> Option<Video> {
 
     let rows = rows(m);
     let image = &m["image"];
-    let collab = image.pointer(&format!("/avatarStackViewModel{TAP}")).map(collab_channels).unwrap_or_default();
+    let collab = image.pointer(&format!("/avatarStackViewModel{TAP}")).map_or_default(collab_channels);
     let channels = if collab.is_empty() {
         let avatar = &image["decoratedAvatarViewModel"];
         let avatar_browse = avatar.pointer(&format!("{TAP}/browseEndpoint"));

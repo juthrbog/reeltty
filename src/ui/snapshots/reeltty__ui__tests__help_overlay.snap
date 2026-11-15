@@ -11,18 +11,18 @@ expression: "render(&app, 120, 24)"
 │       │ move up            k, up         add to the queue   a             forward 1 min      up             │        │
 │       │ move down          j, down       delete an entry    d             back 1 min         down           │        │
 │       │ go to the top      g, home       full-size player   v             volume up          0, *           │        │
-│       │ go to the bottom   G, end        stop mini-player   x             volume down        9, /           │        │
+│       │ go to the bottom   G, end        stop mini-player   x             volume down        9              │        │
 │       │ half a page up     ctrl-u, pgup  comments           C             mute or unmute     m              │        │
 │       │ half a page down   ctrl-d, pgdn  sort comments      o             faster             ]              │        │
 │       │ open               enter, l      next link          n             slower             [              │        │
 │       │ go back            esc, h        previous link      N             normal speed       backspace      │        │
 │       │ search             /             show or hide help  ?             next chapter       pgdn           │        │
 │       │ search filters     f                                              previous chapter   pgup           │        │
-│       │ next tab           tab           Player                           captions on or off c              │        │
-│       │ previous tab       shift-tab     stop and go back   q             video quality      v              │        │
+│       │ next tab           tab           Player                           captions on or off v              │        │
+│       │ previous tab       shift-tab     stop and go back   q             video quality      Q              │        │
 │       │ refresh            r             mini-player        esc           next video         >              │        │
 │       │ video details      i             pause or play      space, p      previous video     <              │        │
-│       ╰─────────────────────────────────────────────────────────────────────────────────────────────────────╯        │
+│       ╰ Dim keys: full-size player only ────────────────────────────────────────────────────────────────────╯        │
 │                                                                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
                                                                                     ? help  / search  f filters  q quit

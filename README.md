@@ -69,7 +69,7 @@ On the details screen, `C` shows the comments, and `C` again shows the details. 
 
 In a description or the selected comment, `n` and `N` select the next or previous link, and `enter` follows it: a web link opens in your browser (with `xdg-open`, or `open` on macOS; only `http` and `https` links), a time like 1:05 plays the video from there (or seeks, if it plays already), another video plays, and a channel opens. `esc` clears the selection, and without a selected link `enter` works as before.
 
-The History tab shows the videos you played, newest first, and how far you got. In the other lists, a video you played says "watched", or where you stopped, such as "stopped at 4:12". A video you stopped in the middle plays again from where you stopped. With thumbnails on, a red bar along the bottom of a video's thumbnail shows how much of it you watched. `d` deletes an entry from the history (or from the queue in the Queue tab). In the player, the keys are the same as mpv's:
+The History tab shows the videos you played, newest first, and how far you got. In the other lists, a video you played says "watched", or where you stopped, such as "stopped at 4:12". A video you stopped in the middle plays again from where you stopped. With thumbnails on, a red bar along the bottom of a video's thumbnail shows how much of it you watched. `d` deletes an entry from the history (or from the queue in the Queue tab). In the player, the keys are mostly the same as mpv's:
 
 | Key | Action |
 |---|---|
@@ -81,19 +81,19 @@ The History tab shows the videos you played, newest first, and how far you got. 
 | `[`, `]` | Slower or faster |
 | `backspace` | Normal speed |
 | `pgup`, `pgdn` | Previous or next chapter |
-| `c` | Captions on or off |
-| `v` | Video quality menu (mpv has no key for this) |
+| `v` | Captions on or off |
+| `Q` | Video quality menu (mpv has no key for this; in mpv, `Q` quits and keeps the place, which reeltty always does) |
 | `>`, `<` | Next or previous video |
 | `esc` | Mini-player: go back to the list, and the video plays on |
 | `q` | Stop and go back to the list |
 
-The mini-player shows the video at the bottom right of the list. The top of its box shows ▶ while the video plays, ⏸ while it is paused, and the time. The bottom edge of the box is the progress bar. Browse as usual: the browse keys come first, and the player keys that browse does not use still work, such as `space`, `left`, `right`, `m`, and `>`. Press `v` to show the player full size again, or `x` to stop it. `enter` on the video that plays also shows it full size, and `enter` on another video plays that one full size. When the screen is smaller than 72 x 14, the mini-player does not show, the sound plays on, and the status bar shows the video.
+The mini-player shows the video at the bottom right of the list. The top of its box shows ▶ while the video plays, ⏸ while it is paused, and the time. The bottom edge of the box is the progress bar. Browse as usual: the browse keys come first, and the player keys that browse does not use still work, such as `space`, `left`, `right`, `m`, and `>`. In the help (`?`), the player keys that work only full size are dim: captions, chapters, the 1-minute jumps, and the quality menu. Press `v` to show the player full size again, and `q` (or `x`) to stop it, as full size. With nothing playing, `q` quits reeltty. `ctrl-c` always quits. `enter` on the video that plays also shows it full size, and `enter` on another video plays that one full size. When the screen is smaller than 72 x 14, the mini-player does not show, the sound plays on, and the status bar shows the video.
 
 When a video ends, an "Up next" list shows the queue, then related videos. With autoplay on, the first one plays after 5 seconds. Move in the list with `j` and `k` to stop the countdown, and press `enter` to play the selected video. Live streams never play by themselves.
 
 reeltty skips sponsor messages that the SponsorBlock community marked, and the status line says "Skipped sponsor.". The skipped parts are green on the progress bar. A short gap in the bar shows where a chapter starts. If you go back into a skipped part, it plays. The `[sponsorblock]` settings choose what to skip. For each video, reeltty sends your IP address and the first 4 characters of a hash of the video ID to sponsor.ajay.app. The server answers with the segments of all videos whose hash starts with those characters, so it does not learn which video you play.
 
-In the quality menu, move with the browse keys (`j`, `k`), choose with `enter`, and close it with `esc`. The video goes on from the same place.
+Press `Q` in the player for the quality menu. In it, move with the browse keys (`j`, `k`), choose with `enter`, and close it with `esc`. The video goes on from the same place.
 
 Some videos, such as videos made for kids, make you wait a few seconds before they start. YouTube makes guests wait as long as the ads would play, and reeltty shows a countdown. Most videos start at once.
 

@@ -16,5 +16,5 @@ expression: "render(&app, 80, 16)"
 │   PLAYLIST Crust of Rust                 44 videos ││                        │
 │   Jon Gjengset                                     │╰━━╾─────────────────────╯
 │                                                    │ Big Buck Bunny           
-╰────────────────────────────────────────────────────╯ Ended  v full  x stop    
+╰────────────────────────────────────────────────────╯ Ended  v full  q stop    
                                             ? help  / search  f filters  q quit

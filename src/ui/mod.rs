@@ -358,16 +358,31 @@ pub(crate) fn status_line(t: &Theme, m: &StatusMessage, spin: Option<&str>) -> L
 }
 
 /// The keys of the browse screen, then of the player. The player keys work
-/// in the mini-player too, when browse does not use them.
+/// in the mini-player too, when browse does not use them. The player keys
+/// that do not are dim.
 fn draw_help(app: &App, f: &mut Frame, area: Rect) {
-    let keys = |keys: &[crate::keymap::KeyPress]| keys.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
     let mut lines = vec![HelpLine::Heading("Browse".into())];
-    lines.extend(app.keymap.bindings().iter().map(|(a, k)| HelpLine::Key(a.description().to_string(), keys(k))));
+    lines.extend(
+        app.keymap.bindings().iter().map(|(a, k)| {
+            HelpLine::Key(a.description().to_string(), k.iter().map(|k| (k.to_string(), false)).collect())
+        }),
+    );
     lines.extend([HelpLine::Blank, HelpLine::Heading("Player".into())]);
-    lines.extend(app.keymap.player.bindings().iter().map(|(a, k)| HelpLine::Key(a.description().to_string(), keys(k))));
+    let mut full_only = false;
+    lines.extend(app.keymap.player.bindings().iter().map(|(a, k)| {
+        let keys = k
+            .iter()
+            .map(|k| {
+                let dim = app.keymap.mini_player_action(*k) != Some(*a);
+                full_only |= dim;
+                (k.to_string(), dim)
+            })
+            .collect();
+        HelpLine::Key(a.description().to_string(), keys)
+    }));
     let cells = |n: Option<usize>| u16::try_from(n.unwrap_or(0)).unwrap_or(u16::MAX);
-    let description_width = cells(lines.iter().map(|l| l.texts().0.width()).max());
-    let keys_width = cells(lines.iter().map(|l| l.texts().1.width()).max());
+    let description_width = cells(lines.iter().map(|l| l.description().width()).max());
+    let keys_width = cells(lines.iter().map(|l| l.keys_text().width()).max());
     // Two spaces after each column.
     let column = description_width.saturating_add(keys_width).saturating_add(3);
     // The border and the space inside it take 2 rows and 4 columns.
@@ -390,8 +405,11 @@ fn draw_help(app: &App, f: &mut Frame, area: Rect) {
     let popup = centered(area, width, height);
     let t = &app.theme;
     let mut block = bordered(t, " Keys ");
+    if full_only {
+        block = block.title_bottom(Line::styled(" Dim keys: full-size player only ", t.muted));
+    }
     if cut {
-        block = block.title_bottom(Line::styled(" More keys in a larger window ", t.muted));
+        block = block.title_bottom(Line::styled(" More keys in a larger window ", t.muted).right_aligned());
     }
     let inner = block.inner(popup);
     f.render_widget(Clear, popup);
@@ -402,7 +420,14 @@ fn draw_help(app: &App, f: &mut Frame, area: Rect) {
             .into_iter()
             .map(|l| match l {
                 HelpLine::Key(description, keys) => {
-                    Row::new([Line::from(description.clone()), Line::styled(keys.clone(), t.key)])
+                    let mut spans = Vec::new();
+                    for (i, (key, dim)) in keys.iter().enumerate() {
+                        if i > 0 {
+                            spans.push(Span::styled(", ", t.key));
+                        }
+                        spans.push(Span::styled(key.clone(), if *dim { t.muted } else { t.key }));
+                    }
+                    Row::new([Line::from(description.clone()), Line::from(spans)])
                 }
                 HelpLine::Heading(heading) => Row::new([Line::styled(heading.clone(), t.title), Line::default()]),
                 HelpLine::Blank => Row::new([Line::default(), Line::default()]),
@@ -416,17 +441,24 @@ fn draw_help(app: &App, f: &mut Frame, area: Rect) {
 #[derive(Debug, PartialEq, Eq)]
 enum HelpLine {
     Heading(String),
-    /// What a key does, and its keys.
-    Key(String, String),
+    /// What a key does, and its keys. A dim key works only in the
+    /// full-size player.
+    Key(String, Vec<(String, bool)>),
     Blank,
 }
 
 impl HelpLine {
-    fn texts(&self) -> (&str, &str) {
+    fn description(&self) -> &str {
         match self {
-            Self::Heading(h) => (h, ""),
-            Self::Key(d, k) => (d, k),
-            Self::Blank => ("", ""),
+            Self::Heading(h) | Self::Key(h, _) => h,
+            Self::Blank => "",
+        }
+    }
+
+    fn keys_text(&self) -> String {
+        match self {
+            Self::Key(_, keys) => keys.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>().join(", "),
+            Self::Heading(_) | Self::Blank => String::new(),
         }
     }
 }
@@ -597,6 +629,32 @@ mod tests {
         // Smaller windows say that keys are missing.
         assert!(render(&app, 80, 24).contains("More keys in a larger window"));
         assert!(!render(&app, 120, 24).contains("More keys"));
+    }
+
+    #[test]
+    fn help_dims_the_player_keys_that_need_the_full_player() {
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        press(&mut app, "?");
+        let buf = draw_only(&app, 120, 24);
+        let text = render(&app, 120, 24);
+        let t = app.theme;
+        // The key cell after a description, in the row that has it.
+        let key_cell = |description: &str, key: &str| {
+            let (y, line) = text.lines().enumerate().find(|(_, l)| l.contains(description)).unwrap();
+            let start = line.find(description).unwrap() + description.len();
+            let col = line[..start].chars().count() + line[start..].chars().take_while(|c| *c == ' ').count();
+            let cell = buf[(u16::try_from(col).unwrap(), u16::try_from(y).unwrap())].clone();
+            assert_eq!(cell.symbol(), key, "{description}");
+            cell
+        };
+        // Browse uses v and pgdn, and quality and mini need the full player.
+        for (description, key) in [("captions on or off", "v"), ("next chapter", "p"), ("video quality", "Q")] {
+            assert!(has_style(&key_cell(description, key), t.muted), "{description}");
+        }
+        // These work in the mini-player too. q stops it, as full size.
+        for (description, key) in [("volume down", "9"), ("mute or unmute", "m"), ("stop and go back", "q")] {
+            assert!(has_style(&key_cell(description, key), t.key), "{description}");
+        }
     }
 
     fn sample_results() -> Vec<Item> {
@@ -1745,7 +1803,7 @@ mod tests {
         for event in [PlayerEvent::FileLoaded, PlayerEvent::Speed(150), PlayerEvent::Duration(60_000)] {
             app.update(Message::Player { session: 1, event });
         }
-        press(&mut app, "v");
+        press(&mut app, "Q");
         insta::assert_snapshot!(render(&app, 60, 14));
     }
 
@@ -2007,7 +2065,7 @@ mod tests {
         app.keymap = KeyMap::new(&KeyOverrides::new(), &player).unwrap();
         let text = render(&app, 80, 12);
         assert!(!text.contains("pause"), "{text}");
-        assert!(text.contains("q back"), "{text}");
+        assert!(text.contains("q stop"), "{text}");
     }
 
     #[test]
@@ -2022,7 +2080,7 @@ mod tests {
 
     #[test]
     fn help_headings_stay_with_their_keys() {
-        let key = |n: &str| HelpLine::Key(n.into(), "x".into());
+        let key = |n: &str| HelpLine::Key(n.into(), vec![("x".into(), false)]);
         let lines = [
             HelpLine::Heading("A".into()),
             key("a1"),
@@ -2032,7 +2090,7 @@ mod tests {
             key("b1"),
         ];
         let names = |columns: Vec<Vec<&HelpLine>>| -> Vec<Vec<String>> {
-            columns.iter().map(|c| c.iter().map(|l| l.texts().0.to_string()).collect()).collect()
+            columns.iter().map(|c| c.iter().map(|l| l.description().to_string()).collect()).collect()
         };
         // In 4 rows, "B" would end the first column, so it starts the next,
         // and the blank line before it goes.

@@ -964,21 +964,21 @@ impl App {
         if typing || self.show_help {
             return None;
         }
-        match self.keymap.action(key) {
-            Some(Action::ShowPlayer) => Some(self.restore_player()),
-            Some(Action::ClosePlayer) => Some(self.stop_player()),
-            Some(_) => None,
-            None => match self.keymap.player.action(key)? {
-                // These only make sense full size.
-                PlayerAction::Back | PlayerAction::Minimize | PlayerAction::Quality => None,
-                // The up next list is not on screen, so its first video plays.
-                PlayerAction::NextVideo
-                    if self.player.as_ref().is_some_and(|p| p.phase == Phase::Ended && p.up_next.is_some()) =>
-                {
-                    Some(self.on_up_next_key(key, Some(PlayerAction::NextVideo)))
-                }
-                action => Some(self.player_action(Some(action))),
-            },
+        if self.keymap.action(key) == Some(Action::ShowPlayer) {
+            return Some(self.restore_player());
+        }
+        // The help shows the same rule (KeyMap::mini_player_action).
+        match self.keymap.mini_player_action(key)? {
+            // Quit stops the video first, as the back key does full size.
+            // With nothing playing, it quits.
+            PlayerAction::Back => Some(self.stop_player()),
+            // The up next list is not on screen, so its first video plays.
+            PlayerAction::NextVideo
+                if self.player.as_ref().is_some_and(|p| p.phase == Phase::Ended && p.up_next.is_some()) =>
+            {
+                Some(self.on_up_next_key(key, Some(PlayerAction::NextVideo)))
+            }
+            action => Some(self.player_action(Some(action))),
         }
     }
 
@@ -1167,7 +1167,7 @@ fn start(p: &mut PlayerState, streams: Box<Streams>) -> Vec<Effect> {
 mod tests {
     use super::*;
     use crate::app::{Input, Message};
-    use crate::keymap::KeyMap;
+    use crate::keymap::{KeyMap, KeyOverrides, PlayerKeyOverrides};
     use crate::source::model::Item;
     use crate::source::streams::{Caption, FormatInfo, Quality};
     use crate::terminal::detect::Graphics;
@@ -1481,10 +1481,10 @@ mod tests {
             lang: "en-orig".into(),
             name: "English (Original)".into(),
         });
-        assert_eq!(key(&mut a, "c"), std::slice::from_ref(&add));
+        assert_eq!(key(&mut a, "v"), std::slice::from_ref(&add));
         assert_eq!(a.player.as_ref().unwrap().caption.as_deref(), Some("English (Original)"));
-        assert_eq!(key(&mut a, "c"), [Effect::Player(PlayerCommand::ShowCaptions(false))]);
-        assert_eq!(key(&mut a, "c"), [Effect::Player(PlayerCommand::ShowCaptions(true))]);
+        assert_eq!(key(&mut a, "v"), [Effect::Player(PlayerCommand::ShowCaptions(false))]);
+        assert_eq!(key(&mut a, "v"), [Effect::Player(PlayerCommand::ShowCaptions(true))]);
         // A new file (a quality change) needs the track again.
         assert_eq!(event(&mut a, PlayerEvent::FileLoaded), std::slice::from_ref(&add));
 
@@ -1493,8 +1493,8 @@ mod tests {
         assert_eq!(event(&mut a, PlayerEvent::FileLoaded), [add]);
 
         a.captions_language = "fr".into();
-        key(&mut a, "c");
-        assert!(key(&mut a, "c").is_empty());
+        key(&mut a, "v");
+        assert!(key(&mut a, "v").is_empty());
         assert_eq!(a.status.as_deref(), Some("This video has no captions in \"fr\"."));
     }
 
@@ -1502,7 +1502,7 @@ mod tests {
     fn quality_menu() {
         let mut a = playing(false);
         event(&mut a, PlayerEvent::Position(42_500));
-        assert!(key(&mut a, "v").is_empty());
+        assert!(key(&mut a, "Q").is_empty());
         // The menu starts on the size that plays.
         assert_eq!(a.player.as_ref().unwrap().quality_menu, Some(QualityMenu { selection: 2 }));
         // The arrows move in the menu, and do not seek.
@@ -1515,9 +1515,9 @@ mod tests {
         let p = a.player.as_ref().unwrap();
         assert_eq!((p.quality, p.quality_menu.clone()), (Some(360), None));
         // The same size again does nothing, and q closes the menu but not the player.
-        key(&mut a, "v");
+        key(&mut a, "Q");
         assert!(key(&mut a, "enter").is_empty());
-        key(&mut a, "v");
+        key(&mut a, "Q");
         assert!(key(&mut a, "q").is_empty());
         assert!(a.player.as_ref().unwrap().quality_menu.is_none());
         assert!(a.player.is_some());
@@ -1525,7 +1525,7 @@ mod tests {
         let mut a = app();
         a.play("v2".into(), "Title".into());
         a.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(streams(None)) });
-        key(&mut a, "v");
+        key(&mut a, "Q");
         assert_eq!(a.player.as_ref().unwrap().quality_menu, None);
         assert_eq!(a.status.as_deref(), Some("This video has no other sizes."));
     }
@@ -1534,12 +1534,12 @@ mod tests {
     fn a_failed_caption_load_can_be_tried_again() {
         let mut a = playing(false);
         event(&mut a, PlayerEvent::FileLoaded);
-        assert!(matches!(key(&mut a, "c").as_slice(), [Effect::Player(PlayerCommand::AddCaptions { .. })]));
+        assert!(matches!(key(&mut a, "v").as_slice(), [Effect::Player(PlayerCommand::AddCaptions { .. })]));
         event(&mut a, PlayerEvent::CaptionsFailed("HTTP error 429".into()));
         assert_eq!(a.player.as_ref().unwrap().caption, None);
         assert_eq!(a.status.as_deref(), Some("Cannot load the captions: HTTP error 429"));
         // The next key loads the track again, not only shows it.
-        assert!(matches!(key(&mut a, "c").as_slice(), [Effect::Player(PlayerCommand::AddCaptions { .. })]));
+        assert!(matches!(key(&mut a, "v").as_slice(), [Effect::Player(PlayerCommand::AddCaptions { .. })]));
     }
 
     #[test]
@@ -1547,7 +1547,7 @@ mod tests {
         let mut a = playing(false);
         event(&mut a, PlayerEvent::FileLoaded);
         event(&mut a, PlayerEvent::Position(42_000));
-        key(&mut a, "v");
+        key(&mut a, "Q");
         key(&mut a, "k");
         assert!(matches!(key(&mut a, "enter").as_slice(), [Effect::Player(PlayerCommand::SwitchVideo { .. })]));
         assert_eq!(a.player.as_ref().unwrap().quality, Some(480));
@@ -1558,7 +1558,7 @@ mod tests {
         assert_eq!((p.quality, &p.phase), (Some(720), &Phase::Playing));
         assert!(a.status.as_deref().unwrap().starts_with("Cannot play that size"));
         // A change that loads is not undone by a later failure.
-        key(&mut a, "v");
+        key(&mut a, "Q");
         key(&mut a, "k");
         key(&mut a, "enter");
         event(&mut a, PlayerEvent::FileLoaded);
@@ -1571,7 +1571,7 @@ mod tests {
         let mut a = playing(true);
         event(&mut a, PlayerEvent::FileLoaded);
         // The user turns off the captions that the configuration turned on.
-        assert_eq!(key(&mut a, "c"), [Effect::Player(PlayerCommand::ShowCaptions(false))]);
+        assert_eq!(key(&mut a, "v"), [Effect::Player(PlayerCommand::ShowCaptions(false))]);
         event(&mut a, PlayerEvent::Position(90_500));
         event(&mut a, PlayerEvent::Failed("HTTP error 403".into()));
         let effects = a.update(Message::StreamsResolved { session: 1, now: 0, result: Ok(streams(None)) });
@@ -1630,18 +1630,18 @@ mod tests {
     fn no_controls_after_the_end_or_a_failure() {
         let mut a = playing(false);
         event(&mut a, PlayerEvent::FileLoaded);
-        key(&mut a, "v");
+        key(&mut a, "Q");
         event(&mut a, PlayerEvent::Ended);
         // The menu closed with the file, so q leaves the player at once.
         assert_eq!(a.player.as_ref().unwrap().quality_menu, None);
-        for k in ["v", "c", "pgup", "space", "right", "]"] {
+        for k in ["Q", "v", "pgup", "space", "right", "]"] {
             assert!(key(&mut a, k).is_empty(), "{k}");
         }
         assert_eq!(key(&mut a, "q"), [Effect::Player(PlayerCommand::Stop)]);
 
         let mut a = playing(false);
         event(&mut a, PlayerEvent::FileLoaded);
-        key(&mut a, "v");
+        key(&mut a, "Q");
         event(&mut a, PlayerEvent::Failed("demuxer error".into()));
         assert_eq!(key(&mut a, "q"), [Effect::Player(PlayerCommand::Stop)]);
     }
@@ -2074,7 +2074,7 @@ mod tests {
     #[test]
     fn esc_shrinks_the_player_and_playback_goes_on() {
         let mut a = playing(false);
-        key(&mut a, "v");
+        key(&mut a, "Q");
         assert!(a.player.as_ref().unwrap().quality_menu.is_some());
         // In the quality menu, esc only closes the menu.
         assert!(key(&mut a, "esc").is_empty());
@@ -2132,10 +2132,32 @@ mod tests {
         // Without a player, the keys do nothing.
         assert!(key(&mut a, "x").is_empty());
         assert!(key(&mut a, "v").is_empty());
-        // q in browse quits, and keeps the place in the video.
+        // q stops the mini-player, as it stops the full player. With nothing
+        // playing, q quits.
         let mut a = mini();
         let effects = a.update(Message::Input(Input::Key("q".parse().unwrap())));
+        assert!(
+            matches!(effects.as_slice(), [Effect::SaveWatch(_), Effect::Player(PlayerCommand::Stop)]),
+            "{effects:?}"
+        );
+        assert_eq!(a.player, None);
+        assert_eq!(key(&mut a, "q"), [Effect::Quit]);
+        // ctrl-c always quits, and keeps the place in the video.
+        let mut a = mini();
+        let effects = a.update(Message::Input(Input::Key("ctrl-c".parse().unwrap())));
         assert!(matches!(effects.as_slice(), [Effect::SaveWatch(_), Effect::Quit]), "{effects:?}");
+    }
+
+    #[test]
+    fn a_rebound_player_back_key_stops_the_mini_player() {
+        let mut a = mini();
+        let player = PlayerKeyOverrides::from([(PlayerAction::Back, vec!["S".to_string()])]);
+        a.keymap = KeyMap::new(&KeyOverrides::new(), &player).unwrap();
+        assert_eq!(key(&mut a, "S"), [Effect::Player(PlayerCommand::Stop)]);
+        // The quality key needs the full player.
+        let mut a = mini();
+        assert!(key(&mut a, "Q").is_empty());
+        assert!(a.player.as_ref().unwrap().quality_menu.is_none());
     }
 
     #[test]

@@ -335,7 +335,9 @@ pub enum Effect {
         id: String,
         streams: Box<Streams>,
     },
-    /// Forget a download, and remove its files and its unfinished files in `temp`.
+    /// Forget a download, and remove its files, all the other files of the
+    /// video in the downloads folder, and its unfinished files in `temp`,
+    /// which is in the downloads folder.
     DeleteDownload {
         id: String,
         files: Vec<std::path::PathBuf>,
@@ -667,6 +669,7 @@ impl App {
         let key = matches!(msg, Message::Input(Input::Key(_)));
         let status = self.status.take();
         let mut effects = self.handle(msg);
+        self.anchor_downloads();
         if self.status.is_some() {
             // A new message shows the player's status line, as a key does.
             if let Some(p) = self.player.as_mut() {

@@ -158,7 +158,13 @@ impl Downloads {
                         tracing::warn!("cannot remove {}: {e}", file.display());
                     }
                 }
+                // Also the files that are complete before the whole download
+                // is: yt-dlp moves the video file of two before the audio
+                // is done. All the files of a video start with its ID.
                 crate::source::download::sweep(&temp, |other| other != id);
+                if let Some(dir) = temp.parent() {
+                    crate::source::download::sweep(dir, |other| other != id);
+                }
             })
             .await;
         });
@@ -682,6 +688,24 @@ printf 'RT\tdone\t{{"filepath": "{d}/x.f251.webm", "format_id": "251", "vcodec":
         assert_eq!(id, "x");
         assert_eq!(result.unwrap().size_bytes, 2);
         assert!(dir.path().join(".part").is_dir(), "the temporary folder is made");
+    }
+
+    #[tokio::test]
+    async fn delete_removes_all_the_files_of_the_video() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".part");
+        std::fs::create_dir(&temp).unwrap();
+        let names = ["x.f136.mp4", "y.f136.mp4", ".part/x.f251.webm.part", ".part/y.f251.webm.part"];
+        for name in names {
+            std::fs::write(dir.path().join(name), b"1").unwrap();
+        }
+        let mut downloads = Downloads { ytdlp: YtDlp { program: "yt-dlp".into() }, running: HashMap::new() };
+        // The video file came before the audio, so the row names no file.
+        downloads.delete("x".into(), Vec::new(), temp.clone());
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let there: Vec<bool> = names.iter().map(|n| dir.path().join(n).exists()).collect();
+        assert_eq!(there, [false, true, false, true]);
+        assert!(temp.is_dir());
     }
 
     #[tokio::test]

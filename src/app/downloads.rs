@@ -31,6 +31,9 @@ pub struct Downloads {
     pub elsewhere: bool,
     /// The video whose delete waits for a second press.
     pub confirm: Option<String>,
+    /// The selected video on the Downloads tab. Rows move between groups
+    /// when they change, and the selection stays on the same video.
+    pub selected: Option<String>,
 }
 
 /// The state of a video's download, for a mark on its row.
@@ -337,6 +340,8 @@ impl App {
         let rows = self.plain_rows();
         let len = self.downloads.rows.len();
         if self.downloads_selection.apply(action, len, rows) {
+            let index = self.downloads_selection.index;
+            self.downloads.selected = self.downloads.shown().get(index).map(|d| d.video.id.clone());
             return Some(Vec::new());
         }
         let d = self.downloads.shown().get(self.downloads_selection.index).map(|d| (*d).clone())?;
@@ -347,6 +352,11 @@ impl App {
             // `r` tries a failed download again.
             Action::Refresh if d.state == DownloadState::Failed => Some(self.toggle_download(&video)),
             Action::Refresh => Some(Vec::new()),
+            // The other reeltty has the row too, and would save it again.
+            Action::Delete if self.downloads.elsewhere => {
+                self.status = Some(StatusMessage::warn("Another reeltty runs the downloads. Delete in that one."));
+                Some(Vec::new())
+            }
             Action::Delete if confirm == Some(video.id.as_str()) => Some(self.delete_download(&d)),
             Action::Delete => {
                 let what = match d.size_bytes.filter(|_| d.state == DownloadState::Done) {
@@ -370,6 +380,20 @@ impl App {
             },
             _ => None,
         }
+    }
+
+    /// Keeps the Downloads selection on the selected video when the rows
+    /// change, or on the row in its place when that video is gone.
+    pub(super) fn anchor_downloads(&mut self) {
+        let rows = self.plain_rows();
+        let shown = self.downloads.shown();
+        let at = self.downloads.selected.as_ref().and_then(|id| shown.iter().position(|d| &d.video.id == id));
+        if let Some(i) = at {
+            self.downloads_selection.index = i;
+        }
+        self.downloads_selection.clamp(shown.len(), rows);
+        let id = shown.get(self.downloads_selection.index).map(|d| d.video.id.clone());
+        self.downloads.selected = id;
     }
 
     /// Deletes a download and its files, and stops it if it runs.
@@ -693,6 +717,39 @@ mod tests {
         assert_eq!(deleted(&effects), Some(("a", &[][..])));
         assert_eq!(started(&effects), ["b"]);
         assert_eq!(a.status.as_deref(), Some("Removed Video a from the downloads."));
+    }
+
+    #[test]
+    fn the_selection_stays_on_its_video() {
+        let mut a = app();
+        a.queue.push(video("c"));
+        for _ in 0..3 {
+            key(&mut a, "D");
+            key(&mut a, "j");
+        }
+        key(&mut a, "7");
+        // a runs, b and c wait. Select b.
+        key(&mut a, "j");
+        assert_eq!(a.downloads.selected.as_deref(), Some("b"));
+        // a ends and b starts: b moves to the top, and stays selected.
+        finish(&mut a, "a", Ok(Box::new(done("a"))));
+        assert_eq!(a.downloads_selection.index, 0);
+        // D stops b, which moves down to the stopped ones.
+        key(&mut a, "D");
+        assert_eq!(a.downloads.shown()[a.downloads_selection.index].video.id, "b");
+        assert_eq!(a.downloads.selected.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn another_reeltty_does_not_delete() {
+        let mut a = app();
+        a.downloads.elsewhere = true;
+        a.downloads.rows = vec![Download::queued(video("y"), 720, FileFormat::Mkv, 2)];
+        key(&mut a, "7");
+        key(&mut a, "d");
+        assert!(key(&mut a, "d").is_empty());
+        assert_eq!(a.status.as_deref(), Some("Another reeltty runs the downloads. Delete in that one."));
+        assert_eq!(a.downloads.rows.len(), 1);
     }
 
     #[test]

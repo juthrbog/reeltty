@@ -87,6 +87,16 @@ fn run_tui(paths: &Paths) -> Result<()> {
     let saved_playlists = store.saved_playlists()?;
     let history = store.history()?;
     let (feed, fetched) = store.feed()?;
+    let downloads = store.downloads()?;
+    // Unfinished files of downloads that will not go on: the ones that were
+    // removed, or that are done.
+    let temp = paths.downloads.join(".part");
+    let removed = reeltty::source::download::sweep(&temp, |id| {
+        downloads.iter().any(|d| d.video.id == id && d.state != reeltty::store::DownloadState::Done)
+    });
+    if removed > 0 {
+        tracing::info!("removed {removed} unfinished download files");
+    }
 
     let ytdlp = YtDlp { program: config.yt_dlp_program() };
     let source: Arc<dyn Source> = match InnerTube::new() {
@@ -138,6 +148,12 @@ fn run_tui(paths: &Paths) -> Result<()> {
         app.sponsorblock = sponsorblock.is_some();
         app.saved_playlists = saved_playlists;
         app.history = history;
+        app.downloads = reeltty::app::downloads::Downloads {
+            rows: downloads,
+            dir: paths.downloads.clone(),
+            format: config.downloads.format,
+            ..Default::default()
+        };
         let filter = reeltty::app::feed::FeedFilter { shorts: config.feed.shorts, live: config.feed.live };
         app.feed = reeltty::app::feed::FeedState::new(feed, fetched, filter);
         let thumbnails = (config.thumbnails.0 && app.graphics.is_available())

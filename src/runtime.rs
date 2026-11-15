@@ -1,5 +1,6 @@
 //! The event loop: messages in, effects out.
 
+use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::mpsc as std_mpsc;
@@ -16,6 +17,7 @@ use crate::app::{App, Effect, Message};
 use crate::frontend::Frontend;
 use crate::player::{self, Player};
 use crate::source::Source;
+use crate::source::download::Request;
 use crate::source::model::Item;
 use crate::source::ytdlp::YtDlp;
 use crate::sponsorblock;
@@ -93,6 +95,63 @@ impl Playback {
     }
 }
 
+/// How often a download sends its progress, at most.
+const PROGRESS_EVERY: Duration = Duration::from_secs(1);
+
+/// The downloads that run. The app starts one at a time, but a stopped one
+/// can still be ending when the next one starts.
+struct Downloads {
+    ytdlp: YtDlp,
+    running: HashMap<String, AbortHandle>,
+}
+
+impl Downloads {
+    fn start(&mut self, request: Request, tx: &UnboundedSender<Message>) {
+        self.running.retain(|_, task| !task.is_finished());
+        let (tx, ytdlp, id) = (tx.clone(), self.ytdlp.clone(), request.id.clone());
+        let task = tokio::spawn(async move {
+            let made = std::fs::create_dir_all(&request.temp)
+                .map_err(|e| format!("cannot make {}: {e}", request.temp.display()));
+            let result = match made {
+                Ok(()) => {
+                    let mut last: Option<std::time::Instant> = None;
+                    let progress_tx = tx.clone();
+                    let id = request.id.clone();
+                    let progress = move |progress| {
+                        if last.is_none_or(|t| t.elapsed() >= PROGRESS_EVERY) {
+                            last = Some(std::time::Instant::now());
+                            let _ = progress_tx.send(Message::DownloadProgress { id: id.clone(), progress });
+                        }
+                    };
+                    ytdlp.download(&request, progress).await.map(Box::new).map_err(|e| e.to_string())
+                }
+                Err(e) => Err(e),
+            };
+            let _ = tx.send(Message::DownloadFinished { id: request.id, now: now(), result });
+        });
+        if let Some(old) = self.running.insert(id, task.abort_handle()) {
+            old.abort();
+        }
+    }
+
+    /// Stops a download. Dropping its task stops yt-dlp, and its unfinished
+    /// files stay.
+    fn cancel(&mut self, id: &str) {
+        if let Some(task) = self.running.remove(id) {
+            task.abort();
+        }
+    }
+}
+
+impl Drop for Downloads {
+    /// Quitting never waits for a download. It goes on at the next start.
+    fn drop(&mut self) {
+        for task in self.running.values() {
+            task.abort();
+        }
+    }
+}
+
 impl Drop for Playback {
     /// Stops the video before the terminal is restored, and waits for mpv to stop.
     fn drop(&mut self) {
@@ -154,6 +213,7 @@ pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services
     let (tx, mut rx) = mpsc::unbounded_channel();
     let writer = Writer::start(services.store, tx.clone());
     let (source, thumbnails) = (services.source, services.thumbnails);
+    let mut downloads = Downloads { ytdlp: services.ytdlp.clone(), running: HashMap::new() };
     let mut playback = Playback {
         ytdlp: services.ytdlp,
         sponsorblock: services.sponsorblock,
@@ -165,7 +225,7 @@ pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services
     frontend.start_input(tx.clone());
     watch_signals(tx.clone());
     for effect in app.start() {
-        let services = (&source, thumbnails.as_ref(), &writer, &mut playback);
+        let services = (&source, thumbnails.as_ref(), &writer, &mut playback, &mut downloads);
         if let ControlFlow::Break(result) = handle(effect, &tx, services) {
             return result;
         }
@@ -194,7 +254,7 @@ pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services
             // The time now, for the deadlines that the message sets.
             app.clock = clock();
             for effect in app.update(msg) {
-                let services = (&source, thumbnails.as_ref(), &writer, &mut playback);
+                let services = (&source, thumbnails.as_ref(), &writer, &mut playback, &mut downloads);
                 if let ControlFlow::Break(result) = handle(effect, &tx, services) {
                     return result;
                 }
@@ -365,7 +425,13 @@ fn load(effect: Effect, tx: &UnboundedSender<Message>, source: &Arc<dyn Source>)
 fn handle(
     effect: Effect,
     tx: &UnboundedSender<Message>,
-    (source, thumbnails, writer, playback): (&Arc<dyn Source>, Option<&Fetcher>, &Writer, &mut Playback),
+    (source, thumbnails, writer, playback, downloads): (
+        &Arc<dyn Source>,
+        Option<&Fetcher>,
+        &Writer,
+        &mut Playback,
+        &mut Downloads,
+    ),
 ) -> ControlFlow<Result<()>> {
     match effect {
         Effect::Quit => return ControlFlow::Break(Ok(())),
@@ -435,6 +501,27 @@ fn handle(
             });
         }
         Effect::Player(command) => playback.handle(command, tx),
+        Effect::SaveDownload(d) => writer.write(move |store| store.save_download(&d)),
+        Effect::StartDownload(request) => downloads.start(*request, tx),
+        Effect::CancelDownload { id } => downloads.cancel(&id),
+        // Pending work, as a stream search is: a new video stops it.
+        Effect::PlayLocal { session, id, streams } => {
+            let tx = tx.clone();
+            playback.set_pending(async move {
+                let files = [Some(streams.video_url.clone()), streams.audio_url.clone()];
+                let there = tokio::task::spawn_blocking(move || {
+                    files.iter().flatten().all(|f| std::fs::metadata(f).is_ok_and(|m| m.is_file() && m.len() > 0))
+                })
+                .await
+                .unwrap_or(false);
+                let msg = if there {
+                    Message::StreamsResolved { session, now: now_unix(), result: Ok(streams) }
+                } else {
+                    Message::LocalMissing { session, id }
+                };
+                let _ = tx.send(msg);
+            });
+        }
     }
     ControlFlow::Continue(())
 }
@@ -517,4 +604,70 @@ fn now_unix() -> u64 {
 
 fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::source::download::FileFormat;
+
+    /// A fake yt-dlp that writes the two files of video `x` and prints its lines.
+    fn fake(dir: &std::path::Path, body: &str) -> YtDlp {
+        let (source, path) = (dir.join("fake.txt"), dir.join("fake"));
+        std::fs::write(&source, format!("#!/bin/sh\n{body}\n")).unwrap();
+        let status =
+            std::process::Command::new("install").args(["-m", "755"]).arg(&source).arg(&path).status().unwrap();
+        assert!(status.success());
+        YtDlp { program: path }
+    }
+
+    fn request(dir: &std::path::Path) -> Request {
+        Request {
+            id: "x".into(),
+            max_height: 720,
+            format: FileFormat::Separate,
+            dir: dir.to_path_buf(),
+            temp: dir.join(".part"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_download_reports_progress_then_its_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path().display();
+        let ytdlp = fake(
+            dir.path(),
+            &format!(
+                r#"printf 'v' > '{d}/x.f136.mp4'; printf 'a' > '{d}/x.f251.webm'
+printf 'RT\tdl\t136\t1\t1\tNA\tNA\nRT\tdl\t251\t1\t1\tNA\tNA\n'
+printf 'RT\tdone\t{{"filepath": "{d}/x.f136.mp4", "format_id": "136", "vcodec": "avc1", "acodec": "none"}}\n'
+printf 'RT\tdone\t{{"filepath": "{d}/x.f251.webm", "format_id": "251", "vcodec": "none", "acodec": "opus"}}\n'"#
+            ),
+        );
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut downloads = Downloads { ytdlp, running: HashMap::new() };
+        downloads.start(request(dir.path()), &tx);
+        // One progress line a second at most: the second line is dropped.
+        let Some(Message::DownloadProgress { id, progress }) = rx.recv().await else { panic!("no progress") };
+        assert_eq!((id.as_str(), progress.done), ("x", 1));
+        let Some(Message::DownloadFinished { id, result, .. }) = rx.recv().await else { panic!("no end") };
+        assert_eq!(id, "x");
+        assert_eq!(result.unwrap().size_bytes, 2);
+        assert!(dir.path().join(".part").is_dir(), "the temporary folder is made");
+    }
+
+    #[tokio::test]
+    async fn a_stopped_download_sends_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let ytdlp = fake(dir.path(), "printf 'RT\\tdl\\t136\\t1\\t9\\tNA\\tNA\\n'; sleep 30");
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut downloads = Downloads { ytdlp, running: HashMap::new() };
+        downloads.start(request(dir.path()), &tx);
+        assert!(matches!(rx.recv().await, Some(Message::DownloadProgress { .. })));
+        downloads.cancel("x");
+        drop(tx);
+        // The task is gone, so the channel closes with no `DownloadFinished`.
+        let next = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.unwrap();
+        assert_eq!(next, None);
+    }
 }

@@ -256,7 +256,8 @@ fn draw_centered(f: &mut Frame, area: Rect, lines: Vec<Line<'static>>) {
 fn phase_message(t: &Theme, p: &PlayerState, spin: Option<&str>) -> Line<'static> {
     match &p.phase {
         Phase::Resolving => {
-            let text = Span::styled("Finding the video streams…", t.status_progress);
+            let text = if p.local { "Opening the saved video…" } else { "Finding the video streams…" };
+            let text = Span::styled(text, t.status_progress);
             match spin {
                 Some(frame) => Line::from(vec![Span::styled(frame.to_string(), t.accent), Span::from(" "), text]),
                 None => Line::from(text),
@@ -276,6 +277,7 @@ fn phase_message(t: &Theme, p: &PlayerState, spin: Option<&str>) -> Line<'static
 pub fn status_message(p: &PlayerState) -> StatusMessage {
     let state = match &p.phase {
         Phase::Failed(e) => return StatusMessage::error(format!("Cannot play {}: {e}", p.title)),
+        Phase::Resolving if p.local => " · opening the saved video…".to_string(),
         Phase::Resolving => " · finding the video streams…".to_string(),
         Phase::Waiting { .. } => format!(" · starts in {} s", p.wait_left().unwrap_or(0)),
         Phase::Loading | Phase::Playing | Phase::Ended => match p.duration_ms {
@@ -482,6 +484,9 @@ fn status_parts(p: &PlayerState) -> Vec<String> {
     }
     if let Some(q) = p.quality {
         parts.push(format!("{q}p"));
+    }
+    if p.local {
+        parts.push("saved".into());
     }
     parts.push(if p.muted { "muted".to_string() } else { format!("vol {}%", p.volume) });
     parts

@@ -49,6 +49,7 @@ This document records the design decisions from the design session on 2026-10-26
 | Q28 | SponsorBlock | In v1.1. Skipped categories in the configuration file, `sponsor` by default. Only `skip` segments: `mute`, `full`, `poi`, and `chapter` can come later. See "Playback". |
 | Q29 | Player controls | Speed (`[` and `]`), a manual quality menu, and chapter jumps (`PgUp` and `PgDn`) in v1. |
 | Q30 | Code quality | `cargo fmt`, `cargo clippy -- -D warnings` with pedantic lints, `cargo deny`, `cargo audit`, and `insta` snapshot tests. A GitHub Actions workflow runs all of them. |
+| Q31 | Offline downloads | yt-dlp downloads a video to watch without a network: `D` on a video. One download at a time, in the order added, and the queue goes on after a restart. The formats of playback (Q13), up to `max_quality`. Two files, a video and an audio, by default, which needs no ffmpeg; one mkv with `[downloads] format = "mkv"`, which needs ffmpeg. Files go in the data folder, named by the video ID. A saved video always plays from its files. SponsorBlock segments are kept as data, never cut out of the file. Added on 2026-11-15. |
 
 ## Features
 
@@ -70,6 +71,10 @@ This document records the design decisions from the design session on 2026-10-26
 - Read-only comments.
 - SponsorBlock.
 - A mini-player while you browse.
+
+### v1.2
+
+- Offline downloads (see Q31 and "Downloads").
 
 ### Later
 
@@ -105,6 +110,14 @@ Streams always come from yt-dlp:
 4. Give the video URL and the audio URL to libmpv.
 
 Stream URLs expire after about 6 hours and are tied to the IP address. reeltty does not cache them: it resolves the streams again each time a video plays. If mpv gets an HTTP 403 during playback, reeltty resolves them once more and goes on from the same place. Guest use has a limit of about 300 videos per hour, so reeltty does not prefetch many videos.
+
+### Downloads
+
+`D` on a video adds a row to the `downloads` table and starts the oldest queued row when no download runs. The app is the only scheduler. The runtime runs `yt-dlp` with `--ignore-config`, the playback clients, a download selector (Q13 without the live choices), `--fixup never`, and `-P home:<downloads> -P temp:<downloads>/.part`. Files are named `<id>.f<format>.<ext>`, or `<id>.mkv`. `--print` and `--progress-template` make yt-dlp print one line for each event, which reeltty reads for progress (at most once a second) and for the finished files. A download succeeds only when yt-dlp exits with 0 and both files (or the mkv) are there and not empty.
+
+Stopping a download aborts its task. yt-dlp runs in its own process group, and the whole group gets SIGTERM, so ffmpeg stops too. The `.part` files stay, and the next run continues from them. A download that prints nothing for 5 minutes stops; when both formats are on disk, the limit is 1 hour, because ffmpeg prints nothing while it merges. At start, reeltty removes the `.part` files of videos that have no queued or failed row.
+
+A running download is stored as queued, so after a crash it simply starts again. A saved video plays from its files: the app checks that they are there, then sends them to mpv as the video URL and the audio file, with no headers and no ads wait. If a file is missing, the video streams, and its row becomes failed.
 
 ### Playback
 

@@ -68,7 +68,7 @@ impl FileFormat {
 }
 
 /// What to download, and where to.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
     pub id: String,
     /// At most this many pixels on the short side, as for playback.
@@ -83,7 +83,7 @@ pub struct Request {
 }
 
 /// How far a download is.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Progress {
     /// Bytes on disk, for all the files of the download.
     pub done: u64,
@@ -91,7 +91,7 @@ pub struct Progress {
     /// the second file starts.
     pub total: Option<u64>,
     /// Bytes per second.
-    pub speed: Option<f64>,
+    pub speed: Option<u64>,
 }
 
 impl Progress {
@@ -103,7 +103,7 @@ impl Progress {
 }
 
 /// A finished download.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Saved {
     /// The video file. In the `Mkv` format it has the audio too.
     pub video: PathBuf,
@@ -129,6 +129,22 @@ pub fn size_text(bytes: u64) -> String {
         unit += 1;
     }
     if unit >= 3 && n < 9.95 { format!("{n:.1} {}", UNITS[unit]) } else { format!("{n:.0} {}", UNITS[unit]) }
+}
+
+/// Removes the files in `temp` of downloads that will not go on, and gives
+/// how many it removed. Each file name starts with the video ID and a dot,
+/// such as `<id>.f137.mp4.part`. `keep` says which IDs go on.
+pub fn sweep(temp: &std::path::Path, keep: impl Fn(&str) -> bool) -> usize {
+    let Ok(entries) = std::fs::read_dir(temp) else { return 0 };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let id = name.to_string_lossy().split('.').next().unwrap_or_default().to_string();
+        if !keep(&id) && entry.file_type().is_ok_and(|t| t.is_file()) && std::fs::remove_file(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
 }
 
 /// The arguments for yt-dlp.
@@ -336,7 +352,8 @@ impl Tracker {
             (Some(a), Some(b)) => Some(a.max(b)),
             (a, b) => a.or(b),
         };
-        Progress { done, total, speed: self.speed }
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "bytes per second")]
+        Progress { done, total, speed: self.speed.map(|s| s as u64) }
     }
 }
 
@@ -549,6 +566,21 @@ mod tests {
     }
 
     #[test]
+    fn sweep_keeps_the_files_of_downloads_that_go_on() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["keep.f137.mp4.part", "keep.f251.webm.part", "gone.f137.mp4.part", "gone.temp.mkv"] {
+            std::fs::write(dir.path().join(name), b"x").unwrap();
+        }
+        std::fs::create_dir(dir.path().join("gone.dir")).unwrap();
+        assert_eq!(sweep(dir.path(), |id| id == "keep"), 2);
+        let mut left: Vec<String> =
+            std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into()).collect();
+        left.sort();
+        assert_eq!(left, ["gone.dir", "keep.f137.mp4.part", "keep.f251.webm.part"]);
+        assert_eq!(sweep(&dir.path().join("missing"), |_| false), 0);
+    }
+
+    #[test]
     fn sizes_as_people_read_them() {
         let cases = [
             (0, "0 B"),
@@ -621,7 +653,7 @@ mod tests {
         t.add(&Line::Format { format_id: "140".into(), size: Some(400) });
         t.add(&bytes("140", 100, None));
         let p = t.progress();
-        assert_eq!((p.done, p.total, p.speed), (1200, Some(1500), Some(10.0)));
+        assert_eq!((p.done, p.total, p.speed), (1200, Some(1500), Some(10)));
         assert!((p.fraction().unwrap() - 0.8).abs() < 1e-9);
     }
 

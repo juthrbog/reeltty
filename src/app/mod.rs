@@ -6,6 +6,7 @@
 //! blocks and never does I/O.
 
 pub mod comments;
+pub mod downloads;
 pub mod feed;
 pub mod list;
 pub mod player;
@@ -18,6 +19,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::keymap::{Action, KeyMap, KeyPress, PlayerAction};
+use crate::source::download::{Progress, Request, Saved};
 use crate::source::filters::SearchQuery;
 use crate::source::model::{
     ChannelPage, ChannelRef, CommentPage, Description, Item, ItemPage, LinkTarget, PlaylistPage, SearchPage, Video,
@@ -25,7 +27,7 @@ use crate::source::model::{
 };
 use crate::source::streams::Streams;
 use crate::sponsorblock::Segment;
-use crate::store::{FeedVideo, HISTORY_LIMIT, HistoryEntry, SavedPlaylist, Subscription};
+use crate::store::{Download, FeedVideo, HISTORY_LIMIT, HistoryEntry, SavedPlaylist, Subscription};
 use crate::terminal::detect::Graphics;
 use crate::theme::Theme;
 
@@ -183,6 +185,22 @@ pub enum Message {
         session: u64,
         result: Result<Vec<Segment>, String>,
     },
+    /// How far the download of `id` is, at most once a second.
+    DownloadProgress {
+        id: String,
+        progress: Progress,
+    },
+    /// The download of `id` ended. `now` is Unix seconds.
+    DownloadFinished {
+        id: String,
+        now: i64,
+        result: Result<Box<Saved>, String>,
+    },
+    /// The reply to `Effect::PlayLocal` when a file of the video is missing.
+    LocalMissing {
+        session: u64,
+        id: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -301,6 +319,22 @@ pub enum Effect {
     Player(PlayerCommand),
     /// Open an `http` or `https` URL in the browser.
     OpenUrl(String),
+    /// Add a download to the database, or change it.
+    SaveDownload(Box<Download>),
+    /// Download a video. The runtime sends `Message::DownloadProgress`,
+    /// then `Message::DownloadFinished`.
+    StartDownload(Box<Request>),
+    /// Stop a download. Its unfinished files stay.
+    CancelDownload {
+        id: String,
+    },
+    /// Play saved files. The runtime makes sure that they are there, and
+    /// sends `Message::StreamsResolved` with `streams`, or `Message::LocalMissing`.
+    PlayLocal {
+        session: u64,
+        id: String,
+        streams: Box<Streams>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -476,6 +510,8 @@ pub struct App {
     pub autoplay: bool,
     /// Skip SponsorBlock segments. The runtime has the categories.
     pub sponsorblock: bool,
+    /// Videos saved to watch without a network.
+    pub downloads: downloads::Downloads,
     /// The videos played before the one that plays now, oldest first. It
     /// lasts until the player closes.
     played: Vec<Video>,
@@ -530,6 +566,7 @@ impl App {
             queue_selection: Selection::default(),
             autoplay: true,
             sponsorblock: false,
+            downloads: downloads::Downloads::default(),
             played: Vec::new(),
             forward: Vec::new(),
             width: 80,
@@ -743,6 +780,9 @@ impl App {
             Message::RelatedLoaded { session, result } => self.on_related(session, result),
             Message::VideoTitle { session, title } => self.on_video_title(session, title),
             Message::SegmentsLoaded { session, result } => self.on_segments(session, result),
+            Message::DownloadProgress { id, progress } => self.on_download_progress(&id, progress),
+            Message::DownloadFinished { id, now, result } => self.on_download_finished(&id, now, result),
+            Message::LocalMissing { session, id } => self.on_local_missing(session, &id),
             Message::FeedLoading { count } => self.on_feed_loading(count),
             Message::FeedChannelLoaded { channel_id, fetched_at, result } => {
                 self.on_feed_channel(channel_id, fetched_at, result)
@@ -833,7 +873,12 @@ impl App {
                 let captured = self.search.captures_keys();
                 if !captured
                     && let Some(
-                        a @ (Action::Open | Action::Details | Action::Channel | Action::Toggle | Action::Enqueue),
+                        a @ (Action::Open
+                        | Action::Details
+                        | Action::Channel
+                        | Action::Toggle
+                        | Action::Enqueue
+                        | Action::Download),
                     ) = action
                 {
                     return match self.search.selected().cloned() {
@@ -1027,7 +1072,7 @@ impl App {
                         let Some(c) = channel else { return Vec::new() };
                         return Target::channel(&c).map_or_default(|t| self.open(t));
                     }
-                    Action::Toggle | Action::Enqueue => return self.on_video_screen_item(action),
+                    Action::Toggle | Action::Enqueue | Action::Download => return self.on_video_screen_item(action),
                     Action::Open => {
                         let (id, title) = (s.id.clone(), s.title.clone());
                         return self.play(id, title);
@@ -1152,11 +1197,14 @@ impl App {
                 let Some(id) = c.id else { return Vec::new() };
                 self.toggle_subscription(id, c.name, c.handle)
             }
-            Action::Enqueue => {
+            Action::Enqueue | Action::Download => {
                 let video = match &s.details {
                     Some(d) => player::details_video(d),
                     None => player::plain_video(&s.id, &s.title),
                 };
+                if action == Action::Download {
+                    return self.toggle_download(&video);
+                }
                 self.toggle_queued(&video);
                 Vec::new()
             }
@@ -1175,7 +1223,7 @@ impl App {
             s.pane = VideoPane::Details;
             return Vec::new();
         }
-        if matches!(action, Action::Toggle | Action::Enqueue) {
+        if matches!(action, Action::Toggle | Action::Enqueue | Action::Download) {
             return self.on_video_screen_item(action);
         }
         let Some(c) = s.comments.as_mut() else { return Vec::new() };
@@ -1241,6 +1289,7 @@ impl App {
                 }
                 Vec::new()
             }
+            Action::Download => self.download_item(item),
             Action::Toggle => match item {
                 Item::Channel(c) => self.toggle_subscription(c.id.clone(), c.name.clone(), c.handle.clone()),
                 Item::Playlist(p) => self.toggle_saved(SavedPlaylist {
@@ -1361,7 +1410,10 @@ impl App {
     /// that were not loaded in the last 30 minutes.
     pub fn start(&mut self) -> Vec<Effect> {
         self.rebuild_feed();
-        self.load_feed(false)
+        // Downloads that were queued or running when reeltty stopped go on.
+        let mut effects = self.next_download();
+        effects.extend(self.load_feed(false));
+        effects
     }
 
     fn load_feed(&self, force: bool) -> Vec<Effect> {
@@ -1431,7 +1483,7 @@ impl App {
         }
         let item = self.feed.items.get(self.feed.selection.index)?.clone();
         match action {
-            Action::Open | Action::Details | Action::Channel | Action::Toggle | Action::Enqueue => {
+            Action::Open | Action::Details | Action::Channel | Action::Toggle | Action::Enqueue | Action::Download => {
                 Some(self.on_item(&item, action))
             }
             _ => None,
@@ -1495,6 +1547,7 @@ impl App {
                 self.toggle_queued(&v);
                 Some(Vec::new())
             }
+            Action::Download => Some(self.toggle_download(&v)),
             Action::Details => Some(self.open(Target::open(&Item::Video(v)))),
             Action::Channel => match Target::channel_of(&Item::Video(v)) {
                 Some(t) => Some(self.open(t)),
@@ -1518,6 +1571,7 @@ impl App {
                 self.toggle_queued(&video);
                 Some(Vec::new())
             }
+            Action::Download => Some(self.toggle_download(&video)),
             Action::Delete => {
                 self.history.remove(self.history_selection.index);
                 self.history_selection.clamp(self.history.len(), rows);

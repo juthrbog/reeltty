@@ -166,7 +166,7 @@ pub struct PlaylistPage {
     pub videos: ItemPage,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Chapter {
     pub title: String,
     pub start_secs: u32,

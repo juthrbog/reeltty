@@ -7,7 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::{self, Config, Paths};
 use crate::player;
-use crate::store::Store;
+use crate::source::download::{FileFormat, size_text};
+use crate::store::{DownloadState, Store};
 use crate::terminal::detect::{self, Graphics};
 use crate::theme::ThemeName;
 
@@ -73,10 +74,27 @@ pub fn run(paths: &Paths) -> bool {
         }
     };
 
-    emit(match Store::open(&paths.database).and_then(|s| s.schema_version()) {
-        Ok(v) => check("database", Status::Ok, format!("{} (schema {v})", paths.database.display())),
-        Err(e) => check("database", Status::Fail, format!("{e:#}")),
+    let store = Store::open(&paths.database);
+    emit(
+        match store
+            .as_ref()
+            .map_err(|e| format!("{e:#}"))
+            .and_then(|s| s.schema_version().map_err(|e| format!("{e:#}")))
+        {
+            Ok(v) => check("database", Status::Ok, format!("{} (schema {v})", paths.database.display())),
+            Err(e) => check("database", Status::Fail, e),
+        },
+    );
+    let saved = store.ok().and_then(|s| s.downloads().ok()).map(|all| {
+        let done: Vec<_> = all.iter().filter(|d| d.state == DownloadState::Done).collect();
+        (done.len(), done.iter().filter_map(|d| d.size_bytes).sum())
     });
+    for c in check_downloads(&paths.downloads, saved, free_bytes(&paths.downloads)) {
+        emit(c);
+    }
+    if config.downloads.format == FileFormat::Mkv {
+        emit(check_ffmpeg());
+    }
 
     emit(check_libmpv());
     for c in check_yt_dlp(&config.yt_dlp_program(), days_since_epoch_now()) {
@@ -86,6 +104,101 @@ pub fn run(paths: &Paths) -> bool {
     emit(check_theme(config.theme, std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty())));
 
     !checks.iter().any(|c| c.status == Status::Fail)
+}
+
+/// The downloads folder: where it is, whether reeltty can write to it, how
+/// much it holds, and the free space on its disk. `saved` is the number of
+/// downloaded videos and their size, from the database.
+fn check_downloads(dir: &Path, saved: Option<(usize, u64)>, free: Option<u64>) -> Vec<Check> {
+    let mut detail = dir.display().to_string();
+    let mut notes = Vec::new();
+    if let Some((count, size)) = saved.filter(|(count, _)| *count > 0) {
+        notes.push(match count {
+            1 => format!("1 video, {}", size_text(size)),
+            n => format!("{n} videos, {}", size_text(size)),
+        });
+    }
+    if let Some(free) = free {
+        notes.push(format!("{} free", size_text(free)));
+    }
+    let status = match std::fs::metadata(dir) {
+        Ok(m) if !m.is_dir() => {
+            notes.push("not a folder".into());
+            Status::Fail
+        }
+        Ok(_) if !writable(dir) => {
+            notes.push("reeltty cannot write to it".into());
+            Status::Fail
+        }
+        Ok(_) => Status::Ok,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            notes.push("not made yet".into());
+            Status::Ok
+        }
+        Err(e) => {
+            notes.push(e.to_string());
+            Status::Fail
+        }
+    };
+    if !notes.is_empty() {
+        detail = format!("{detail} ({})", notes.join(", "));
+    }
+    let mut checks = vec![check("downloads", status, detail)];
+    // Files of downloads that stopped before their end. A download that
+    // goes on uses them; the others only take space.
+    let parts: Vec<u64> = std::fs::read_dir(dir.join(".part"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.metadata().ok().filter(std::fs::Metadata::is_file).map(|m| m.len()))
+        .collect();
+    if !parts.is_empty() {
+        let total = size_text(parts.iter().sum());
+        let files = if parts.len() == 1 { "1 file".to_string() } else { format!("{} files", parts.len()) };
+        checks.push(check("downloads", Status::Ok, format!("{files} ({total}) of unfinished downloads in .part")));
+    }
+    checks
+}
+
+/// Whether this user can write to `path`.
+fn writable(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt as _;
+    let Ok(c) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return false };
+    // SAFETY: `c` is a valid C string for the length of the call.
+    unsafe { libc::access(c.as_ptr(), libc::W_OK) == 0 }
+}
+
+/// The free space for this user on the disk of `path`, or of its nearest
+/// folder that exists.
+fn free_bytes(path: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt as _;
+    let existing = path.ancestors().find(|p| p.exists())?;
+    let c = std::ffi::CString::new(existing.as_os_str().as_bytes()).ok()?;
+    // SAFETY: `stat` is plain data that `statvfs` fills, and `c` is a valid
+    // C string for the length of the call.
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c.as_ptr(), &raw mut stat) } != 0 {
+        return None;
+    }
+    #[allow(clippy::useless_conversion, reason = "the field types differ between platforms")]
+    let (blocks, size) = (u64::from(stat.f_bavail), u64::from(stat.f_frsize));
+    Some(blocks.saturating_mul(size))
+}
+
+/// yt-dlp needs ffmpeg to merge the video and the audio into one mkv file.
+fn check_ffmpeg() -> Check {
+    match Command::new("ffmpeg").arg("-version").output() {
+        Ok(out) if out.status.success() => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let version = text.lines().next().and_then(|l| l.split_whitespace().nth(2)).unwrap_or("found");
+            check("ffmpeg", Status::Ok, format!("{version}, for format = \"mkv\" in [downloads]"))
+        }
+        _ => check(
+            "ffmpeg",
+            Status::Warn,
+            "not found. format = \"mkv\" in [downloads] needs it, so downloads fail. Install ffmpeg, or remove the setting.",
+        ),
+    }
 }
 
 /// reeltty links to libmpv, so it only starts when the library is there.
@@ -250,6 +363,31 @@ mod tests {
 [debug] JS runtimes: deno-2.9.8
 [debug] Loaded 1747 extractors
 ";
+
+    #[test]
+    fn downloads_folder_checks() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("downloads");
+        let c = check_downloads(&missing, Some((0, 0)), Some(5_000_000_000));
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].status, Status::Ok);
+        assert!(c[0].detail.ends_with("downloads (5.0 GB free, not made yet)"), "{}", c[0].detail);
+
+        std::fs::create_dir_all(missing.join(".part")).unwrap();
+        std::fs::write(missing.join(".part/a.f136.mp4.part"), b"12345").unwrap();
+        let c = check_downloads(&missing, Some((2, 412_000_000)), None);
+        assert_eq!(c[0].status, Status::Ok);
+        assert!(c[0].detail.ends_with("downloads (2 videos, 412 MB)"), "{}", c[0].detail);
+        assert_eq!(c[1].detail, "1 file (5 B) of unfinished downloads in .part");
+        assert!(check_downloads(&missing, Some((1, 9)), None)[0].detail.contains("(1 video, 9 B)"));
+
+        let file = dir.path().join("file");
+        std::fs::write(&file, b"").unwrap();
+        let c = check_downloads(&file, None, None);
+        assert_eq!((c[0].status, c[0].detail.ends_with("(not a folder)")), (Status::Fail, true), "{}", c[0].detail);
+
+        assert!(free_bytes(&missing.join("not/yet")).is_some());
+    }
 
     #[test]
     fn parses_debug_header() {

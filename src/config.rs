@@ -6,6 +6,7 @@ use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
 use crate::keymap::{KeyMap, KeyOverrides, PlayerKeyOverrides};
+use crate::source::download::FileFormat;
 use crate::sponsorblock::Category;
 
 /// File locations from the XDG base directories.
@@ -15,11 +16,15 @@ pub struct Paths {
     pub database: PathBuf,
     pub log_file: PathBuf,
     pub thumbnail_cache: PathBuf,
+    /// Downloaded videos. Not in the cache folder, because nothing may
+    /// delete them but the user.
+    pub downloads: PathBuf,
 }
 
 impl Paths {
     /// `$XDG_CONFIG_HOME/reeltty/config.toml`, `$XDG_DATA_HOME/reeltty/reeltty.db`,
-    /// `$XDG_STATE_HOME/reeltty/reeltty.log`, and `$XDG_CACHE_HOME/reeltty/thumbnails`.
+    /// `$XDG_STATE_HOME/reeltty/reeltty.log`, `$XDG_CACHE_HOME/reeltty/thumbnails`, and
+    /// `$XDG_DATA_HOME/reeltty/downloads`.
     pub fn from_env() -> Result<Self> {
         let dirs = directories::ProjectDirs::from("", "", "reeltty").context("no home directory")?;
         let state = dirs.state_dir().unwrap_or_else(|| dirs.data_local_dir());
@@ -28,6 +33,7 @@ impl Paths {
             database: dirs.data_dir().join("reeltty.db"),
             log_file: state.join("reeltty.log"),
             thumbnail_cache: dirs.cache_dir().join("thumbnails"),
+            downloads: dirs.data_dir().join("downloads"),
         })
     }
 }
@@ -58,7 +64,16 @@ pub struct Config {
     pub captions: Captions,
     pub feed: Feed,
     pub sponsorblock: SponsorBlock,
+    pub downloads: Downloads,
     pub keys: Keys,
+}
+
+/// The `[downloads]` table: how downloaded videos are kept.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Downloads {
+    /// `"separate"` video and audio files, or one `"mkv"` file, which needs ffmpeg.
+    pub format: FileFormat,
 }
 
 /// The `[sponsorblock]` table: which parts of videos to skip.
@@ -294,6 +309,16 @@ mod tests {
         let err = Config::parse("max_quality = \"4k\"").unwrap_err();
         assert!(format!("{err:#}").contains("\"auto\", \"best\", or a height"), "{err:#}");
         assert!(Config::parse("max_quality = -1").is_err());
+    }
+
+    #[test]
+    fn reads_the_download_format() {
+        let format = |text: &str| Config::parse(text).unwrap().downloads.format;
+        assert_eq!(format(""), FileFormat::Separate);
+        assert_eq!(format("[downloads]\nformat = \"separate\""), FileFormat::Separate);
+        assert_eq!(format("[downloads]\nformat = \"mkv\""), FileFormat::Mkv);
+        assert!(Config::parse("[downloads]\nformat = \"mp4\"").is_err());
+        assert!(Config::parse("[downloads]\ndir = \"/tmp\"").is_err());
     }
 
     #[test]

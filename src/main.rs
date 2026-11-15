@@ -110,6 +110,14 @@ fn run_tui(paths: &Paths) -> Result<()> {
             .map(reeltty::terminal::detect::is_light);
         let mut frontend = TerminalFrontend::start();
         let mut app = App::new(keymap, frontend.graphics().clone());
+        // An action that lost all its keys to other actions in the file.
+        let warnings = app.keymap.warnings();
+        for w in &warnings {
+            tracing::warn!("{w}");
+        }
+        if let Some(w) = warnings.first() {
+            app.status = Some(reeltty::app::StatusMessage::warn(format!("{w}. See reeltty doctor.")));
+        }
         app.subscriptions = subscriptions;
         app.captions_language.clone_from(&config.captions.language);
         app.captions_on = config.captions.on;

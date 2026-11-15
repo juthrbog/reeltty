@@ -5,6 +5,7 @@
 //!
 //! `Fallback` tries one source, then the other.
 
+pub mod download;
 pub mod filters;
 pub mod innertube;
 pub mod model;

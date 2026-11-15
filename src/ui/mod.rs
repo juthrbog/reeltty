@@ -367,6 +367,8 @@ pub(crate) fn status_line(t: &Theme, m: &StatusMessage, spin: Option<&str>) -> L
 /// in the mini-player too, when browse does not use them. The player keys
 /// that do not are dim.
 fn draw_help(app: &App, f: &mut Frame, area: Rect) {
+    const DIM_NOTE: &str = " Dim keys: full size only ";
+    const CUT_NOTE: &str = " More keys in a larger window ";
     let mut lines = vec![HelpLine::Heading("Browse".into())];
     lines.extend(
         app.keymap.bindings().iter().map(|(a, k)| {
@@ -408,8 +410,6 @@ fn draw_help(app: &App, f: &mut Frame, area: Rect) {
         .iter()
         .flat_map(|c| c.iter().take(fit))
         .any(|l| matches!(l, HelpLine::Key(_, keys) if keys.iter().any(|(_, dim)| *dim)));
-    const DIM_NOTE: &str = " Dim keys: full size only ";
-    const CUT_NOTE: &str = " More keys in a larger window ";
     // Both notes need room on the bottom border, or the cut note wins.
     let room = usize::from(popup.width.saturating_sub(2));
     let both = DIM_NOTE.width() + 1 + CUT_NOTE.width() <= room;

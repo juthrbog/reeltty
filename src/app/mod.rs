@@ -1171,11 +1171,16 @@ impl App {
                 // A video is not a channel. In the Feed, the key would
                 // unsubscribe and take the row away, so it points to the
                 // channel instead.
-                Item::Video(_) => {
+                Item::Video(v) => {
+                    let Some(id) = v.channels.iter().find_map(|c| c.id.clone()) else {
+                        self.status = Some(StatusMessage::warn("The channel of this item is not known."));
+                        return Vec::new();
+                    };
+                    let what = if self.is_subscribed(&id) { "unsubscribe" } else { "subscribe" };
                     let toggle = self.keymap.first_key(Action::Toggle).map_or_else(String::new, |k| format!("{k} "));
                     let text = match self.keymap.first_key(Action::Channel) {
-                        Some(c) => format!("Press {c} to open this video's channel, then {toggle}to subscribe."),
-                        None => format!("Open this video's channel, then press {toggle}to subscribe."),
+                        Some(c) => format!("Press {c} to open this video's channel, then {toggle}to {what}."),
+                        None => format!("Open this video's channel, then press {toggle}to {what}."),
                     };
                     self.status = Some(StatusMessage::info(text));
                     Vec::new()
@@ -2025,13 +2030,27 @@ pub(crate) mod tests {
     #[test]
     fn toggle_on_a_video_row_points_to_the_channel() {
         let mut a = app();
+        results(&mut a, vec![video_by("v1", "UC1"), video("v2")]);
+        assert_eq!(key(&mut a, "s"), vec![]);
+        assert!(!a.is_subscribed("UC1"));
+        assert_eq!(a.status.as_deref(), Some("Press c to open this video's channel, then s to subscribe."));
+        // A video with no known channel.
+        key(&mut a, "j");
+        assert_eq!(key(&mut a, "s"), vec![]);
+        assert_eq!(a.status.as_deref(), Some("The channel of this item is not known."));
+
+        // In the Feed, s used to unsubscribe and take the row away.
+        let mut a = app();
         a.subscriptions =
             vec![Subscription { channel_id: "UC1".into(), name: "A".into(), handle: None, subscribed_at: 1 }];
-        results(&mut a, vec![video_by("v1", "UC1")]);
-        // No unsubscribe from a video row: it would take the row away in the Feed.
+        let Item::Video(mut v) = video_by("a1", "UC1") else { unreachable!() };
+        v.published_text = Some("1 hour ago".into());
+        a.update(Message::FeedChannelLoaded { channel_id: "UC1".into(), fetched_at: 1_000_000, result: Ok(vec![v]) });
+        a.tab = Tab::Feed;
         assert_eq!(key(&mut a, "s"), vec![]);
         assert!(a.is_subscribed("UC1"));
-        assert_eq!(a.status.as_deref(), Some("Press c to open this video's channel, then s to subscribe."));
+        assert_eq!(a.feed.items.len(), 1);
+        assert_eq!(a.status.as_deref(), Some("Press c to open this video's channel, then s to unsubscribe."));
     }
 
     #[test]

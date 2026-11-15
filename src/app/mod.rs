@@ -13,10 +13,11 @@ pub mod screens;
 pub mod search;
 pub mod thumbnails;
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::keymap::{Action, KeyMap, KeyPress};
+use crate::keymap::{Action, KeyMap, KeyPress, PlayerAction};
 use crate::source::filters::SearchQuery;
 use crate::source::model::{
     ChannelPage, ChannelRef, CommentPage, Description, Item, ItemPage, LinkTarget, PlaylistPage, SearchPage, Video,
@@ -405,6 +406,11 @@ pub struct App {
     pub graphics: Graphics,
     pub tab: Tab,
     pub show_help: bool,
+    /// How far the help is scrolled, in rows, when it does not fit.
+    pub help_scroll: u16,
+    /// The most the help can scroll, and the rows it shows, from the last draw.
+    pub help_max: Cell<u16>,
+    pub help_rows: Cell<u16>,
     pub search: SearchState,
     /// Screens opened on top of the tabs. The last one is shown.
     pub screens: Vec<Screen>,
@@ -477,6 +483,9 @@ impl App {
             graphics,
             tab: Tab::Search,
             show_help: false,
+            help_scroll: 0,
+            help_max: Cell::new(0),
+            help_rows: Cell::new(0),
             search: SearchState::default(),
             screens: Vec::new(),
             subscriptions: Vec::new(),
@@ -768,6 +777,11 @@ impl App {
         if key == KeyPress::ctrl('c') {
             return vec![Effect::Quit];
         }
+        // The help takes the keys while it shows, over any screen.
+        if self.show_help {
+            self.on_help_key(key);
+            return Vec::new();
+        }
         if self.player.as_ref().is_some_and(|p| !p.mini) {
             return self.on_player_key(key);
         }
@@ -779,14 +793,6 @@ impl App {
         let action = self.keymap.action(key);
         if action == Some(Action::Refresh) {
             self.thumbnails.forget_failed();
-        }
-        if self.show_help {
-            match action {
-                Some(Action::Help | Action::Back) => self.show_help = false,
-                Some(Action::Quit) => return vec![Effect::Quit],
-                _ => {}
-            }
-            return Vec::new();
         }
         if !self.screens.is_empty() {
             return self.on_screen_key(action);
@@ -839,13 +845,46 @@ impl App {
         }
         match action {
             Some(Action::Quit) => return vec![Effect::Quit],
-            Some(Action::Help) => self.show_help = true,
+            Some(Action::Help) => self.open_help(),
             Some(Action::NextTab) => self.tab = self.tab.offset(1),
             Some(Action::PrevTab) => self.tab = self.tab.offset(-1),
             Some(Action::Search) => return self.start_search_input(),
             _ => {}
         }
         Vec::new()
+    }
+
+    /// Shows the help from its top.
+    pub(super) fn open_help(&mut self) {
+        self.show_help = true;
+        self.help_scroll = 0;
+    }
+
+    /// Keys while the help shows. The keys that open it close it, and so do
+    /// back and quit, as in a pager. The browse keys scroll it.
+    fn on_help_key(&mut self, key: KeyPress) {
+        let full = self.player.as_ref().is_some_and(|p| !p.mini);
+        let player = if full { self.keymap.player.action(key) } else { None };
+        if matches!(player, Some(PlayerAction::Help | PlayerAction::Back | PlayerAction::Minimize)) {
+            self.show_help = false;
+            return;
+        }
+        let max = self.help_max.get();
+        let half = (self.help_rows.get() / 2).max(1);
+        let scroll = self.help_scroll.min(max);
+        self.help_scroll = match self.keymap.action(key) {
+            Some(Action::Help | Action::Back | Action::Quit) => {
+                self.show_help = false;
+                scroll
+            }
+            Some(Action::Down) => scroll.saturating_add(1).min(max),
+            Some(Action::Up) => scroll.saturating_sub(1),
+            Some(Action::HalfPageDown) => scroll.saturating_add(half).min(max),
+            Some(Action::HalfPageUp) => scroll.saturating_sub(half),
+            Some(Action::Top) => 0,
+            Some(Action::Bottom) => max,
+            _ => scroll,
+        };
     }
 
     /// Goes to the Search tab and opens the query line.
@@ -865,7 +904,7 @@ impl App {
         let Some(action) = action else { return Vec::new() };
         match action {
             Action::Quit => return vec![Effect::Quit],
-            Action::Help => self.show_help = true,
+            Action::Help => self.open_help(),
             Action::Back => {
                 // A selected link goes first, then the comments go back to the details.
                 match self.screens.last_mut() {
@@ -1691,8 +1730,38 @@ pub(crate) mod tests {
         assert_eq!(a.tab, Tab::Search);
         key(&mut a, "esc");
         assert!(!a.show_help);
+        // q closes the help, as in a pager. ctrl-c still quits.
         key(&mut a, "?");
-        assert_eq!(key(&mut a, "q"), vec![Effect::Quit]);
+        assert_eq!(key(&mut a, "q"), vec![]);
+        assert!(!a.show_help);
+        key(&mut a, "?");
+        assert_eq!(key(&mut a, "ctrl-c"), vec![Effect::Quit]);
+    }
+
+    #[test]
+    fn the_help_scrolls_when_it_does_not_fit() {
+        let mut a = app();
+        key(&mut a, "?");
+        // The draw says how far it can scroll.
+        a.help_max.set(5);
+        a.help_rows.set(4);
+        key(&mut a, "j");
+        assert_eq!(a.help_scroll, 1);
+        key(&mut a, "ctrl-d");
+        assert_eq!(a.help_scroll, 3);
+        key(&mut a, "G");
+        assert_eq!(a.help_scroll, 5);
+        key(&mut a, "j");
+        assert_eq!(a.help_scroll, 5, "no further than the end");
+        key(&mut a, "k");
+        assert_eq!(a.help_scroll, 4);
+        key(&mut a, "g");
+        assert_eq!(a.help_scroll, 0);
+        // It opens at the top again.
+        key(&mut a, "G");
+        key(&mut a, "?");
+        key(&mut a, "?");
+        assert_eq!(a.help_scroll, 0);
     }
 
     #[test]

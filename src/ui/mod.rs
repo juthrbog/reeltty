@@ -29,7 +29,13 @@ pub fn view(app: &App, f: &mut Frame) {
 
 fn draw(app: &App, f: &mut Frame) {
     if let Some(p) = app.player.as_ref().filter(|p| !p.mini) {
-        return player::draw(app, p, f);
+        player::draw(app, p, f);
+        // Over the video, above the progress bar and the status line.
+        if app.show_help {
+            let area = f.area();
+            draw_help(app, f, Rect { height: area.height.saturating_sub(2), ..area });
+        }
+        return;
     }
     let [tabs, body, status] =
         Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)]).areas(f.area());
@@ -304,7 +310,16 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect, no_dock: bool) {
             k != KeyPress::ctrl('c') && app.keymap.mini_player_action(k) == Some(crate::keymap::PlayerAction::Back)
         });
     wanted.push((Action::Quit, if stops { "stop" } else { "quit" }));
-    let mut hints = hint_spans(t, wanted.into_iter().map(|(a, l)| (app.keymap.first_key(a), l)));
+    let typing = app.tab == Tab::Search && app.screens.is_empty();
+    let mut hints = if typing && app.search.input.is_some() {
+        // The query line takes the keys. Its keys are fixed.
+        hint_spans(t, [(Some("enter"), "search"), (Some("esc"), "cancel"), (Some("ctrl-u"), "clear")])
+    } else if typing && app.search.filter_menu.is_some() {
+        // The filter menu has its own hints.
+        Vec::new()
+    } else {
+        hint_spans(t, wanted.into_iter().map(|(a, l)| (app.keymap.first_key(a), l)))
+    };
     if !hints.is_empty() {
         hints.push(Span::from(" "));
     }
@@ -315,7 +330,7 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect, no_dock: bool) {
         // Nothing else on screen shows the video, so it comes before lasting notes.
         .or_else(|| app.player.as_ref().filter(|_| no_dock).map(player::status_message))
         .or_else(|| match app.screens.last() {
-            Some(screen) => screens::status(screen),
+            Some(screen) => screens::status(screen, app.keymap.first_key(Action::Open)),
             None => (app.tab == Tab::Search).then(|| search::status(&app.search)).flatten(),
         })
         // A lasting note, so not a warning: it would stay on screen in every
@@ -363,12 +378,20 @@ pub(crate) fn status_line(t: &Theme, m: &StatusMessage, spin: Option<&str>) -> L
     }
 }
 
-/// The keys of the browse screen, then of the player. The player keys work
-/// in the mini-player too, when browse does not use them. The player keys
-/// that do not are dim.
+/// The keys of the browse screen, then of the player, then of the search
+/// line. The player keys work in the mini-player too, when browse does not
+/// use them. The player keys that do not are dim. When the keys do not fit,
+/// the columns scroll together.
 fn draw_help(app: &App, f: &mut Frame, area: Rect) {
     const DIM_NOTE: &str = " Dim keys: full size only ";
-    const CUT_NOTE: &str = " More keys in a larger window ";
+    // The search line's keys are fixed, as in most text fields.
+    const SEARCH_LINE: [(&str, &str); 5] = [
+        ("search", "enter"),
+        ("cancel", "esc"),
+        ("delete a letter", "backspace"),
+        ("clear the line", "ctrl-u"),
+        ("delete a word", "ctrl-w"),
+    ];
     let mut lines = vec![HelpLine::Heading("Browse".into())];
     lines.extend(
         app.keymap.bindings().iter().map(|(a, k)| {
@@ -380,6 +403,8 @@ fn draw_help(app: &App, f: &mut Frame, area: Rect) {
         let keys = k.iter().map(|k| (k.to_string(), app.keymap.mini_player_action(*k) != Some(*a))).collect();
         HelpLine::Key(a.description().to_string(), keys)
     }));
+    lines.extend([HelpLine::Blank, HelpLine::Heading("Search line".into())]);
+    lines.extend(SEARCH_LINE.iter().map(|(d, k)| HelpLine::Key((*d).to_string(), vec![((*k).to_string(), false)])));
     let cells = |n: Option<usize>| u16::try_from(n.unwrap_or(0)).unwrap_or(u16::MAX);
     let description_width = cells(lines.iter().map(|l| l.description().width()).max());
     let keys_width = cells(lines.iter().map(|l| l.keys_text().width()).max());
@@ -388,36 +413,53 @@ fn draw_help(app: &App, f: &mut Frame, area: Rect) {
     // The border and the space inside it take 2 rows and 4 columns.
     let fit = usize::from(area.height.saturating_sub(2)).max(1);
     let most = usize::from(area.width.saturating_sub(4) / column.max(1)).max(1);
-    // As few rows as the columns that fit allow, but at most `fit`.
+    // As few rows as the columns that fit allow. When even `most` columns
+    // need more than `fit` rows, they scroll.
     let wanted = lines.len().div_ceil(fit).clamp(1, most);
     let mut rows = lines.len().div_ceil(wanted);
     let mut columns = help_columns(&lines, rows);
-    while columns.len() > wanted && rows < fit {
+    while columns.len() > wanted {
         rows += 1;
         columns = help_columns(&lines, rows);
     }
-    let cut = columns.len() > most || columns.iter().any(|c| c.len() > fit);
-    columns.truncate(most);
     let rows = columns.iter().map(Vec::len).max().unwrap_or(0);
+    let visible = rows.min(fit);
+    let max_scroll = rows - visible;
+    let scroll = usize::from(app.help_scroll).min(max_scroll);
+    app.help_max.set(u16::try_from(max_scroll).unwrap_or(u16::MAX));
+    app.help_rows.set(u16::try_from(visible).unwrap_or(u16::MAX));
+    let columns: Vec<Vec<&HelpLine>> =
+        columns.into_iter().map(|c| c.into_iter().skip(scroll).take(visible).collect()).collect();
     let shown = u16::try_from(columns.len()).unwrap_or(1);
-    let height = u16::try_from(rows).unwrap_or(u16::MAX).saturating_add(2);
+    let height = u16::try_from(visible).unwrap_or(u16::MAX).saturating_add(2);
     let width = column.saturating_mul(shown).saturating_add(4);
     let popup = centered(area, width, height);
     let t = &app.theme;
     let mut block = bordered(t, " Keys ");
+    // Which way there are more keys, and the keys that scroll.
+    let scroll_note = (max_scroll > 0).then(|| {
+        let mark = match (scroll > 0, scroll < max_scroll) {
+            (false, _) => "↓",
+            (true, false) => "↑",
+            (true, true) => "↕",
+        };
+        let keys = app.keymap.first_key(Action::Down).zip(app.keymap.first_key(Action::Up));
+        match keys {
+            Some((down, up)) => format!(" {mark} {down}/{up} scroll "),
+            None => format!(" {mark} more "),
+        }
+    });
     // The note on dim keys, only when one shows.
-    let dim_shown = columns
-        .iter()
-        .flat_map(|c| c.iter().take(fit))
-        .any(|l| matches!(l, HelpLine::Key(_, keys) if keys.iter().any(|(_, dim)| *dim)));
-    // Both notes need room on the bottom border, or the cut note wins.
+    let dim_shown =
+        columns.iter().flatten().any(|l| matches!(l, HelpLine::Key(_, keys) if keys.iter().any(|(_, dim)| *dim)));
+    // Both notes need room on the bottom border, or the scroll note wins.
     let room = usize::from(popup.width.saturating_sub(2));
-    let both = DIM_NOTE.width() + 1 + CUT_NOTE.width() <= room;
-    if dim_shown && (!cut || both) {
+    let both = DIM_NOTE.width() + 1 + scroll_note.as_deref().map_or(0, |n| n.width()) <= room;
+    if dim_shown && both {
         block = block.title_bottom(Line::styled(DIM_NOTE, t.muted));
     }
-    if cut {
-        block = block.title_bottom(Line::styled(CUT_NOTE, t.muted).right_aligned());
+    if let Some(note) = scroll_note {
+        block = block.title_bottom(Line::styled(note, t.muted).right_aligned());
     }
     let inner = block.inner(popup);
     f.render_widget(Clear, popup);
@@ -634,15 +676,20 @@ mod tests {
         let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
         press(&mut app, "?");
         insta::assert_snapshot!(render(&app, 120, 24));
-        // Smaller windows say that keys are missing.
-        assert!(render(&app, 80, 24).contains("More keys in a larger window"));
-        assert!(!render(&app, 120, 24).contains("More keys"));
-        // With one column, only Browse keys show: no dim keys, and no
-        // dim-key note to cover the cut note.
-        let narrow = render(&app, 50, 24);
-        assert!(narrow.contains("More keys in a larger window"), "{narrow}");
-        assert!(!narrow.contains("Dim"), "{narrow}");
+        // Smaller windows scroll, and say so.
+        assert!(render(&app, 80, 24).contains("↓ j/k scroll"));
+        assert!(!render(&app, 120, 24).contains("scroll"));
         assert!(render(&app, 120, 24).contains("Dim keys: full size only"));
+        // With one column, the Browse keys show first: no dim keys, and no
+        // dim-key note to cover the scroll note.
+        let narrow = render(&app, 50, 24);
+        assert!(narrow.contains("↓ j/k scroll"), "{narrow}");
+        assert!(!narrow.contains("Dim"), "{narrow}");
+        // Scrolled to the end, the search line keys show.
+        press(&mut app, "G");
+        let end = render(&app, 50, 24);
+        assert!(end.contains("delete a word"), "{end}");
+        assert!(end.contains("↑ j/k scroll"), "{end}");
     }
 
     #[test]
@@ -2067,6 +2114,20 @@ mod tests {
         app.update(Message::RelatedLoaded { session: 1, result: Ok(videos) });
         app.update(Message::Player { session: 1, event: PlayerEvent::Ended });
         insta::assert_snapshot!(render(&app, 60, 12));
+    }
+
+    #[test]
+    fn help_shows_over_the_full_player() {
+        let mut app = playing_app();
+        press(&mut app, "?");
+        let text = render(&app, 120, 30);
+        assert!(text.contains(" Keys "), "{text}");
+        assert!(text.contains("show or hide help"), "{text}");
+        // The progress bar and the status line stay under it.
+        assert!(text.lines().last().unwrap().contains("Big Buck Bunny"), "{text}");
+        press(&mut app, "q");
+        assert!(!render(&app, 120, 30).contains(" Keys "));
+        assert!(app.player.is_some());
     }
 
     #[test]

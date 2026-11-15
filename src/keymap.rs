@@ -341,7 +341,9 @@ impl PlayerAction {
         }
     }
 
-    /// The same keys as mpv.
+    /// Mostly the same keys as mpv. The differences: `/` is not a volume key,
+    /// because it is search in browse, and `Q` is the quality menu. In mpv,
+    /// `Q` quits and keeps the place, which reeltty always does.
     fn default_keys(self) -> &'static [&'static str] {
         match self {
             // mpv leaves full screen with esc and quits with q.
@@ -353,16 +355,17 @@ impl PlayerAction {
             Self::SeekForwardLong => &["up"],
             Self::SeekBackLong => &["down"],
             Self::VolumeUp => &["0", "*"],
-            Self::VolumeDown => &["9", "/"],
+            Self::VolumeDown => &["9"],
             Self::Mute => &["m"],
             Self::SpeedUp => &["]"],
             Self::SpeedDown => &["["],
             Self::SpeedReset => &["backspace"],
             Self::NextChapter => &["pgdn"],
             Self::PrevChapter => &["pgup"],
-            Self::Captions => &["c"],
+            // mpv shows or hides subtitles with v.
+            Self::Captions => &["v"],
             // mpv has no quality key.
-            Self::Quality => &["v"],
+            Self::Quality => &["Q"],
             // mpv's playlist keys.
             Self::NextVideo => &[">"],
             Self::PrevVideo => &["<"],
@@ -535,6 +538,18 @@ impl KeyMap {
     pub fn first_key(&self, action: Action) -> Option<KeyPress> {
         self.browse.first_key(action)
     }
+
+    /// The player action of a key while the mini-player plays. The browse
+    /// keys come first: `quit` and `close_player` stop the video, as the
+    /// player's back key does. The other browse keys do browse things. Then
+    /// come the player keys that make sense while the player is small.
+    pub fn mini_player_action(&self, key: KeyPress) -> Option<PlayerAction> {
+        match self.browse.action(key) {
+            Some(Action::Quit | Action::ClosePlayer) => Some(PlayerAction::Back),
+            Some(_) => None,
+            None => self.player.action(key).filter(|a| !matches!(a, PlayerAction::Minimize | PlayerAction::Quality)),
+        }
+    }
 }
 
 impl Default for KeyMap {
@@ -549,6 +564,23 @@ mod tests {
 
     fn key(s: &str) -> KeyPress {
         s.parse().unwrap()
+    }
+
+    #[test]
+    fn mini_player_keys() {
+        let map = KeyMap::default();
+        let mini = |s: &str| map.mini_player_action(key(s));
+        // Quit and close_player stop the video.
+        assert_eq!(mini("q"), Some(PlayerAction::Back));
+        assert_eq!(mini("x"), Some(PlayerAction::Back));
+        // Player keys that browse does not use.
+        assert_eq!(mini("space"), Some(PlayerAction::TogglePause));
+        assert_eq!(mini("9"), Some(PlayerAction::VolumeDown));
+        assert_eq!(mini("right"), Some(PlayerAction::SeekForward));
+        // Browse keys, and keys that need the full player.
+        for s in ["v", "/", "c", "up", "pgdn", "esc", "Q"] {
+            assert_eq!(mini(s), None, "{s}");
+        }
     }
 
     #[test]

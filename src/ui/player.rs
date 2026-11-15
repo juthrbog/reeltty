@@ -16,8 +16,8 @@ use super::items::{draw_image, truncate};
 use super::{bordered, error_line};
 use crate::app::player::{MINI_INFO_ROWS, Phase, PlayerState, UpNext};
 use crate::app::{App, StatusKind, StatusMessage};
-use crate::keymap::Action;
 use crate::keymap::PlayerAction;
+use crate::keymap::{Action, KeyPress};
 use crate::source::model::Item;
 use crate::terminal::kitty::VIDEO_ID;
 use crate::theme::Theme;
@@ -86,7 +86,7 @@ fn draw_up_next(app: &App, up: &UpNext, f: &mut Frame, area: Rect) {
         [
             (choose, "choose"),
             (key(Action::Open).map(|k| k.to_string()), "play"),
-            (app.keymap.player.first_key(PlayerAction::Back).map(|k| k.to_string()), "back"),
+            (app.keymap.player.first_key(PlayerAction::Back).map(|k| k.to_string()), "stop"),
         ],
     );
     let width = area.width.min(100);
@@ -192,13 +192,22 @@ pub fn draw_mini(app: &App, p: &PlayerState, f: &mut Frame, dock: Rect) {
 fn draw_mini_state(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
     let t = &app.theme;
     let mut parts = status_parts(p);
-    // Only the keys that the configuration file did not take away.
+    // Only the keys that the configuration file did not take away. Quit
+    // stops the mini-player, as back does full size, so its key comes first.
+    // ctrl-c always quits, so it is never the stop key.
+    let stop = app
+        .keymap
+        .bindings()
+        .iter()
+        .filter(|(a, _)| *a == Action::Quit)
+        .flat_map(|(_, keys)| keys)
+        .copied()
+        .find(|k| *k != KeyPress::ctrl('c'))
+        .or_else(|| app.keymap.first_key(Action::ClosePlayer));
     let mut hints = Some(
-        [(Action::ShowPlayer, " full"), (Action::ClosePlayer, " stop")]
+        [(app.keymap.first_key(Action::ShowPlayer), " full"), (stop, " stop")]
             .into_iter()
-            .filter_map(|(a, label)| {
-                app.keymap.first_key(a).map(|k| [Span::styled(k.to_string(), t.key), Span::styled(label, t.key_label)])
-            })
+            .filter_map(|(k, label)| k.map(|k| [Span::styled(k.to_string(), t.key), Span::styled(label, t.key_label)]))
             .collect::<Vec<_>>()
             .join(&Span::from("  ")),
     );
@@ -404,7 +413,7 @@ fn draw_status(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
     };
     let mut pause = p.is_running().then(|| hint(PlayerAction::TogglePause, " pause")).flatten();
     let mut mini = hint(PlayerAction::Minimize, " mini");
-    let mut back = hint(PlayerAction::Back, " back");
+    let mut back = hint(PlayerAction::Back, " stop");
     // Leave room for the title. Drop the mini and pause hints first, then
     // the state from its end, and the back hint last.
     let right = loop {

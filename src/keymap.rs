@@ -226,7 +226,7 @@ impl Action {
             Self::Channel => "go to the channel",
             Self::Toggle => "subscribe or save",
             Self::Enqueue => "add to the queue",
-            Self::Delete => "delete an entry",
+            Self::Delete => "remove an entry",
             Self::ShowPlayer => "full-size player",
             Self::ClosePlayer => "stop mini-player",
             Self::Comments => "comments",

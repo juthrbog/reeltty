@@ -939,27 +939,17 @@ impl App {
                         let (text, index) = (d.description.clone(), s.link.unwrap_or(0));
                         return self.follow_link(&text, index);
                     }
-                    Action::Channel | Action::Toggle => {
+                    Action::Channel => {
                         let channel = s.details.as_ref().and_then(|d| d.channel.clone());
                         let Some(c) = channel else { return Vec::new() };
-                        if action == Action::Toggle {
-                            let Some(id) = c.id else { return Vec::new() };
-                            return self.toggle_subscription(id, c.name, c.handle);
-                        }
                         return Target::channel(&c).map(|t| self.open(t)).unwrap_or_default();
                     }
+                    Action::Toggle | Action::Enqueue => return self.on_video_screen_item(action),
                     Action::Open => {
                         let (id, title) = (s.id.clone(), s.title.clone());
                         return self.play(id, title);
                     }
                     Action::Comments => return self.show_comments(),
-                    Action::Enqueue => {
-                        let video = match &s.details {
-                            Some(d) => player::details_video(d),
-                            None => player::plain_video(&s.id, &s.title),
-                        };
-                        self.toggle_queued(&video);
-                    }
                     _ => {}
                 }
                 Vec::new()
@@ -1068,6 +1058,29 @@ impl App {
         }
     }
 
+    /// Subscribe (Toggle) and Enqueue on the video of the screen on top, from
+    /// its details or its comments: they act on the video, as in a list.
+    fn on_video_screen_item(&mut self, action: Action) -> Vec<Effect> {
+        let Some(Screen::Video(s)) = self.screens.last() else { return Vec::new() };
+        match action {
+            Action::Toggle => {
+                let channel = s.details.as_ref().and_then(|d| d.channel.clone());
+                let Some(c) = channel else { return Vec::new() };
+                let Some(id) = c.id else { return Vec::new() };
+                self.toggle_subscription(id, c.name, c.handle)
+            }
+            Action::Enqueue => {
+                let video = match &s.details {
+                    Some(d) => player::details_video(d),
+                    None => player::plain_video(&s.id, &s.title),
+                };
+                self.toggle_queued(&video);
+                Vec::new()
+            }
+            _ => Vec::new(),
+        }
+    }
+
     /// Keys while the video screen shows the comments.
     fn on_comments_action(&mut self, action: Action, rows: usize) -> Vec<Effect> {
         // Each comment takes about three rows. `rows` counts list items, which
@@ -1078,6 +1091,9 @@ impl App {
         if action == Action::Comments {
             s.pane = VideoPane::Details;
             return Vec::new();
+        }
+        if matches!(action, Action::Toggle | Action::Enqueue) {
+            return self.on_video_screen_item(action);
         }
         let Some(c) = s.comments.as_mut() else { return Vec::new() };
         let generation = c.generation;
@@ -1152,12 +1168,18 @@ impl App {
                     videos_text: p.count_text.clone(),
                     saved_at: 0,
                 }),
-                Item::Video(v) => match v.channels.iter().find(|c| c.id.is_some()) {
-                    Some(c) => {
-                        self.toggle_subscription(c.id.clone().unwrap_or_default(), c.name.clone(), c.handle.clone())
-                    }
-                    None => Vec::new(),
-                },
+                // A video is not a channel. In the Feed, the key would
+                // unsubscribe and take the row away, so it points to the
+                // channel instead.
+                Item::Video(_) => {
+                    let toggle = self.keymap.first_key(Action::Toggle).map_or_else(String::new, |k| format!("{k} "));
+                    let text = match self.keymap.first_key(Action::Channel) {
+                        Some(c) => format!("Press {c} to open this video's channel, then {toggle}to subscribe."),
+                        None => format!("Open this video's channel, then press {toggle}to subscribe."),
+                    };
+                    self.status = Some(StatusMessage::info(text));
+                    Vec::new()
+                }
             },
             _ => Vec::new(),
         }
@@ -1165,6 +1187,13 @@ impl App {
 
     /// Opens a screen on top and asks for its data.
     pub fn open(&mut self, target: Target) -> Vec<Effect> {
+        // The channel that shows already does not open again on top.
+        if let (Target::Channel { id, .. }, Some(Screen::Channel(s))) = (&target, self.screens.last())
+            && *id == s.id
+        {
+            self.status = Some(StatusMessage::info("This is the channel already."));
+            return Vec::new();
+        }
         self.request += 1;
         let request = self.request;
         let (screen, effect) = match target {
@@ -1341,7 +1370,8 @@ impl App {
         let s = self.subscriptions.get(self.subscriptions_selection.index)?.clone();
         match action {
             Action::Open | Action::Channel => Some(self.open(Target::Channel { id: s.channel_id, name: s.name })),
-            Action::Toggle => {
+            // Delete removes the row, as on every local list.
+            Action::Toggle | Action::Delete => {
                 let effects = self.toggle_subscription(s.channel_id, s.name, s.handle);
                 self.subscriptions_selection.clamp(self.subscriptions.len(), rows);
                 Some(effects)
@@ -1442,7 +1472,7 @@ impl App {
                 let id = p.channel_id?;
                 Some(self.open(Target::Channel { id, name: p.channel_name.unwrap_or_default() }))
             }
-            Action::Toggle => {
+            Action::Toggle | Action::Delete => {
                 let effects = self.toggle_saved(p);
                 self.saved_selection.clamp(self.saved_playlists.len(), rows);
                 Some(effects)
@@ -1980,6 +2010,83 @@ pub(crate) mod tests {
         assert!(matches!(effects.as_slice(), [Effect::SavePlaylist(p)] if p.playlist_id == "PL1"));
         a.tab = Tab::Playlists;
         assert_eq!(key(&mut a, "enter"), vec![Effect::LoadPlaylist { request: 1, id: "PL1".into() }]);
+    }
+
+    fn video_by(id: &str, channel: &str) -> Item {
+        match video(id) {
+            Item::Video(mut v) => {
+                v.channels = vec![ChannelRef { id: Some(channel.into()), name: "Chan".into(), handle: None }];
+                Item::Video(v)
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn toggle_on_a_video_row_points_to_the_channel() {
+        let mut a = app();
+        a.subscriptions =
+            vec![Subscription { channel_id: "UC1".into(), name: "A".into(), handle: None, subscribed_at: 1 }];
+        results(&mut a, vec![video_by("v1", "UC1")]);
+        // No unsubscribe from a video row: it would take the row away in the Feed.
+        assert_eq!(key(&mut a, "s"), vec![]);
+        assert!(a.is_subscribed("UC1"));
+        assert_eq!(a.status.as_deref(), Some("Press c to open this video's channel, then s to subscribe."));
+    }
+
+    #[test]
+    fn delete_removes_subscriptions_and_saved_playlists() {
+        let mut a = app();
+        a.subscriptions =
+            vec![Subscription { channel_id: "UC1".into(), name: "A".into(), handle: None, subscribed_at: 1 }];
+        a.tab = Tab::Subscriptions;
+        assert_eq!(
+            key(&mut a, "d"),
+            vec![Effect::Unsubscribe { channel_id: "UC1".into() }, Effect::ForgetFeed { channel_id: "UC1".into() }]
+        );
+        assert!(a.subscriptions.is_empty());
+        assert_eq!(key(&mut a, "d"), vec![], "an empty list removes nothing");
+
+        a.saved_playlists = vec![SavedPlaylist {
+            playlist_id: "PL1".into(),
+            title: "Mix".into(),
+            channel_id: None,
+            channel_name: None,
+            videos_text: None,
+            saved_at: 1,
+        }];
+        a.tab = Tab::Playlists;
+        assert_eq!(key(&mut a, "d"), vec![Effect::UnsavePlaylist { playlist_id: "PL1".into() }]);
+        assert!(a.saved_playlists.is_empty());
+    }
+
+    #[test]
+    fn the_comments_pane_queues_and_subscribes_like_the_details() {
+        let mut a = app();
+        a.open(Target::Video { id: "v".into(), title: "t".into() });
+        let mut d = details("v", Some("tok"));
+        d.channel = Some(ChannelRef { id: Some("UC1".into()), name: "Chan".into(), handle: None });
+        a.update(Message::VideoLoaded { request: 1, result: Ok(d) });
+        key(&mut a, "C");
+        assert_eq!(pane(&a), VideoPane::Comments);
+        assert!(key(&mut a, "a").is_empty());
+        assert_eq!(a.queue.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(), ["v"]);
+        assert!(matches!(key(&mut a, "s").as_slice(), [Effect::Subscribe(s), ..] if s.channel_id == "UC1"));
+        assert_eq!(pane(&a), VideoPane::Comments);
+    }
+
+    #[test]
+    fn the_channel_key_on_the_same_channel_opens_nothing() {
+        let mut a = app();
+        a.open(Target::Channel { id: "UC1".into(), name: "Chan".into() });
+        let page = channel_page(vec![video_by("v1", "UC1"), video_by("v2", "UC2")], false);
+        a.update(Message::ChannelLoaded { request: 1, result: Ok(page) });
+        assert_eq!(key(&mut a, "c"), vec![]);
+        assert_eq!(a.screens.len(), 1);
+        assert_eq!(a.status.as_deref(), Some("This is the channel already."));
+        // Another channel opens.
+        key(&mut a, "j");
+        assert_eq!(key(&mut a, "c"), vec![Effect::LoadChannel { request: 2, id: "UC2".into() }]);
     }
 
     #[test]

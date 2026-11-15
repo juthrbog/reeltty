@@ -89,7 +89,7 @@ impl Source for YtDlp {
 /// (`available_at`). It has H.264 up to 1080p. `tv_samsung` and `web` give
 /// the larger VP9 sizes, and videos made for kids, which `visionos` cannot
 /// play. These are yt-dlp's default clients, with `visionos` first.
-const PLAYER_CLIENTS: &str = "youtube:player_client=visionos,tv_samsung,web";
+pub(super) const PLAYER_CLIENTS: &str = "youtube:player_client=visionos,tv_samsung,web";
 
 impl YtDlp {
     /// The stream URLs of a video, at most `max_height` pixels high.
@@ -111,6 +111,16 @@ impl YtDlp {
         streams::parse_streams(&self.run(&args).await?)
     }
 
+    /// The error when the program cannot start.
+    pub(super) fn spawn_error(&self, e: &std::io::Error) -> SourceError {
+        let program = self.program.display();
+        if e.kind() == std::io::ErrorKind::NotFound {
+            SourceError::Program(format!("{program} was not found. Install yt-dlp or set yt_dlp in the config"))
+        } else {
+            SourceError::Program(format!("cannot run {program}: {e}"))
+        }
+    }
+
     /// Runs the program and returns its standard output.
     async fn run(&self, args: &[&str]) -> Result<Vec<u8>> {
         let program = self.program.display();
@@ -121,13 +131,7 @@ impl YtDlp {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    SourceError::Program(format!("{program} was not found. Install yt-dlp or set yt_dlp in the config"))
-                } else {
-                    SourceError::Program(format!("cannot run {program}: {e}"))
-                }
-            })?;
+            .map_err(|e| self.spawn_error(&e))?;
         let output = tokio::time::timeout(TIMEOUT, child.wait_with_output())
             .await
             .map_err(|_| SourceError::Program(format!("{program} did not finish in {} s", TIMEOUT.as_secs())))?

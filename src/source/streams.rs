@@ -21,26 +21,41 @@ pub const RUNGS: [u32; 8] = [144, 240, 360, 480, 720, 1080, 1440, 2160];
 /// size, come from `sort`, not from the selector. YouTube has H.264 only up
 /// to 1080p, so larger sizes are VP9.
 pub fn selector(max: u32) -> String {
+    let mut choices = pairs(max);
+    choices.push("bv[vcodec^=avc1][protocol^=m3u8]+ba[protocol^=m3u8]".to_string());
+    choices.push("b[vcodec^=avc1][acodec~='^(opus|mp4a)']".to_string());
+    choices.join("/")
+}
+
+/// The format selector for a download, with the same rules as `selector`
+/// but without the choices for live streams, which cannot be downloaded.
+/// `merged` asks for video and audio together, to merge into one file.
+/// Otherwise yt-dlp downloads them as two files: `,` binds weaker than `/`,
+/// so the result is one video choice and one audio choice.
+pub fn download_selector(max: u32, merged: bool) -> String {
+    if merged { pairs(max).join("/") } else { format!("{},{}", videos(max).join("/"), AUDIO.join("/")) }
+}
+
+/// The audio streams, best choice first.
+const AUDIO: [&str; 3] = [
+    "ba[acodec=opus][protocol=https]",
+    "ba[acodec^=mp4a][audio_channels<=2][protocol=https]",
+    "ba[acodec^=mp4a][protocol=https]",
+];
+
+/// The video streams, best choice first.
+fn videos(max: u32) -> [String; 2] {
     let video = "bv[vcodec~='^(avc1|vp0?9)'][dynamic_range=SDR][protocol=https]";
     // `sort` limits the short side. A very wide video can have a stream that
     // is short enough but much wider than `max` allows, so first try the
     // streams that fit in a 16:9 picture of `max` either way up.
     let long = max_long(max);
-    let fitting = format!("{video}[width<=?{long}][height<=?{long}]");
-    let opus = "ba[acodec=opus][protocol=https]";
-    let aac = "ba[acodec^=mp4a][protocol=https]";
-    let stereo_aac = "ba[acodec^=mp4a][audio_channels<=2][protocol=https]";
-    [
-        format!("{fitting}+{opus}"),
-        format!("{fitting}+{stereo_aac}"),
-        format!("{fitting}+{aac}"),
-        format!("{video}+{opus}"),
-        format!("{video}+{stereo_aac}"),
-        format!("{video}+{aac}"),
-        "bv[vcodec^=avc1][protocol^=m3u8]+ba[protocol^=m3u8]".to_string(),
-        "b[vcodec^=avc1][acodec~='^(opus|mp4a)']".to_string(),
-    ]
-    .join("/")
+    [format!("{video}[width<=?{long}][height<=?{long}]"), video.to_string()]
+}
+
+/// Each video choice with each audio choice, in order.
+fn pairs(max: u32) -> Vec<String> {
+    videos(max).iter().flat_map(|v| AUDIO.iter().map(move |a| format!("{v}+{a}"))).collect()
 }
 
 /// The long side of a 16:9 picture that is `max` pixels on the short side.
@@ -343,6 +358,24 @@ mod tests {
         assert!(selector(2160).contains("[width<=?3840]"));
         assert!(!s.contains("av01"));
         assert_eq!(sort(480), "res:480,vcodec:avc1");
+    }
+
+    #[test]
+    fn download_selectors_have_no_live_choices() {
+        let merged = download_selector(1080, true);
+        assert_eq!(merged, selector(1080).split('/').take(6).collect::<Vec<_>>().join("/"));
+        let separate = download_selector(720, false);
+        let (video, audio) = separate.split_once(',').unwrap();
+        assert_eq!(
+            video,
+            "bv[vcodec~='^(avc1|vp0?9)'][dynamic_range=SDR][protocol=https][width<=?1280][height<=?1280]\
+             /bv[vcodec~='^(avc1|vp0?9)'][dynamic_range=SDR][protocol=https]"
+        );
+        assert_eq!(
+            audio,
+            "ba[acodec=opus][protocol=https]/ba[acodec^=mp4a][audio_channels<=2][protocol=https]\
+             /ba[acodec^=mp4a][protocol=https]"
+        );
     }
 
     #[test]

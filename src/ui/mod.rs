@@ -457,7 +457,7 @@ fn draw_help(app: &App, f: &mut Frame, area: Rect) {
         columns.iter().flatten().any(|l| matches!(l, HelpLine::Key(_, keys) if keys.iter().any(|(_, dim)| *dim)));
     // Both notes need room on the bottom border, or the scroll note wins.
     let room = usize::from(popup.width.saturating_sub(2));
-    let both = DIM_NOTE.width() + 1 + scroll_note.as_deref().map_or(0, |n| n.width()) <= room;
+    let both = DIM_NOTE.width() + 1 + scroll_note.as_deref().map_or(0, unicode_width::UnicodeWidthStr::width) <= room;
     if dim_shown && both {
         block = block.title_bottom(Line::styled(DIM_NOTE, t.muted));
     }

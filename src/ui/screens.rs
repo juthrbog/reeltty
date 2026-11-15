@@ -13,7 +13,7 @@ use crate::app::list::{ItemList, Loading};
 use crate::app::player::clock;
 use crate::app::screens::{ChannelScreen, PlaylistScreen, Screen, VideoPane, VideoScreen};
 use crate::app::{App, SCREEN_HEADER_ROWS, StatusMessage};
-use crate::keymap::Action;
+use crate::keymap::{Action, KeyPress};
 use crate::source::model::{Comment, Description, Item, LinkTarget, VideoDetails};
 use crate::theme::Theme;
 
@@ -32,17 +32,17 @@ pub fn draw(app: &App, screen: &Screen, f: &mut Frame, area: Rect) {
 
 /// The status bar message for a screen. An error that the body shows is
 /// left out, so each error shows in one place.
-pub fn status(screen: &Screen) -> Option<StatusMessage> {
+pub fn status(screen: &Screen, open: Option<KeyPress>) -> Option<StatusMessage> {
     let list = match screen {
         Screen::Channel(s) => &s.list,
         Screen::Playlist(s) => &s.list,
         Screen::Video(s) if s.pane == VideoPane::Comments => {
-            return s.comments.as_deref().and_then(|c| comments_status(c, &s.id));
+            return s.comments.as_deref().and_then(|c| comments_status(c, &s.id, open));
         }
         Screen::Video(s) => {
             let link = s.link.and_then(|i| s.details.as_ref()?.description.links.get(i));
             if let Some(link) = link {
-                return Some(StatusMessage::info(link_status(&link.target, &s.id)));
+                return Some(StatusMessage::info(link_status(&link.target, &s.id, open)));
             }
             return match (&s.error, s.loading, &s.details) {
                 (Some(e), _, Some(_)) => Some(StatusMessage::error(format!("Could not load the video: {e}"))),
@@ -61,27 +61,31 @@ pub fn status(screen: &Screen) -> Option<StatusMessage> {
     }
 }
 
-/// What `enter` does with a selected link.
-fn link_status(target: &LinkTarget, video_id: &str) -> String {
-    match target {
-        LinkTarget::Url(url) => format!("enter: open {url}"),
+/// What the `open` key does with a selected link.
+fn link_status(target: &LinkTarget, video_id: &str, open: Option<KeyPress>) -> String {
+    let what = match target {
+        LinkTarget::Url(url) => format!("open {url}"),
         LinkTarget::Video { id, start_secs: Some(secs) } if id == video_id => {
-            format!("enter: play from {}", duration(*secs))
+            format!("play from {}", duration(*secs))
         }
-        LinkTarget::Video { id, start_secs: Some(secs) } => format!("enter: play video {id} from {}", duration(*secs)),
-        LinkTarget::Video { id, start_secs: None } => format!("enter: play video {id}"),
-        LinkTarget::Channel { .. } => "enter: open the channel".into(),
+        LinkTarget::Video { id, start_secs: Some(secs) } => format!("play video {id} from {}", duration(*secs)),
+        LinkTarget::Video { id, start_secs: None } => format!("play video {id}"),
+        LinkTarget::Channel { .. } => "open the channel".into(),
+    };
+    match open {
+        Some(k) => format!("{k}: {what}"),
+        None => format!("Link: {what}"),
     }
 }
 
-fn comments_status(c: &CommentsState, video_id: &str) -> Option<StatusMessage> {
+fn comments_status(c: &CommentsState, video_id: &str, open: Option<KeyPress>) -> Option<StatusMessage> {
     // Without comments, the body shows the error.
     if let Some(e) = c.error.as_ref().filter(|_| !c.rows.is_empty()) {
         return Some(StatusMessage::error(format!("Could not load the comments: {e}")));
     }
     let link = c.link.and_then(|i| c.selected_comment()?.text.links.get(i));
     if let Some(link) = link {
-        return Some(StatusMessage::info(link_status(&link.target, video_id)));
+        return Some(StatusMessage::info(link_status(&link.target, video_id, open)));
     }
     let text = match c.loading {
         Loading::FirstPage => "Loading comments…",

@@ -46,7 +46,7 @@ pub fn draw(app: &App, p: &PlayerState, f: &mut Frame) {
         let g = p.geometry;
         let area = Rect::new(video.x + g.x, video.y + g.y, g.cols, g.rows).intersection(video);
         draw_image(f.buffer_mut(), area, VIDEO_ID);
-        draw_quality_menu(t, p, f, video);
+        draw_quality_menu(app, t, p, f, video);
     } else {
         draw_message(t, p, super::spinner(app), f, video);
     }
@@ -115,7 +115,7 @@ fn draw_up_next(app: &App, up: &UpNext, f: &mut Frame, area: Rect) {
     super::items::draw_rows(t, rows, selection, app.gap(), f, inner);
 }
 
-fn draw_quality_menu(t: &Theme, p: &PlayerState, f: &mut Frame, area: Rect) {
+fn draw_quality_menu(app: &App, t: &Theme, p: &PlayerState, f: &mut Frame, area: Rect) {
     let Some(menu) = &p.quality_menu else { return };
     let items: Vec<ListItem> = p
         .qualities
@@ -126,12 +126,20 @@ fn draw_quality_menu(t: &Theme, p: &PlayerState, f: &mut Frame, area: Rect) {
         })
         .collect();
     let height = u16::try_from(items.len()).unwrap_or(u16::MAX).saturating_add(2).min(area.height);
-    let width = 16.min(area.width);
+    // The menu moves with the browse keys.
+    let key = |a| app.keymap.first_key(a).map(|k| k.to_string());
+    let hints = super::hint_title(t, [(key(Action::Open), "choose"), (key(Action::Back), "close")]);
+    let hints_width = hints.as_ref().map_or(0, Line::width);
+    let width = u16::try_from(hints_width + 2).unwrap_or(u16::MAX).max(16).min(area.width);
     let [_, column, _] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(width), Constraint::Fill(1)]).areas(area);
     let [_, popup, _] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(height), Constraint::Fill(1)]).areas(column);
-    let list = List::new(items).block(bordered(t, " Quality ")).highlight_style(t.selection);
+    let mut block = bordered(t, " Quality ");
+    if let Some(hints) = hints {
+        block = block.title_bottom(hints);
+    }
+    let list = List::new(items).block(block).highlight_style(t.selection);
     f.render_widget(Clear, popup);
     f.render_stateful_widget(list, popup, &mut ListState::default().with_selected(Some(menu.selection)));
 }
@@ -411,19 +419,23 @@ fn draw_status(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
             Span::styled(label, app.theme.key_label),
         ])
     };
-    let mut pause = p.is_running().then(|| hint(PlayerAction::TogglePause, " pause")).flatten();
-    let mut mini = hint(PlayerAction::Minimize, " mini");
-    let mut back = hint(PlayerAction::Back, " stop");
-    // Leave room for the title. Drop the mini and pause hints first, then
-    // the state from its end, and the back hint last.
+    // The quality menu has its own hints, and takes the keys.
+    // The help takes the keys too, and has its own hints.
+    let menu = p.quality_menu.is_some() || app.show_help;
+    let mut pause = (p.is_running() && !menu).then(|| hint(PlayerAction::TogglePause, " pause")).flatten();
+    let mut mini = (!menu).then(|| hint(PlayerAction::Minimize, " mini")).flatten();
+    let mut help = (!menu).then(|| hint(PlayerAction::Help, " help")).flatten();
+    let mut back = (!menu).then(|| hint(PlayerAction::Back, " stop")).flatten();
+    // Leave room for the title. Drop the help, mini and pause hints first,
+    // then the state from its end, and the back hint last.
     let right = loop {
         let mut spans = vec![Span::styled(parts.join("  "), app.theme.muted)];
-        spans.extend(back.iter().chain(&mini).chain(&pause).flatten().cloned());
+        spans.extend(back.iter().chain(&mini).chain(&pause).chain(&help).flatten().cloned());
         let line = Line::from(spans);
         if line.width() + MIN_TITLE_WIDTH <= usize::from(area.width) {
             break line;
         }
-        if mini.take().is_some() || pause.take().is_some() {
+        if help.take().is_some() || mini.take().is_some() || pause.take().is_some() {
             continue;
         }
         if parts.len() > 1 {

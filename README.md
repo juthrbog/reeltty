@@ -51,7 +51,7 @@ cargo build --release
 ./target/release/reeltty
 ```
 
-Press `?` in reeltty to see the keys of the browse screen and of the player.
+Press `?` in reeltty to see the keys of the browse screen, the player, and the search line. It works in the player too, and the video plays on. In a small window, scroll the help with `j` and `k`. `?`, `esc`, or `q` closes it.
 
 To import your YouTube subscriptions, export them with [Google Takeout](https://takeout.google.com/) (choose "YouTube and YouTube Music", then "subscriptions"). Unpack the archive, then run:
 
@@ -86,6 +86,7 @@ The History tab shows the videos you played, newest first, and how far you got. 
 | `>`, `<` | Next or previous video |
 | `esc` | Mini-player: go back to the list, and the video plays on |
 | `q` | Stop and go back to the list |
+| `?` | Show or hide the keys |
 
 The mini-player shows the video at the bottom right of the list. The top of its box shows ▶ while the video plays, ⏸ while it is paused, and the time. The bottom edge of the box is the progress bar. Browse as usual: the browse keys come first, and the player keys that browse does not use still work, such as `space`, `left`, `right`, `m`, and `>`. In the help (`?`), the player keys that work only full size are dim: captions, chapters, the 1-minute jumps, and the quality menu. Press `v` to show the player full size again, and `q` (or `x`) to stop it, as full size. With nothing playing, `q` quits reeltty. `ctrl-c` always quits. `enter` on the video that plays also shows it full size, and `enter` on another video plays that one full size. When the screen is smaller than 72 x 14, the mini-player does not show, the sound plays on, and the status bar shows the video.
 
@@ -170,7 +171,7 @@ up = ["k", "up"]
 seek_forward_long = ["up", "l"]
 ```
 
-The actions in `[keys.browse]` are `quit`, `up`, `down`, `top`, `bottom`, `half_page_up`, `half_page_down`, `open`, `back`, `search`, `filters`, `next_tab`, `prev_tab`, `refresh`, `details`, `channel`, `toggle`, `enqueue`, `delete`, `show_player`, `close_player`, `comments`, `sort`, `next_link`, `prev_link`, and `help`. The actions in `[keys.player]` are `back`, `minimize`, `toggle_pause`, `seek_forward`, `seek_back`, `seek_forward_long`, `seek_back_long`, `volume_up`, `volume_down`, `mute`, `speed_up`, `speed_down`, `speed_reset`, `next_chapter`, `prev_chapter`, `captions`, `quality`, `next_video`, and `prev_video`. Keys are written as `j`, `G`, `ctrl-d`, `alt-x`, `space`, `enter`, `esc`, `tab`, `shift-tab`, `backspace`, `up`, `down`, `left`, `right`, `pgup`, `pgdn`, `home`, `end`, or `f1` to `f12`. If you give a default key of one action to another action, the first action loses that key. For example, `back = ["q", "esc"]` in `[keys.player]` makes `esc` stop the video, and the mini-player then has no key. Two actions that you give the same key are an error.
+The actions in `[keys.browse]` are `quit`, `up`, `down`, `top`, `bottom`, `half_page_up`, `half_page_down`, `open`, `back`, `search`, `filters`, `next_tab`, `prev_tab`, `refresh`, `details`, `channel`, `toggle`, `enqueue`, `delete`, `show_player`, `close_player`, `comments`, `sort`, `next_link`, `prev_link`, and `help`. The actions in `[keys.player]` are `back`, `minimize`, `toggle_pause`, `seek_forward`, `seek_back`, `seek_forward_long`, `seek_back_long`, `volume_up`, `volume_down`, `mute`, `speed_up`, `speed_down`, `speed_reset`, `next_chapter`, `prev_chapter`, `captions`, `quality`, `next_video`, `prev_video`, and `help`. Keys are written as `j`, `G`, `ctrl-d`, `alt-x`, `space`, `enter`, `esc`, `tab`, `shift-tab`, `backspace`, `up`, `down`, `left`, `right`, `pgup`, `pgdn`, `home`, `end`, or `f1` to `f12`. If you give a default key of one action to another action, the first action loses that key. For example, `back = ["q", "esc"]` in `[keys.player]` makes `esc` stop the video, and the mini-player then has no key. Two actions that you give the same key are an error.
 
 Local state (subscriptions, the feed, saved playlists, and the watch history) is in `~/.local/share/reeltty/reeltty.db`. Thumbnails are cached in `~/.cache/reeltty/thumbnails`, up to 100 MB. The log is in `~/.local/state/reeltty/reeltty.log`. Set `REELTTY_LOG=debug` for more detail.
 

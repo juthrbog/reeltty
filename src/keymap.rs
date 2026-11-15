@@ -292,10 +292,11 @@ pub enum PlayerAction {
     Quality,
     NextVideo,
     PrevVideo,
+    Help,
 }
 
 impl PlayerAction {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::Back,
         Self::Minimize,
         Self::TogglePause,
@@ -315,6 +316,7 @@ impl PlayerAction {
         Self::Quality,
         Self::NextVideo,
         Self::PrevVideo,
+        Self::Help,
     ];
 
     pub const fn description(self) -> &'static str {
@@ -338,6 +340,7 @@ impl PlayerAction {
             Self::Quality => "video quality",
             Self::NextVideo => "next video",
             Self::PrevVideo => "previous video",
+            Self::Help => "show or hide help",
         }
     }
 
@@ -369,6 +372,8 @@ impl PlayerAction {
             // mpv's playlist keys.
             Self::NextVideo => &[">"],
             Self::PrevVideo => &["<"],
+            // mpv shows its keys with ? too.
+            Self::Help => &["?"],
         }
     }
 }
@@ -541,11 +546,12 @@ impl KeyMap {
 
     /// The player action of a key while the mini-player plays. The browse
     /// keys come first: `quit` and `close_player` stop the video, as the
-    /// player's back key does. The other browse keys do browse things. Then
+    /// player's back key does, and help shows the help. The other browse keys do browse things. Then
     /// come the player keys that make sense while the player is small.
     pub fn mini_player_action(&self, key: KeyPress) -> Option<PlayerAction> {
         match self.browse.action(key) {
             Some(Action::Quit | Action::ClosePlayer) => Some(PlayerAction::Back),
+            Some(Action::Help) => Some(PlayerAction::Help),
             Some(_) => None,
             None => self.player.action(key).filter(|a| !matches!(a, PlayerAction::Minimize | PlayerAction::Quality)),
         }

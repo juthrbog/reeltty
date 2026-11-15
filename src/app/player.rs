@@ -919,6 +919,10 @@ impl App {
         match action {
             Some(PlayerAction::Back) => return self.stop_player(),
             Some(PlayerAction::Minimize) => return self.minimize(),
+            Some(PlayerAction::Help) => {
+                self.open_help();
+                return Vec::new();
+            }
             _ => {}
         }
         if action != Some(PlayerAction::PrevVideo)
@@ -972,6 +976,10 @@ impl App {
             // Quit stops the video first, as the back key does full size.
             // With nothing playing, it quits.
             PlayerAction::Back => Some(self.stop_player()),
+            PlayerAction::Help => {
+                self.open_help();
+                Some(Vec::new())
+            }
             // The up next list is not on screen, so its first video plays.
             PlayerAction::NextVideo
                 if self.player.as_ref().is_some_and(|p| p.phase == Phase::Ended && p.up_next.is_some()) =>
@@ -990,7 +998,11 @@ impl App {
                 if let Some(v) = next.into_iter().next() {
                     return self.play_next(v);
                 }
-                self.status = Some(StatusMessage::warn("Nothing to play next. Add videos to the queue with a."));
+                let text = match self.keymap.first_key(Action::Enqueue) {
+                    Some(k) => format!("Nothing to play next. Add videos to the queue with {k}."),
+                    None => "Nothing to play next. The queue is empty.".to_string(),
+                };
+                self.status = Some(StatusMessage::warn(text));
                 return Vec::new();
             }
             Some(PlayerAction::PrevVideo) => {
@@ -1057,7 +1069,13 @@ impl App {
             Some(PlayerAction::VolumeUp) => PlayerCommand::Volume { delta: VOLUME_STEP },
             Some(PlayerAction::VolumeDown) => PlayerCommand::Volume { delta: -VOLUME_STEP },
             Some(PlayerAction::Mute) => PlayerCommand::ToggleMute,
-            Some(PlayerAction::Back | PlayerAction::Minimize | PlayerAction::NextVideo | PlayerAction::PrevVideo)
+            Some(
+                PlayerAction::Back
+                | PlayerAction::Minimize
+                | PlayerAction::NextVideo
+                | PlayerAction::PrevVideo
+                | PlayerAction::Help,
+            )
             | None => return Vec::new(),
         };
         vec![Effect::Player(command)]
@@ -2146,6 +2164,45 @@ mod tests {
         let mut a = mini();
         let effects = a.update(Message::Input(Input::Key("ctrl-c".parse().unwrap())));
         assert!(matches!(effects.as_slice(), [Effect::SaveWatch(_), Effect::Quit]), "{effects:?}");
+    }
+
+    #[test]
+    fn help_opens_over_the_player() {
+        let mut a = playing(false);
+        event(&mut a, PlayerEvent::FileLoaded);
+        assert!(key(&mut a, "?").is_empty());
+        assert!(a.show_help);
+        // The help takes the keys: no pause, and q closes it but not the player.
+        assert!(key(&mut a, "space").is_empty());
+        assert!(key(&mut a, "q").is_empty());
+        assert!(!a.show_help);
+        assert!(a.player.is_some());
+        // esc closes it, and the player stays full size.
+        key(&mut a, "?");
+        assert!(key(&mut a, "esc").is_empty());
+        assert!(!a.show_help);
+        assert!(!a.player.as_ref().unwrap().mini);
+        // Keys in the help show the status line again.
+        key(&mut a, "?");
+        a.clock += 100;
+        key(&mut a, "j");
+        assert_eq!(a.player.as_ref().unwrap().status_until, a.clock + STATUS_SHOW_SECS);
+        // From the mini-player too.
+        let mut a = mini();
+        assert!(key(&mut a, "?").is_empty());
+        assert!(a.show_help);
+        assert!(key(&mut a, "space").is_empty());
+        assert!(key(&mut a, "q").is_empty());
+        assert!(!a.show_help);
+        assert!(a.player.is_some());
+        // A player help key that browse does not use opens and closes it.
+        let mut a = mini();
+        let browse = KeyOverrides::from([(Action::Help, vec!["H".to_string()])]);
+        a.keymap = KeyMap::new(&browse, &PlayerKeyOverrides::new()).unwrap();
+        key(&mut a, "?");
+        assert!(a.show_help);
+        key(&mut a, "?");
+        assert!(!a.show_help);
     }
 
     #[test]

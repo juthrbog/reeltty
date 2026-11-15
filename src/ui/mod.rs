@@ -681,7 +681,7 @@ mod tests {
         insta::assert_snapshot!(render(&app, 120, 24));
         // Smaller windows scroll, and say so.
         assert!(render(&app, 80, 24).contains("↓ j/k scroll"));
-        assert!(!render(&app, 120, 24).contains("scroll"));
+        assert!(!render(&app, 120, 30).contains("scroll"));
         assert!(render(&app, 120, 24).contains("Dim keys: full size only"));
         // With one column, the Browse keys show first: no dim keys, and no
         // dim-key note to cover the scroll note.

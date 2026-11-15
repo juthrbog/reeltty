@@ -174,10 +174,16 @@ pub enum Action {
     NextLink,
     PrevLink,
     Help,
+    TabSearch,
+    TabFeed,
+    TabSubscriptions,
+    TabPlaylists,
+    TabQueue,
+    TabHistory,
 }
 
 impl Action {
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 32] = [
         Self::Quit,
         Self::Up,
         Self::Down,
@@ -204,6 +210,12 @@ impl Action {
         Self::NextLink,
         Self::PrevLink,
         Self::Help,
+        Self::TabSearch,
+        Self::TabFeed,
+        Self::TabSubscriptions,
+        Self::TabPlaylists,
+        Self::TabQueue,
+        Self::TabHistory,
     ];
 
     pub const fn description(self) -> &'static str {
@@ -234,6 +246,12 @@ impl Action {
             Self::NextLink => "next link",
             Self::PrevLink => "previous link",
             Self::Help => "show or hide help",
+            Self::TabSearch => "Search tab",
+            Self::TabFeed => "Feed tab",
+            Self::TabSubscriptions => "Subscriptions tab",
+            Self::TabPlaylists => "Playlists tab",
+            Self::TabQueue => "Queue tab",
+            Self::TabHistory => "History tab",
         }
     }
 
@@ -265,6 +283,13 @@ impl Action {
             Self::NextLink => &["n"],
             Self::PrevLink => &["N"],
             Self::Help => &["?"],
+            // In the order of the tab bar.
+            Self::TabSearch => &["1"],
+            Self::TabFeed => &["2"],
+            Self::TabSubscriptions => &["3"],
+            Self::TabPlaylists => &["4"],
+            Self::TabQueue => &["5"],
+            Self::TabHistory => &["6"],
         }
     }
 }
@@ -384,6 +409,9 @@ pub trait Actions: Copy + Eq + Hash + Ord + fmt::Debug + 'static {
     const TABLE: &'static str;
     /// The action that must keep at least one key, so the user can never get stuck.
     const REQUIRED: Self;
+    /// The action that has ctrl-c. ctrl-c always quits, so no other action
+    /// can have it, and this one always has it.
+    const CTRL_C: Option<Self>;
     fn all() -> &'static [Self];
     fn default_keys(self) -> &'static [&'static str];
 }
@@ -391,6 +419,7 @@ pub trait Actions: Copy + Eq + Hash + Ord + fmt::Debug + 'static {
 impl Actions for Action {
     const TABLE: &'static str = "[keys.browse]";
     const REQUIRED: Self = Self::Quit;
+    const CTRL_C: Option<Self> = Some(Self::Quit);
 
     fn all() -> &'static [Self] {
         &Self::ALL
@@ -404,6 +433,7 @@ impl Actions for Action {
 impl Actions for PlayerAction {
     const TABLE: &'static str = "[keys.player]";
     const REQUIRED: Self = Self::Back;
+    const CTRL_C: Option<Self> = None;
 
     fn all() -> &'static [Self] {
         &Self::ALL
@@ -427,8 +457,11 @@ pub enum KeyMapError {
     Parse { table: &'static str, action: String, source: KeyParseError },
     #[error("{table} key {key} is bound to both {first} and {second}")]
     Conflict { table: &'static str, key: String, first: String, second: String },
-    #[error("{table} {action} must have at least one key")]
-    NoKey { table: &'static str, action: String },
+    /// `taken` says which actions took its default keys, if any did.
+    #[error("{table} {action} must have at least one key{taken}")]
+    NoKey { table: &'static str, action: String, taken: String },
+    #[error("{table} {action}: ctrl-c always quits, so it cannot have another action")]
+    CtrlC { table: &'static str, action: String },
 }
 
 /// The keys of one table. A key has at most one action in a table. The same
@@ -436,7 +469,26 @@ pub enum KeyMapError {
 #[derive(Debug, Clone)]
 pub struct Bindings<A> {
     lookup: HashMap<KeyPress, A>,
-    bindings: Vec<(A, Vec<KeyPress>)>,
+    list: Vec<(A, Vec<KeyPress>)>,
+    /// Actions left with no key because other actions took all their default
+    /// keys, for a warning. The user did not ask for that.
+    lost: Vec<String>,
+}
+
+/// Which actions the configuration file gave the `defaults` of an action
+/// to, as ": s is bound to search", or nothing.
+fn taken_by<A: Actions>(defaults: &[KeyPress], written: &HashMap<A, Vec<KeyPress>>) -> String {
+    let parts: Vec<String> = defaults
+        .iter()
+        .filter_map(|k| {
+            // In the fixed order of the actions, so the message is the same each time.
+            A::all()
+                .iter()
+                .find(|a| written.get(*a).is_some_and(|keys| keys.contains(k)))
+                .map(|a| format!("{k} is bound to {}", name(*a)))
+        })
+        .collect();
+    if parts.is_empty() { String::new() } else { format!(": {}", parts.join(", ")) }
 }
 
 /// The action name as the configuration file writes it.
@@ -467,23 +519,32 @@ impl<A: Actions> Bindings<A> {
                     s.parse().map_err(|source| KeyMapError::Parse { table: A::TABLE, action: name(action), source })
                 })
                 .collect::<Result<Vec<KeyPress>, _>>()?;
+            if Some(action) != A::CTRL_C && keys.contains(&KeyPress::ctrl('c')) {
+                return Err(KeyMapError::CtrlC { table: A::TABLE, action: name(action) });
+            }
             written.insert(action, keys);
         }
         let taken: HashSet<KeyPress> = written.values().flatten().copied().collect();
         let mut lookup = HashMap::new();
         let mut bindings = Vec::new();
+        let mut lost = Vec::new();
         for &action in A::all() {
-            let mut keys: Vec<KeyPress> = match written.remove(&action) {
-                Some(keys) => keys,
-                None => action
-                    .default_keys()
-                    .iter()
-                    .map(|s| s.parse().expect("default keys parse"))
-                    .filter(|k| !taken.contains(k))
-                    .collect(),
+            let defaults: Vec<KeyPress> =
+                action.default_keys().iter().map(|s| s.parse().expect("default keys parse")).collect();
+            let mut keys: Vec<KeyPress> = match written.get(&action) {
+                Some(keys) => keys.clone(),
+                None => defaults.iter().copied().filter(|k| !taken.contains(k)).collect(),
             };
+            if Some(action) == A::CTRL_C && !keys.contains(&KeyPress::ctrl('c')) {
+                keys.push(KeyPress::ctrl('c'));
+            }
+            let by_others = !written.contains_key(&action) && !defaults.is_empty();
             if action == A::REQUIRED && keys.is_empty() {
-                return Err(KeyMapError::NoKey { table: A::TABLE, action: name(action) });
+                let taken = if by_others { taken_by(&defaults, &written) } else { String::new() };
+                return Err(KeyMapError::NoKey { table: A::TABLE, action: name(action), taken });
+            }
+            if keys.is_empty() && by_others {
+                lost.push(format!("{} {} has no key{}", A::TABLE, name(action), taken_by(&defaults, &written)));
             }
             let mut seen = HashSet::new();
             keys.retain(|k| seen.insert(*k));
@@ -499,7 +560,12 @@ impl<A: Actions> Bindings<A> {
             }
             bindings.push((action, keys));
         }
-        Ok(Self { lookup, bindings })
+        Ok(Self { lookup, list: bindings, lost })
+    }
+
+    /// Actions that lost all their keys to other actions.
+    pub fn lost(&self) -> &[String] {
+        &self.lost
     }
 
     pub fn action(&self, key: KeyPress) -> Option<A> {
@@ -508,12 +574,12 @@ impl<A: Actions> Bindings<A> {
 
     /// Every action with its keys, in a fixed order, for the help screen.
     pub fn bindings(&self) -> &[(A, Vec<KeyPress>)] {
-        &self.bindings
+        &self.list
     }
 
     /// The first key of an action, for short hints in the status bar.
     pub fn first_key(&self, action: A) -> Option<KeyPress> {
-        self.bindings.iter().find(|(a, _)| *a == action).and_then(|(_, k)| k.first().copied())
+        self.list.iter().find(|(a, _)| *a == action).and_then(|(_, k)| k.first().copied())
     }
 }
 
@@ -527,6 +593,12 @@ impl KeyMap {
     /// Builds the key map from the defaults and the overrides in the configuration file.
     pub fn new(browse: &KeyOverrides, player: &PlayerKeyOverrides) -> Result<Self, KeyMapError> {
         Ok(Self { browse: Bindings::new(browse)?, player: Bindings::new(player)? })
+    }
+
+    /// Actions that the configuration file left with no key by giving their
+    /// keys to other actions, for a warning.
+    pub fn warnings(&self) -> Vec<String> {
+        self.browse.lost().iter().chain(self.player.lost()).cloned().collect()
     }
 
     /// The browse action of a key.
@@ -633,13 +705,48 @@ mod tests {
     }
 
     #[test]
-    fn quit_needs_a_key() {
+    fn back_needs_a_key_and_quit_always_has_ctrl_c() {
+        // ctrl-c always quits, so quit is never without a key.
         let o = KeyOverrides::from([(Action::Quit, vec![])]);
-        let err = KeyMap::new(&o, &PlayerKeyOverrides::new()).unwrap_err();
-        assert_eq!(err, KeyMapError::NoKey { table: "[keys.browse]", action: "quit".into() });
+        let km = KeyMap::new(&o, &PlayerKeyOverrides::new()).unwrap();
+        assert_eq!(km.first_key(Action::Quit), Some(KeyPress::ctrl('c')));
+        let o = KeyOverrides::from([(Action::Quit, vec!["Q".to_string()])]);
+        let km = KeyMap::new(&o, &PlayerKeyOverrides::new()).unwrap();
+        let (_, keys) = km.bindings().iter().find(|(a, _)| *a == Action::Quit).unwrap();
+        assert_eq!(keys, &[key("Q"), KeyPress::ctrl('c')]);
+
         let o = PlayerKeyOverrides::from([(PlayerAction::Back, vec![])]);
         let err = KeyMap::new(&KeyOverrides::new(), &o).unwrap_err();
         assert_eq!(err.to_string(), "[keys.player] back must have at least one key");
+        // The error names the action that took the key.
+        let o = PlayerKeyOverrides::from([(PlayerAction::Quality, vec!["q".to_string()])]);
+        let err = KeyMap::new(&KeyOverrides::new(), &o).unwrap_err();
+        assert_eq!(err.to_string(), "[keys.player] back must have at least one key: q is bound to quality");
+    }
+
+    #[test]
+    fn ctrl_c_cannot_have_another_action() {
+        let o = KeyOverrides::from([(Action::ClosePlayer, vec!["ctrl-c".to_string()])]);
+        let err = KeyMap::new(&o, &PlayerKeyOverrides::new()).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "[keys.browse] close_player: ctrl-c always quits, so it cannot have another action"
+        );
+        let o = PlayerKeyOverrides::from([(PlayerAction::Back, vec!["q".to_string(), "ctrl-c".to_string()])]);
+        assert!(matches!(KeyMap::new(&KeyOverrides::new(), &o), Err(KeyMapError::CtrlC { .. })));
+        let o = KeyOverrides::from([(Action::Quit, vec!["ctrl-c".to_string()])]);
+        assert!(KeyMap::new(&o, &PlayerKeyOverrides::new()).is_ok());
+    }
+
+    #[test]
+    fn an_action_that_loses_its_keys_is_a_warning() {
+        let o = KeyOverrides::from([(Action::Search, vec!["s".to_string()])]);
+        let km = KeyMap::new(&o, &PlayerKeyOverrides::new()).unwrap();
+        assert_eq!(km.warnings(), ["[keys.browse] toggle has no key: s is bound to search"]);
+        // An action the file leaves with no key on purpose is no warning.
+        let o = KeyOverrides::from([(Action::Toggle, vec![])]);
+        assert!(KeyMap::new(&o, &PlayerKeyOverrides::new()).unwrap().warnings().is_empty());
+        assert!(KeyMap::default().warnings().is_empty());
     }
 
     #[test]

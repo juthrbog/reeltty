@@ -4,25 +4,25 @@ expression: "render(&app, 120, 24)"
 ---
  reeltty  Search · Feed · Subscriptions · Playlists · Queue · History                                                   
 ╭ Search╭ Keys ───────────────────────────────────────────────────────────────────────────────────────────────╮────────╮
-│ Press │ Browse                           remove an entry    d             mute or unmute     m              │        │
-│       │ quit               q, ctrl-c     full-size player   v             faster             ]              │        │
-│       │ move up            k, up         stop mini-player   x             slower             [              │        │
-│       │ move down          j, down       comments           C             normal speed       backspace      │        │
-│       │ go to the top      g, home       sort comments      o             next chapter       pgdn           │        │
-│       │ go to the bottom   G, end        next link          n             previous chapter   pgup           │        │
-│       │ half a page up     ctrl-u, pgup  previous link      N             captions on or off v              │        │
-│       │ half a page down   ctrl-d, pgdn  show or hide help  ?             video quality      Q              │        │
-│       │ open               enter, l                                       next video         >              │        │
-│       │ go back            esc, h        Player                           previous video     <              │        │
-│       │ search             /             stop and go back   q             show or hide help  ?              │        │
-│       │ search filters     f             mini-player        esc                                             │        │
-│       │ next tab           tab           pause or play      space, p      Search line                       │        │
-│       │ previous tab       shift-tab     forward 5 s        right         search             enter          │        │
-│       │ refresh            r             back 5 s           left          cancel             esc            │        │
-│       │ video details      i             forward 1 min      up            delete a letter    backspace      │        │
-│       │ go to the channel  c             back 1 min         down          clear the line     ctrl-u         │        │
-│       │ subscribe or save  s             volume up          0, *          delete a word      ctrl-w         │        │
-│       │ add to the queue   a             volume down        9                                               │        │
-│       ╰ Dim keys: full size only ───────────────────────────────────────────────────────────────────────────╯        │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+│ Press │ Browse                           stop mini-player   x             volume up          0, *           │        │
+│       │ quit               q, ctrl-c     comments           C             volume down        9              │        │
+│       │ move up            k, up         sort comments      o             mute or unmute     m              │        │
+│       │ move down          j, down       next link          n             faster             ]              │        │
+│       │ go to the top      g, home       previous link      N             slower             [              │        │
+│       │ go to the bottom   G, end        show or hide help  ?             normal speed       backspace      │        │
+│       │ half a page up     ctrl-u, pgup  Search tab         1             next chapter       pgdn           │        │
+│       │ half a page down   ctrl-d, pgdn  Feed tab           2             previous chapter   pgup           │        │
+│       │ open               enter, l      Subscriptions tab  3             captions on or off v              │        │
+│       │ go back            esc, h        Playlists tab      4             video quality      Q              │        │
+│       │ search             /             Queue tab          5             next video         >              │        │
+│       │ search filters     f             History tab        6             previous video     <              │        │
+│       │ next tab           tab                                            show or hide help  ?              │        │
+│       │ previous tab       shift-tab     Player                                                             │        │
+│       │ refresh            r             stop and go back   q             Search line                       │        │
+│       │ video details      i             mini-player        esc           search             enter          │        │
+│       │ go to the channel  c             pause or play      space, p      cancel             esc            │        │
+│       │ subscribe or save  s             forward 5 s        right         delete a letter    backspace      │        │
+│       │ add to the queue   a             back 5 s           left          clear the line     ctrl-u         │        │
+│       │ remove an entry    d             forward 1 min      up            delete a word      ctrl-w         │        │
+╰───────╰ Dim keys: full size only ───────────────────────────────────────────────────────────── ↓ j/k scroll ╯────────╯
                                                                                                                 ? close

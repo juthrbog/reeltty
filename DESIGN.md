@@ -30,7 +30,7 @@ This document records the design decisions from the design session on 2026-10-26
 | Q4 | Language | Rust with ratatui. |
 | Q5, Q24 | v1 features | See "Features". |
 | Q6 | Layout | Modal: a browse screen and a full-screen player. In v1.1, `esc` shrinks the player to a mini-player in a dock at the bottom right of the browse screen. See "Playback". |
-| Q7 | Keys | Vim keys for navigation, mpv keys for the player. All keys can be changed in the configuration file. |
+| Q7 | Keys | Vim keys for navigation, mpv keys for the player. All keys can be changed in the configuration file, except `ctrl-c` (always quits) and the search line's editing keys. |
 | Q8 | Storage | TOML configuration at `$XDG_CONFIG_HOME/reeltty/config.toml`. State in SQLite (`rusqlite`, bundled) at `$XDG_DATA_HOME/reeltty/reeltty.db`. |
 | Q9 | App structure | One binary on tokio. Elm-style: one `App` state, all events arrive as `Message` values on a channel. The UI thread never blocks. The frame writer has its own thread. |
 | Q10 | Playback engine | libmpv core with the software render API, plus a custom Kitty graphics frame writer. reeltty has its own small bindings to libmpv's C API, not `libmpv2-sys` (LGPL-2.1, see Q11). The ffmpeg-next and cpal design is the fallback. |

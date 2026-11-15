@@ -59,6 +59,12 @@ pub fn run(paths: &Paths) -> bool {
                 config::Source::Defaults => format!("{} (not found, using defaults)", paths.config_file.display()),
             };
             emit(check("config", Status::Ok, detail));
+            // Keys that the file gave away from an action that then has none.
+            if let Ok(keymap) = c.keymap() {
+                for w in keymap.warnings() {
+                    emit(check("keys", Status::Warn, w));
+                }
+            }
             c
         }
         Err(e) => {

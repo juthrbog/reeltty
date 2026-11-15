@@ -332,6 +332,19 @@ impl Tab {
         Self::ALL.iter().position(|t| *t == self).expect("tab in ALL")
     }
 
+    /// The tab that an action goes to, if it goes to one.
+    pub const fn of(action: Action) -> Option<Self> {
+        match action {
+            Action::TabSearch => Some(Self::Search),
+            Action::TabFeed => Some(Self::Feed),
+            Action::TabSubscriptions => Some(Self::Subscriptions),
+            Action::TabPlaylists => Some(Self::Playlists),
+            Action::TabQueue => Some(Self::Queue),
+            Action::TabHistory => Some(Self::History),
+            _ => None,
+        }
+    }
+
     fn offset(self, by: isize) -> Self {
         let n = Self::ALL.len().cast_signed();
         Self::ALL[(self.index().cast_signed() + by).rem_euclid(n).cast_unsigned()]
@@ -828,7 +841,8 @@ impl App {
                         None => Vec::new(),
                     };
                 }
-                let global = matches!(action, Some(Action::Quit | Action::Help | Action::NextTab | Action::PrevTab));
+                let global = matches!(action, Some(Action::Quit | Action::Help | Action::NextTab | Action::PrevTab))
+                    || action.and_then(Tab::of).is_some();
                 if (captured || !global)
                     && let KeyResult::Used(effects) = self.search.on_key(key, action, self.page())
                 {
@@ -866,6 +880,7 @@ impl App {
             Some(Action::Help) => self.open_help(),
             Some(Action::NextTab) => self.switch_tab(self.tab.offset(1)),
             Some(Action::PrevTab) => self.switch_tab(self.tab.offset(-1)),
+            Some(a) if let Some(tab) = Tab::of(a) => self.switch_tab(tab),
             Some(Action::Search) => return self.start_search_input(),
             _ => {}
         }
@@ -953,6 +968,7 @@ impl App {
             Action::NextTab | Action::PrevTab => {
                 self.switch_tab(self.tab.offset(if action == Action::NextTab { 1 } else { -1 }));
             }
+            a if let Some(tab) = Tab::of(a) => self.switch_tab(tab),
             Action::Refresh if matches!(self.screens.last(), Some(Screen::Video(s)) if s.pane == VideoPane::Comments) =>
             {
                 return self.reload_comments(None);
@@ -1009,7 +1025,7 @@ impl App {
                     Action::Channel => {
                         let channel = s.details.as_ref().and_then(|d| d.channel.clone());
                         let Some(c) = channel else { return Vec::new() };
-                        return Target::channel(&c).map(|t| self.open(t)).unwrap_or_default();
+                        return Target::channel(&c).map_or_default(|t| self.open(t));
                     }
                     Action::Toggle | Action::Enqueue => return self.on_video_screen_item(action),
                     Action::Open => {
@@ -1183,7 +1199,7 @@ impl App {
             Action::Channel => {
                 let Some(CommentRow::Comment { comment, .. }) = c.selected_row() else { return Vec::new() };
                 let author = comment.author.clone();
-                return Target::channel(&author).map(|t| self.open(t)).unwrap_or_default();
+                return Target::channel(&author).map_or_default(|t| self.open(t));
             }
             _ => c.navigate(action, page).flatten(),
         };
@@ -2220,6 +2236,27 @@ pub(crate) mod tests {
         key(&mut a, "/");
         assert!(a.screens.is_empty());
         assert_eq!(a.search.input.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn number_keys_go_to_a_tab() {
+        let mut a = app();
+        key(&mut a, "6");
+        assert_eq!(a.tab, Tab::History);
+        key(&mut a, "2");
+        assert_eq!(a.tab, Tab::Feed);
+        // From a screen, which the tab keeps.
+        a.open(Target::Channel { id: "UC1".into(), name: "Chan".into() });
+        key(&mut a, "1");
+        assert_eq!(a.tab, Tab::Search);
+        assert!(a.screens.is_empty());
+        key(&mut a, "2");
+        assert_eq!(a.screens.len(), 1);
+        // The query line takes digits as text.
+        key(&mut a, "/");
+        type_text(&mut a, "42");
+        assert_eq!(a.search.input.as_deref(), Some("42"));
+        assert_eq!(a.tab, Tab::Search);
     }
 
     #[test]

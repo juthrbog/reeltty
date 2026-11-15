@@ -83,7 +83,7 @@ impl SearchState {
         }
         match action {
             Action::Search => {
-                self.input = Some(self.query.as_ref().map(|q| q.text.clone()).unwrap_or_default());
+                self.input = Some(self.query.as_ref().map_or_default(|q| q.text.clone()));
                 KeyResult::Used(Vec::new())
             }
             Action::Filters => {

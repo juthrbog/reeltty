@@ -135,7 +135,7 @@ pub fn parse(text: &str) -> Parsed {
         if row.iter().all(|f| f.trim().is_empty()) {
             continue;
         }
-        let id = row.first().map(|f| f.trim()).unwrap_or_default();
+        let id = row.first().map_or_default(|f| f.trim());
         if !is_channel_id(id) {
             // The first row is the header.
             if i > 0 {

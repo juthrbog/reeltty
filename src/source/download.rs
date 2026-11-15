@@ -34,6 +34,11 @@ use super::{Result, SourceError};
 /// that it hangs.
 const QUIET: Duration = Duration::from_mins(5);
 
+/// How long yt-dlp can print nothing after both formats are on disk. ffmpeg
+/// merges them for the `Mkv` format and prints nothing, and that takes long
+/// for a large video on a slow disk.
+const MERGE: Duration = Duration::from_hours(1);
+
 /// How a download is kept on disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -104,6 +109,9 @@ pub fn args(req: &Request) -> Vec<String> {
         // The user's yt-dlp configuration could change the file names or add
         // steps that fail, such as writing captions.
         "--ignore-config",
+        // Without it, yt-dlp goes on after some errors and exits with 0. For
+        // example, without ffmpeg it does not merge, and keeps two files.
+        "--abort-on-error",
         "--no-playlist",
         "--no-warnings",
         "--quiet",
@@ -114,7 +122,7 @@ pub fn args(req: &Request) -> Vec<String> {
         "--progress-delta",
         "1",
         "--progress-template",
-        "download:RT\tdl\t%(info.format_id)s\t%(progress.downloaded_bytes)s\t%(progress.total_bytes)s\t\
+        "download:RT\tdl\t%(info.format_id)s\t%(progress.downloaded_bytes,progress.total_bytes)s\t%(progress.total_bytes)s\t\
          %(progress.total_bytes_estimate)s\t%(progress.speed)s",
         "--print",
         "before_dl:RT\tfmt\t%(.{format_id,filesize,filesize_approx})j",
@@ -257,8 +265,30 @@ impl Tracker {
                 self.bytes.insert(format_id.clone(), (*done, *total));
                 self.speed = *speed;
             }
-            Line::Format { .. } | Line::Done(_) => {}
+            // A format that was complete before this run can have no
+            // progress lines, so count it when its file is done.
+            Line::Done(file) => {
+                let Some(format_id) = &file.format_id else { return };
+                for id in format_id.split('+') {
+                    if self.bytes.contains_key(id) {
+                        continue;
+                    }
+                    let size = self.sizes.get(id).copied().or_else(|| {
+                        let path = file.filepath.as_ref().filter(|_| !format_id.contains('+'))?;
+                        std::fs::metadata(path).ok().map(|m| m.len())
+                    });
+                    if let Some(size) = size {
+                        self.bytes.insert(id.to_string(), (size, Some(size)));
+                    }
+                }
+            }
+            Line::Format { .. } => {}
         }
+    }
+
+    /// How many formats are on disk.
+    fn complete(&self) -> usize {
+        self.bytes.values().filter(|(done, total)| total.is_some_and(|t| *done >= t)).count()
     }
 
     fn progress(&self) -> Progress {
@@ -419,20 +449,22 @@ impl YtDlp {
         let mut tracker = Tracker::default();
         let mut files = Vec::new();
         loop {
-            let line = tokio::time::timeout(quiet, lines.next_line())
+            // Each download is two formats, a video and an audio.
+            let limit = if tracker.complete() >= 2 { MERGE.max(quiet) } else { quiet };
+            let line = tokio::time::timeout(limit, lines.next_line())
                 .await
-                .map_err(|_| SourceError::Program(format!("{program} printed nothing for {} s", quiet.as_secs())))?
+                .map_err(|_| SourceError::Program(format!("{program} printed nothing for {} s", limit.as_secs())))?
                 .map_err(|e| SourceError::Program(format!("{program}: {e}")))?;
             let Some(line) = line else { break };
-            match parse_line(&line) {
-                Some(Line::Done(file)) => files.push(*file),
-                Some(line) => {
-                    tracker.add(&line);
-                    if matches!(line, Line::Bytes { .. }) {
-                        progress(tracker.progress());
-                    }
+            let Some(line) = parse_line(&line) else { continue };
+            tracker.add(&line);
+            match line {
+                Line::Done(file) => {
+                    files.push(*file);
+                    progress(tracker.progress());
                 }
-                None => {}
+                Line::Bytes { .. } => progress(tracker.progress()),
+                Line::Format { .. } => {}
             }
         }
         let status = child.wait().await.map_err(|e| SourceError::Program(format!("{program}: {e}")))?;
@@ -444,7 +476,14 @@ impl YtDlp {
                 None => format!("{program} failed: {status}"),
             }));
         }
-        finish(&files, req.format).map_err(SourceError::Program)
+        finish(&files, req.format).map_err(|e| {
+            // For example only the audio, when the video has no video stream
+            // that fits the rules. The files are ours, named by the ID.
+            for path in files.iter().filter_map(|f| f.filepath.as_ref()) {
+                let _ = std::fs::remove_file(path);
+            }
+            SourceError::Program(e)
+        })
     }
 }
 
@@ -551,6 +590,33 @@ mod tests {
         assert_eq!(Progress::default().fraction(), None);
     }
 
+    #[test]
+    fn tracker_counts_formats_that_were_already_complete() {
+        // A merged download where the video was complete before this run:
+        // yt-dlp prints its size as the bytes done, then the audio.
+        let mut t = Tracker::default();
+        t.add(&Line::Format { format_id: "137+251".into(), size: Some(3000) });
+        t.add(&parse_line("RT\tdl\t137\t2000\t2000\tNA\tNA").unwrap());
+        t.add(&bytes("251", 1000, Some(1000)));
+        assert_eq!(t.complete(), 2);
+        assert_eq!(t.progress().fraction(), Some(1.0));
+
+        // Separate files where the video was already in its folder: no
+        // progress lines, only its done line.
+        let dir = tempfile::tempdir().unwrap();
+        let v = dir.path().join("x.f136.mp4");
+        std::fs::write(&v, b"12345").unwrap();
+        let mut t = Tracker::default();
+        t.add(&Line::Done(Box::new(done(&v, "136", "avc1", "none"))));
+        t.add(&Line::Format { format_id: "251".into(), size: Some(5) });
+        t.add(&bytes("251", 5, Some(5)));
+        let p = t.progress();
+        assert_eq!((p.done, p.total, t.complete()), (10, Some(10), 2));
+        // A done line for a format with progress changes nothing.
+        t.add(&Line::Done(Box::new(done(&v, "251", "none", "opus"))));
+        assert_eq!(t.progress().done, 10);
+    }
+
     fn done(path: &Path, id: &str, vcodec: &str, acodec: &str) -> DoneFile {
         serde_json::from_value(serde_json::json!({
             "filepath": path, "format_id": id, "vcodec": vcodec, "acodec": acodec,
@@ -632,7 +698,7 @@ echo 'WARNING: Unknown codec' >&2"#
         assert_eq!(saved.size_bytes, 3);
         assert_eq!(saved.format.id, "136+251");
         let done: Vec<(u64, Option<u64>)> = seen.iter().map(|p| (p.done, p.total)).collect();
-        assert_eq!(done, [(5, Some(10)), (10, Some(10)), (14, Some(14))]);
+        assert_eq!(done, [(5, Some(10)), (10, Some(10)), (10, Some(10)), (14, Some(14)), (14, Some(14))]);
     }
 
     #[cfg(unix)]
@@ -652,6 +718,45 @@ echo 'WARNING: Unknown codec' >&2"#
         let y = YtDlp { program: "/nonexistent/yt-dlp".into() };
         let err = y.download(&request(dir.path(), FileFormat::Separate), |_| {}).await.unwrap_err();
         assert!(err.to_string().contains("/nonexistent/yt-dlp was not found"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_incomplete_download_removes_its_files() {
+        // Only the audio, because the video has no stream that fits.
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("x.f251.webm");
+        let y = script(
+            &dir,
+            &format!(
+                r#"printf 'au' > '{a}'
+printf 'RT\tdone\t{{"filepath": "{a}", "format_id": "251", "vcodec": "none", "acodec": "opus"}}\n'"#,
+                a = a.display()
+            ),
+        );
+        let err = y.download(&request(dir.path(), FileFormat::Separate), |_| {}).await.unwrap_err();
+        assert!(err.to_string().contains("both"), "{err}");
+        assert!(!a.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_merge_can_be_quiet_for_longer() {
+        // Both formats are on disk, then ffmpeg merges them for a while.
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("x.mkv");
+        let y = script(
+            &dir,
+            &format!(
+                r#"printf 'RT\tdl\t137\t2\t2\tNA\tNA\nRT\tdl\t251\t1\t1\tNA\tNA\n'
+sleep 1; printf 'av' > '{f}'
+printf 'RT\tdone\t{{"filepath": "{f}", "format_id": "137+251", "vcodec": "avc1", "acodec": "opus"}}\n'"#,
+                f = f.display()
+            ),
+        );
+        let req = request(dir.path(), FileFormat::Mkv);
+        let saved = y.download_with(&req, Duration::from_millis(200), |_| {}).await.unwrap();
+        assert_eq!(saved.video, f);
     }
 
     /// Whether a process is still there, and not a zombie.
@@ -711,7 +816,7 @@ echo 'WARNING: Unknown codec' >&2"#
             assert_eq!(saved.duration_secs, Some(19));
             assert_eq!(last.fraction(), Some(1.0), "{last:?}");
             // The temporary folder is empty when the download is complete.
-            let left = std::fs::read_dir(&req.temp).map(Iterator::count).unwrap_or_default();
+            let left = std::fs::read_dir(&req.temp).map_or_default(Iterator::count);
             assert_eq!(left, 0);
         }
     }

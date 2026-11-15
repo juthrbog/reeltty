@@ -9,6 +9,7 @@ This is a personal tool and work in progress. See [DESIGN.md](DESIGN.md) for the
 - Linux.
 - `mpv` 0.37 or later (reeltty uses `libmpv`). It is tested with mpv 0.41.
 - `yt-dlp` with `yt-dlp-ejs`, and `deno` as the JavaScript runtime for yt-dlp.
+- `ffmpeg`, only if you set downloads to one `mkv` file (see "Downloads").
 - Ghostty 1.3.1 or later, or kitty 0.49 or later, run directly (not in tmux, Zellij, or over SSH). In other terminals, browsing works but video does not.
 
 On Arch Linux:
@@ -101,6 +102,14 @@ Press `Q` in the player for the quality menu. In it, move with the browse keys (
 Some videos, such as videos made for kids, make you wait a few seconds before they start. YouTube makes guests wait as long as the ads would play, and reeltty shows a countdown. Most videos start at once.
 
 The video size follows the size of the picture: a small window gets a small stream. By default it goes up to 1080p. Set `max_quality` to go higher or lower. Larger sizes use more CPU, mostly to scale the picture and for the terminal to draw it. Above 1080p, a laptop can play at less than 60 frames a second. On one 16-core laptop, a 60 fps video played at 57–60 fps at 1440p, and at about 50–58 fps with `"best"` (2160p).
+## Downloads
+
+Press `D` on a video to download it, so that you can watch it without a network. One video downloads at a time, and the others wait. The status bar shows the download that runs, such as "↓ Title 42% · 2 queued". Press `D` again to stop a download. Its unfinished files stay, so the next `D` goes on from there. `D` on a video whose download failed tries again. Downloads that wait or run when you quit go on the next time reeltty starts. Only one reeltty runs downloads: if you start a second one, it plays saved videos but downloads nothing.
+
+A downloaded video always plays from its files, also when you have a network. It starts at once, with no ads wait. The player says "saved", and it has only the size that was downloaded. If the files are gone, the video streams.
+
+Downloads use the same formats as playback, up to `max_quality`. They go in `~/.local/share/reeltty/downloads`, named by the video ID. By default, each video is two files, a video and an audio, as YouTube sends them. Set `format = "mkv"` in `[downloads]` to get one file that any player can open. That needs ffmpeg. Live streams cannot be downloaded. Downloads count toward the same guest limit as playback, about 300 videos an hour. `reeltty doctor` shows the size of your downloads and the free space.
+
 ## Configuration
 
 The configuration file is `~/.config/reeltty/config.toml`. All settings are optional.
@@ -158,6 +167,12 @@ live = false
 on = true
 categories = ["sponsor"]
 
+# Downloads: "separate" keeps the video and the audio as two files, as
+# YouTube sends them. "mkv" merges them into one file that any player can
+# open, and needs ffmpeg.
+[downloads]
+format = "separate"
+
 # Captions: the language, and if they are on when a video starts.
 # Captions made by a person come first, then automatic ones.
 [captions]
@@ -173,7 +188,7 @@ up = ["k", "up"]
 seek_forward_long = ["up", "l"]
 ```
 
-The actions in `[keys.browse]` are `quit`, `up`, `down`, `top`, `bottom`, `half_page_up`, `half_page_down`, `open`, `back`, `search`, `filters`, `next_tab`, `prev_tab`, `refresh`, `details`, `channel`, `toggle`, `enqueue`, `delete`, `show_player`, `close_player`, `comments`, `sort`, `next_link`, `prev_link`, `help`, `tab_search`, `tab_feed`, `tab_subscriptions`, `tab_playlists`, `tab_queue`, and `tab_history`. The actions in `[keys.player]` are `back`, `minimize`, `toggle_pause`, `seek_forward`, `seek_back`, `seek_forward_long`, `seek_back_long`, `volume_up`, `volume_down`, `mute`, `speed_up`, `speed_down`, `speed_reset`, `next_chapter`, `prev_chapter`, `captions`, `quality`, `next_video`, `prev_video`, and `help`. Keys are written as `j`, `G`, `ctrl-d`, `alt-x`, `space`, `enter`, `esc`, `tab`, `shift-tab`, `backspace`, `up`, `down`, `left`, `right`, `pgup`, `pgdn`, `home`, `end`, or `f1` to `f12`. If you give a default key of one action to another action, the first action loses that key. For example, `back = ["q", "esc"]` in `[keys.player]` makes `esc` stop the video, and the mini-player then has no key. Two actions that you give the same key are an error. If an action has no key left because you gave all its keys to other actions, reeltty shows a warning when it starts, and `reeltty doctor` names the action. `ctrl-c` always quits: `quit` always has it, and no other action can have it.
+The actions in `[keys.browse]` are `quit`, `up`, `down`, `top`, `bottom`, `half_page_up`, `half_page_down`, `open`, `back`, `search`, `filters`, `next_tab`, `prev_tab`, `refresh`, `details`, `channel`, `toggle`, `enqueue`, `delete`, `show_player`, `close_player`, `comments`, `sort`, `next_link`, `prev_link`, `help`, `tab_search`, `tab_feed`, `tab_subscriptions`, `tab_playlists`, `tab_queue`, `tab_history`, and `download`. The actions in `[keys.player]` are `back`, `minimize`, `toggle_pause`, `seek_forward`, `seek_back`, `seek_forward_long`, `seek_back_long`, `volume_up`, `volume_down`, `mute`, `speed_up`, `speed_down`, `speed_reset`, `next_chapter`, `prev_chapter`, `captions`, `quality`, `next_video`, `prev_video`, and `help`. Keys are written as `j`, `G`, `ctrl-d`, `alt-x`, `space`, `enter`, `esc`, `tab`, `shift-tab`, `backspace`, `up`, `down`, `left`, `right`, `pgup`, `pgdn`, `home`, `end`, or `f1` to `f12`. If you give a default key of one action to another action, the first action loses that key. For example, `back = ["q", "esc"]` in `[keys.player]` makes `esc` stop the video, and the mini-player then has no key. Two actions that you give the same key are an error. If an action has no key left because you gave all its keys to other actions, reeltty shows a warning when it starts, and `reeltty doctor` names the action. `ctrl-c` always quits: `quit` always has it, and no other action can have it.
 
 Local state (subscriptions, the feed, saved playlists, and the watch history) is in `~/.local/share/reeltty/reeltty.db`. Thumbnails are cached in `~/.cache/reeltty/thumbnails`, up to 100 MB. The log is in `~/.local/state/reeltty/reeltty.log`. Set `REELTTY_LOG=debug` for more detail.
 

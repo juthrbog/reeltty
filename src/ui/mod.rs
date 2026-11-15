@@ -336,6 +336,8 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect, no_dock: bool) {
             Some(screen) => screens::status(screen, app.keymap.first_key(Action::Open)),
             None => (app.tab == Tab::Search).then(|| search::status(&app.search)).flatten(),
         })
+        // The download that runs, until it ends.
+        .or_else(|| app.download_status())
         // A lasting note, so not a warning: it would stay on screen in every
         // tmux session.
         .or_else(|| app.graphics.message().map(StatusMessage::info));

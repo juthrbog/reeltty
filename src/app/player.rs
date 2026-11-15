@@ -344,6 +344,8 @@ pub struct PlayerState {
     streams: Option<Box<Streams>>,
     /// The streams were found again once after an HTTP 403 error.
     retried: bool,
+    /// The video plays from its saved files.
+    pub local: bool,
     /// From SponsorBlock, as they came.
     segments: Vec<Segment>,
     /// The player has segments, so a list that is empty now must go to it too.
@@ -552,6 +554,7 @@ impl App {
             aspect: DEFAULT_ASPECT,
             streams: None,
             retried: false,
+            local: false,
             segments: Vec::new(),
             segments_sent: false,
         };
@@ -560,7 +563,20 @@ impl App {
             state.position_ms = u64::from(secs) * 1000;
             self.status = Some(StatusMessage::info(format!("Resuming at {}.", clock(secs))));
         }
-        effects.push(self.resolve(&state));
+        // A saved video plays from its files, also when there is a network:
+        // it starts at once, with no ads wait.
+        let saved = self.downloads.saved(&state.id).and_then(|d| self.downloads.streams(d));
+        match saved {
+            Some(streams) => {
+                state.local = true;
+                effects.push(Effect::PlayLocal {
+                    session: state.session,
+                    id: state.id.clone(),
+                    streams: Box::new(streams),
+                });
+            }
+            None => effects.push(self.resolve(&state)),
+        }
         effects.push(Effect::LoadRelated { session: state.session, id: state.id.clone() });
         if self.sponsorblock {
             effects.push(Effect::LoadSegments { session: state.session, id: state.id.clone() });
@@ -737,7 +753,7 @@ impl App {
     /// as yt-dlp sorts by it. The first time, the shape of the video is not
     /// known yet, so it is taken as 16:9. A second time (after a 403), it
     /// asks for the size that played, so the picture does not change.
-    fn resolve(&self, p: &PlayerState) -> Effect {
+    pub(super) fn resolve(&self, p: &PlayerState) -> Effect {
         let max = self.max_quality;
         let max_height = p.quality.map_or_else(
             || {
@@ -893,7 +909,7 @@ impl App {
                 }
                 // The URLs can expire, or the ads wait was too short. Find
                 // them once more, and go on from the same place.
-                if e.contains("403") && !p.retried {
+                if e.contains("403") && !p.retried && !p.local {
                     p.retried = true;
                     p.set_phase(Phase::Resolving);
                     let resolve = self.player.as_ref().map(|p| self.resolve(p));
@@ -1054,7 +1070,11 @@ impl App {
             }
             Some(PlayerAction::Quality) => {
                 if p.qualities.is_empty() {
-                    self.status = Some(StatusMessage::warn("This video has no other sizes."));
+                    let text = match p.quality.filter(|_| p.local) {
+                        Some(q) => format!("The saved video has one size, {q}p."),
+                        None => "This video has no other sizes.".to_string(),
+                    };
+                    self.status = Some(StatusMessage::warn(text));
                     return Vec::new();
                 }
                 let selection = p.qualities.iter().position(|q| Some(q.res) == p.quality).unwrap_or(0);

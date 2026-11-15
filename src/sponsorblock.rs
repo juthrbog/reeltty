@@ -29,7 +29,7 @@ const END_SLACK_MS: u64 = 50;
 const LANDING_MS: u64 = 2500;
 
 /// The kinds of segments that can be skipped.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Category {
     Sponsor,
@@ -91,8 +91,9 @@ impl Category {
     }
 }
 
-/// A part of a video to skip. Times are milliseconds.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A part of a video to skip. Times are milliseconds. A downloaded video
+/// keeps its segments as JSON.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, Deserialize)]
 pub struct Segment {
     pub category: Category,
     pub start_ms: u64,

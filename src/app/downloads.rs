@@ -7,9 +7,11 @@
 use std::path::{Path, PathBuf};
 
 use super::{App, Effect, StatusMessage};
-use crate::source::download::{FileFormat, Progress, Request, Saved, size_text};
+use crate::source::download::{CaptionFile, FileFormat, Progress, Request, Saved, size_text};
 use crate::source::model::{Item, Video, VideoKind};
-use crate::source::streams::Streams;
+use crate::source::streams::{Caption, Streams};
+use crate::sponsorblock::{Category, Segment};
+use crate::store::SavedCaption;
 use crate::store::{Download, DownloadState};
 
 /// The error of a download that the user stopped.
@@ -34,6 +36,8 @@ pub struct Downloads {
     /// The selected video on the Downloads tab. Rows move between groups
     /// when they change, and the selection stays on the same video.
     pub selected: Option<String>,
+    /// The SponsorBlock categories that reeltty skips, from the configuration.
+    pub skip: Vec<Category>,
 }
 
 /// The state of a video's download, for a mark on its row.
@@ -103,8 +107,20 @@ impl Downloads {
             duration_secs: d.video.duration_secs,
             live: false,
             qualities: Vec::new(),
-            captions: Vec::new(),
+            captions: d
+                .captions
+                .iter()
+                .map(|c| Caption { lang: c.lang.clone(), name: c.name.clone(), url: path(&c.file), auto: c.auto })
+                .collect(),
         })
+    }
+
+    /// The saved SponsorBlock segments of a video, in the categories that
+    /// reeltty skips now.
+    pub fn segments(&self, d: &Download) -> Option<Vec<Segment>> {
+        let (json, _) = d.segments.as_ref()?;
+        let all: Vec<Segment> = serde_json::from_str(json).ok()?;
+        Some(all.into_iter().filter(|s| self.skip.contains(&s.category)).collect())
     }
 
     /// The temporary folder for files that download.
@@ -282,6 +298,7 @@ impl App {
                     d.size_bytes = Some(saved.size_bytes);
                     d.format = saved.format;
                     d.chapters = saved.chapters;
+
                     d.video.duration_secs = saved.duration_secs.or(d.video.duration_secs);
                     if d.video.channels.is_empty() {
                         d.video.channels.extend(saved.channel);
@@ -306,6 +323,52 @@ impl App {
         }
         effects.extend(self.next_download());
         effects
+    }
+
+    /// The messages about downloads.
+    pub(super) fn on_download_message(&mut self, msg: super::Message) -> Vec<Effect> {
+        use super::Message;
+        match msg {
+            Message::DownloadProgress { id, progress } => self.on_download_progress(&id, progress),
+            Message::DownloadFinished { id, now, result } => self.on_download_finished(&id, now, result),
+            Message::DownloadExtras { id, now, captions, segments } => {
+                self.on_download_extras(&id, now, &captions, segments.as_deref())
+            }
+            Message::LocalMissing { session, id } => self.on_local_missing(session, &id),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Adds the captions and the segments to a downloaded video.
+    pub(super) fn on_download_extras(
+        &mut self,
+        id: &str,
+        now: i64,
+        captions: &[CaptionFile],
+        segments: Option<&[Segment]>,
+    ) -> Vec<Effect> {
+        let dir = self.downloads.dir.clone();
+        let Some(d) = self.downloads.get_mut(id).filter(|d| d.state == DownloadState::Done) else {
+            // It was deleted while they loaded: their files go too.
+            if self.downloads.get(id).is_none() && !captions.is_empty() {
+                let files = captions.iter().map(|c| c.path.clone()).collect();
+                return vec![Effect::DeleteDownload { id: id.into(), files, temp: self.downloads.temp() }];
+            }
+            return Vec::new();
+        };
+        d.captions = captions
+            .iter()
+            .map(|c| SavedCaption {
+                lang: c.lang.clone(),
+                name: c.name.clone(),
+                auto: c.auto,
+                file: name_in(&dir, &c.path),
+            })
+            .collect();
+        if let Some(segments) = segments {
+            d.segments = serde_json::to_string(segments).ok().map(|json| (json, now));
+        }
+        vec![Effect::SaveDownload(Box::new(d.clone()))]
     }
 
     /// The saved file of a video that started to play is not there. It
@@ -492,6 +555,7 @@ mod tests {
             channel: None,
             duration_secs: Some(60),
             chapters: Vec::new(),
+            manual_captions: Vec::new(),
         }
     }
 
@@ -750,6 +814,65 @@ mod tests {
         assert!(key(&mut a, "d").is_empty());
         assert_eq!(a.status.as_deref(), Some("Another reeltty runs the downloads. Delete in that one."));
         assert_eq!(a.downloads.rows.len(), 1);
+    }
+
+    fn segment(category: Category, start_ms: u64) -> Segment {
+        Segment { category, start_ms, end_ms: start_ms + 5000, video_duration_ms: None }
+    }
+
+    #[test]
+    fn a_saved_video_plays_with_its_captions_and_segments() {
+        use crate::source::download::CaptionFile;
+        let mut a = app();
+        a.sponsorblock = true;
+        a.downloads.skip = vec![Category::Sponsor];
+        key(&mut a, "D");
+        finish(&mut a, "a", Ok(Box::new(done("a"))));
+        let captions = vec![CaptionFile {
+            lang: "en".into(),
+            name: "English".into(),
+            auto: false,
+            path: PathBuf::from("/d/a.en.vtt"),
+        }];
+        let segments = Some(vec![segment(Category::Sponsor, 10_000), segment(Category::Intro, 0)]);
+        let effects =
+            a.update(Message::DownloadExtras { id: "a".into(), now: 9, captions: captions.clone(), segments });
+        assert_eq!(saved_states(&effects), [("a", DownloadState::Done)]);
+        let d = a.downloads.saved("a").unwrap();
+        assert_eq!(d.captions[0].file, "a.en.vtt");
+        assert_eq!(d.segments.as_ref().map(|(_, at)| *at), Some(9));
+
+        // It plays with them, and only the categories that reeltty skips now.
+        a.captions_on = true;
+        let effects = key(&mut a, "enter");
+        let Some(Effect::PlayLocal { session, streams, .. }) =
+            effects.into_iter().find(|e| matches!(e, Effect::PlayLocal { .. }))
+        else {
+            unreachable!()
+        };
+        assert_eq!(streams.captions[0].url, "/d/a.en.vtt");
+        let p = a.player.as_ref().unwrap();
+        assert_eq!(p.skip_segments(), [segment(Category::Sponsor, 10_000)]);
+        a.update(Message::StreamsResolved { session, now: 0, result: Ok(streams) });
+        assert_eq!(a.player.as_ref().unwrap().caption.as_deref(), Some("English"));
+
+        // Without a network, the saved segments stay.
+        a.update(Message::SegmentsLoaded { session, result: Err("offline".into()) });
+        assert_eq!(a.player.as_ref().unwrap().skip_segments().len(), 1);
+        // With one, the new segments take their place, and are saved.
+        let newer = vec![segment(Category::Sponsor, 20_000)];
+        let effects = a.update(Message::SegmentsLoaded { session, result: Ok(newer.clone()) });
+        assert_eq!(saved_states(&effects), [("a", DownloadState::Done)]);
+        assert_eq!(a.downloads.segments(a.downloads.saved("a").unwrap()), Some(newer));
+
+        // Extras of a video deleted while they loaded remove their files.
+        key(&mut a, "q");
+        key(&mut a, "7");
+        key(&mut a, "d");
+        key(&mut a, "d");
+        let effects = a.update(Message::DownloadExtras { id: "a".into(), now: 9, captions, segments: None });
+        let Some(Effect::DeleteDownload { files, .. }) = effects.first() else { panic!("{effects:?}") };
+        assert_eq!(files, &[PathBuf::from("/d/a.en.vtt")]);
     }
 
     #[test]

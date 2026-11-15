@@ -115,6 +115,112 @@ pub struct Saved {
     pub channel: Option<ChannelRef>,
     pub duration_secs: Option<u32>,
     pub chapters: Vec<Chapter>,
+    /// The languages of the caption tracks made by a person, to choose the
+    /// tracks to save.
+    pub manual_captions: Vec<String>,
+}
+
+/// The caption tracks to save for the caption language `lang`, as the
+/// player would choose them online (`pick_caption`): the track made by a
+/// person in that language, or else in the same language of another region
+/// (`en-US` for `en`). Then the speech recognition track, which is
+/// `<language>-orig` for a video in that language. Without a track made by
+/// a person, also the automatic track in that language, which is a
+/// machine translation for a video in another language.
+pub fn caption_langs(lang: &str, manual: &[String]) -> Vec<String> {
+    let base = |l: &str| l.split('-').next().unwrap_or_default().to_ascii_lowercase();
+    let wanted = base(lang);
+    let person = manual
+        .iter()
+        .find(|m| m.eq_ignore_ascii_case(lang))
+        .or_else(|| manual.iter().find(|m| base(m) == wanted && !m.ends_with("-orig")));
+    let mut langs: Vec<String> = person.cloned().into_iter().collect();
+    langs.push(format!("{wanted}-orig"));
+    if person.is_none() {
+        langs.push(wanted);
+    }
+    langs
+}
+
+/// A caption track on disk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CaptionFile {
+    /// A language code such as `en` or `en-orig`.
+    pub lang: String,
+    /// The language name, such as "English (Original)".
+    pub name: String,
+    /// Made by speech recognition, not by a person.
+    pub auto: bool,
+    pub path: PathBuf,
+}
+
+/// How long the caption run can take.
+const CAPTIONS_TIMEOUT: Duration = Duration::from_mins(2);
+
+/// The arguments to download only the caption tracks `langs` of a video,
+/// from `caption_langs`. Exact codes, because a pattern also matches many
+/// machine translations, and YouTube then refuses with HTTP 429. Files
+/// that do not finish stay in `temp`, which reeltty cleans.
+pub fn caption_args(id: &str, langs: &[String], dir: &std::path::Path, temp: &std::path::Path) -> Vec<String> {
+    let mut args: Vec<String> = [
+        "--ignore-config",
+        "--no-playlist",
+        "--no-warnings",
+        "--quiet",
+        "--skip-download",
+        "--write-subs",
+        "--write-auto-subs",
+        "--sub-format",
+        "vtt",
+        "--extractor-args",
+        PLAYER_CLIENTS,
+        // `--print` alone would not write the files.
+        "--no-simulate",
+        "--print",
+        "RT\tsubs\t%(.{requested_subtitles,subtitles})j",
+        "-o",
+        "%(id)s.%(ext)s",
+    ]
+    .map(String::from)
+    .into();
+    args.extend(["--sub-langs".into(), langs.join(",")]);
+    args.extend(["-P".into(), format!("home:{}", dir.display())]);
+    args.extend(["-P".into(), format!("temp:{}", temp.display())]);
+    args.push(format!("https://www.youtube.com/watch?v={id}"));
+    args
+}
+
+/// What the caption run prints: the tracks it downloads, and the tracks
+/// made by a person.
+#[derive(Deserialize)]
+struct SubsLine {
+    requested_subtitles: Option<BTreeMap<String, SubTrack>>,
+    subtitles: Option<BTreeMap<String, serde_json::Value>>,
+}
+
+#[derive(Deserialize)]
+struct SubTrack {
+    name: Option<String>,
+    ext: Option<String>,
+}
+
+/// The caption files that the run wrote, from its output and the folder.
+fn caption_files(stdout: &str, id: &str, dir: &std::path::Path) -> Vec<CaptionFile> {
+    let Some(line) = stdout.lines().find_map(|l| l.strip_prefix("RT\tsubs\t")) else { return Vec::new() };
+    let Ok(subs) = serde_json::from_str::<SubsLine>(line) else { return Vec::new() };
+    let manual = subs.subtitles.unwrap_or_default();
+    subs.requested_subtitles
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(lang, track)| {
+            let ext = track.ext.unwrap_or_else(|| "vtt".into());
+            let path = dir.join(format!("{id}.{lang}.{ext}"));
+            // A track that failed, for example with HTTP 429, has no file.
+            std::fs::metadata(&path).ok().filter(|m| m.is_file() && m.len() > 0)?;
+            let auto = !manual.contains_key(&lang);
+            Some(CaptionFile { name: track.name.unwrap_or_else(|| lang.clone()), auto, path, lang })
+        })
+        .collect()
 }
 
 /// A size as people read it, in powers of 1000 as disks count: "980 KB",
@@ -171,6 +277,9 @@ pub fn args(req: &Request) -> Vec<String> {
          %(progress.total_bytes_estimate)s\t%(progress.speed)s",
         "--print",
         "before_dl:RT\tfmt\t%(.{format_id,filesize,filesize_approx})j",
+        // The caption tracks made by a person, to choose the ones to save.
+        "--print",
+        "before_dl:RT\tmanual\t%(subtitles)j",
         "--print",
         "after_move:RT\tdone\t%(.{filepath,format_id,width,height,fps,vcodec,acodec,duration,chapters,\
          title,channel,channel_id,uploader_id})j",
@@ -208,6 +317,8 @@ enum Line {
     Bytes { format_id: String, done: u64, total: Option<u64>, speed: Option<f64> },
     /// A file is complete and in its folder.
     Done(Box<DoneFile>),
+    /// The languages of the caption tracks made by a person.
+    Manual(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -282,6 +393,10 @@ fn parse_line(line: &str) -> Option<Line> {
             })
         }
         "done" => serde_json::from_str(rest).ok().map(|f| Line::Done(Box::new(f))),
+        "manual" => {
+            let tracks: Option<BTreeMap<String, serde_json::Value>> = serde_json::from_str(rest).ok()?;
+            Some(Line::Manual(tracks.unwrap_or_default().into_keys().collect()))
+        }
         _ => None,
     }
 }
@@ -327,7 +442,7 @@ impl Tracker {
                     }
                 }
             }
-            Line::Format { .. } => {}
+            Line::Format { .. } | Line::Manual(_) => {}
         }
     }
 
@@ -423,6 +538,7 @@ fn finish(files: &[DoneFile], format: FileFormat) -> std::result::Result<Saved, 
         channel,
         duration_secs,
         chapters,
+        manual_captions: Vec::new(),
     })
 }
 
@@ -449,6 +565,38 @@ impl Drop for Group {
 }
 
 impl YtDlp {
+    /// Downloads the caption tracks `langs` of a video into `dir`. A track
+    /// that fails is left out, so this can give fewer tracks, or none.
+    pub async fn download_captions(
+        &self,
+        id: &str,
+        langs: &[String],
+        dir: &std::path::Path,
+        temp: &std::path::Path,
+    ) -> Result<Vec<CaptionFile>> {
+        let program = self.program.display().to_string();
+        let child = Command::new(&self.program)
+            .args(caption_args(id, langs, dir, temp))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| self.spawn_error(&e))?;
+        let output = tokio::time::timeout(CAPTIONS_TIMEOUT, child.wait_with_output())
+            .await
+            .map_err(|_| SourceError::Program(format!("{program} did not finish in {} s", CAPTIONS_TIMEOUT.as_secs())))?
+            .map_err(|e| SourceError::Program(format!("{program}: {e}")))?;
+        // yt-dlp exits with 1 when one track fails, and keeps the others.
+        let files = caption_files(&String::from_utf8_lossy(&output.stdout), id, dir);
+        if files.is_empty() && !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let last = stderr.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or("no output");
+            return Err(SourceError::Program(format!("{program} failed: {last}")));
+        }
+        Ok(files)
+    }
+
     /// Downloads a video, and calls `progress` for each progress line. Drop
     /// the future to stop the download: yt-dlp and its children stop, and
     /// the `.part` files stay for the next run.
@@ -494,6 +642,7 @@ impl YtDlp {
         let mut lines = BufReader::new(stdout).lines();
         let mut tracker = Tracker::default();
         let mut files = Vec::new();
+        let mut manual = Vec::new();
         loop {
             // Each download is two formats, a video and an audio.
             let limit = if tracker.complete() >= 2 { MERGE.max(quiet) } else { quiet };
@@ -510,6 +659,7 @@ impl YtDlp {
                     progress(tracker.progress());
                 }
                 Line::Bytes { .. } => progress(tracker.progress()),
+                Line::Manual(langs) => manual = langs,
                 Line::Format { .. } => {}
             }
         }
@@ -522,7 +672,8 @@ impl YtDlp {
                 None => format!("{program} failed: {status}"),
             }));
         }
-        finish(&files, req.format).map_err(|e| {
+        let saved = finish(&files, req.format).map(|saved| Saved { manual_captions: manual, ..saved });
+        saved.map_err(|e| {
             // For example only the audio, when the video has no video stream
             // that fits the rules. The files are ours, named by the ID.
             for path in files.iter().filter_map(|f| f.filepath.as_ref()) {
@@ -563,6 +714,69 @@ mod tests {
         assert_eq!(after("-f"), streams::download_selector(720, true));
         assert_eq!(after("--merge-output-format"), "mkv");
         assert_eq!(after("-o"), "%(id)s.%(ext)s");
+    }
+
+    #[test]
+    fn caption_langs_follow_the_player() {
+        let manual = |langs: &[&str]| langs.iter().map(|l| (*l).to_string()).collect::<Vec<_>>();
+        assert_eq!(caption_langs("en", &manual(&["de", "en"])), ["en", "en-orig"]);
+        assert_eq!(caption_langs("en", &manual(&["en-GB", "en-US"])), ["en-GB", "en-orig"]);
+        assert_eq!(caption_langs("pt-br", &manual(&["pt", "pt-BR"])), ["pt-BR", "pt-orig"]);
+        assert_eq!(caption_langs("pt-BR", &manual(&["pt"])), ["pt", "pt-orig"]);
+        assert_eq!(caption_langs("de", &manual(&["en"])), ["de-orig", "de"]);
+        assert_eq!(caption_langs("en", &[]), ["en-orig", "en"]);
+    }
+
+    #[test]
+    fn caption_args_ask_for_exact_languages() {
+        let langs = ["de".to_string(), "de-orig".to_string()];
+        let args = caption_args("x", &langs, Path::new("/d"), Path::new("/d/.part"));
+        let after = |flag: &str| args.iter().skip_while(|a| *a != flag).nth(1).cloned().unwrap();
+        assert_eq!(after("--sub-langs"), "de,de-orig");
+        assert!(args.windows(2).any(|w| w == ["-P", "home:/d"]));
+        assert!(args.windows(2).any(|w| w == ["-P", "temp:/d/.part"]));
+        assert_eq!(after("-o"), "%(id)s.%(ext)s");
+        assert!(args.iter().any(|a| a == "--skip-download") && args.iter().any(|a| a == "--no-simulate"));
+        assert_eq!(args.last().unwrap(), "https://www.youtube.com/watch?v=x");
+    }
+
+    #[test]
+    fn caption_files_are_the_tracks_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("x.en.vtt"), b"WEBVTT").unwrap();
+        std::fs::write(dir.path().join("x.en-orig.vtt"), b"WEBVTT").unwrap();
+        let out = "[youtube] x: Downloading\nRT\tsubs\t{\"requested_subtitles\": {\
+            \"en\": {\"ext\": \"vtt\", \"name\": \"English\"}, \
+            \"en-orig\": {\"ext\": \"vtt\", \"name\": \"English (Original)\"}, \
+            \"fr\": {\"ext\": \"vtt\", \"name\": \"French\"}}, \"subtitles\": {\"en\": []}}\n";
+        let files = caption_files(out, "x", dir.path());
+        let got: Vec<(&str, &str, bool)> = files.iter().map(|f| (f.lang.as_str(), f.name.as_str(), f.auto)).collect();
+        // fr failed, so it has no file.
+        assert_eq!(got, [("en", "English", false), ("en-orig", "English (Original)", true)]);
+        assert_eq!(files[0].path, dir.path().join("x.en.vtt"));
+        assert!(caption_files("nothing", "x", dir.path()).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn captions_that_partly_fail_keep_the_others() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path().display();
+        let y = script(
+            &dir,
+            &format!(
+                r#"printf 'WEBVTT' > '{d}/x.en.vtt'
+printf 'RT\tsubs\t{{"requested_subtitles": {{"en": {{"ext": "vtt", "name": "English"}}, "en-orig": {{"ext": "vtt"}}}}}}\n'
+echo 'ERROR: Unable to download video subtitles for en-orig: HTTP Error 429' >&2; exit 1"#
+            ),
+        );
+        let langs = caption_langs("en", &[]);
+        let files = y.download_captions("x", &langs, dir.path(), dir.path()).await.unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(files[0].auto, "not in the list of manual tracks");
+        let y = script(&dir, "echo 'ERROR: offline' >&2; exit 1");
+        let err = y.download_captions("x", &langs, dir.path(), dir.path()).await.unwrap_err();
+        assert!(err.to_string().ends_with("failed: ERROR: offline"), "{err}");
     }
 
     #[test]
@@ -899,6 +1113,20 @@ printf 'RT\tdone\t{{"filepath": "{f}", "format_id": "137+251", "vcodec": "avc1",
             let left = std::fs::read_dir(&req.temp).map_or_default(Iterator::count);
             assert_eq!(left, 0);
         }
+    }
+
+    /// Downloads the English captions of a video with the real yt-dlp.
+    /// Run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "uses the network"]
+    async fn live_captions() {
+        let y = YtDlp { program: "yt-dlp".into() };
+        let dir = tempfile::tempdir().unwrap();
+        let langs = caption_langs("en", &["en".to_string()]);
+        let files = y.download_captions("aircAruvnKk", &langs, dir.path(), dir.path()).await.unwrap();
+        let langs: Vec<(&str, bool)> = files.iter().map(|f| (f.lang.as_str(), f.auto)).collect();
+        assert!(langs.contains(&("en", false)), "{files:?}");
+        assert!(files.iter().all(|f| std::fs::read_to_string(&f.path).unwrap().starts_with("WEBVTT")));
     }
 
     #[cfg(unix)]

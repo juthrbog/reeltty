@@ -103,12 +103,18 @@ const PROGRESS_EVERY: Duration = Duration::from_secs(1);
 struct Downloads {
     ytdlp: YtDlp,
     running: HashMap<String, AbortHandle>,
+    /// The caption language to save with each download.
+    captions_language: String,
+    /// Gets the segments to save with each download. `None` when
+    /// SponsorBlock is off.
+    sponsorblock: Option<sponsorblock::Client>,
 }
 
 impl Downloads {
     fn start(&mut self, request: Request, tx: &UnboundedSender<Message>) {
         self.running.retain(|_, task| !task.is_finished());
         let (tx, ytdlp, id) = (tx.clone(), self.ytdlp.clone(), request.id.clone());
+        let (language, sponsorblock) = (self.captions_language.clone(), self.sponsorblock.clone());
         let task = tokio::spawn(async move {
             let made = std::fs::create_dir_all(&request.temp)
                 .map_err(|e| format!("cannot make {}: {e}", request.temp.display()));
@@ -123,7 +129,14 @@ impl Downloads {
                             let _ = progress_tx.send(Message::DownloadProgress { id: id.clone(), progress });
                         }
                     };
-                    ytdlp.download(&request, progress).await.map(Box::new).map_err(|e| e.to_string())
+                    let saved = ytdlp.download(&request, progress).await.map(Box::new).map_err(|e| e.to_string());
+                    match saved {
+                        Ok(mut saved) => {
+                            extras(&ytdlp, sponsorblock.as_ref(), &request, &language, &mut saved).await;
+                            Ok(saved)
+                        }
+                        Err(e) => Err(e),
+                    }
                 }
                 Err(e) => Err(e),
             };
@@ -168,6 +181,28 @@ impl Downloads {
             })
             .await;
         });
+    }
+}
+
+/// The captions and the SponsorBlock segments of a downloaded video, so it
+/// plays with them without a network. Neither is needed: a failure is
+/// only logged.
+async fn extras(
+    ytdlp: &YtDlp,
+    sponsorblock: Option<&sponsorblock::Client>,
+    request: &Request,
+    language: &str,
+    saved: &mut crate::source::download::Saved,
+) {
+    match ytdlp.download_captions(&request.id, language, &request.dir).await {
+        Ok(captions) => saved.captions = captions,
+        Err(e) => tracing::warn!("no captions saved for {}: {e}", request.id),
+    }
+    if let Some(client) = sponsorblock {
+        match client.segments(&request.id).await {
+            Ok(segments) => saved.segments = Some(segments),
+            Err(e) => tracing::warn!("no SponsorBlock segments saved for {}: {e:#}", request.id),
+        }
     }
 }
 
@@ -241,7 +276,12 @@ pub async fn run(app: &mut App, frontend: &mut impl Frontend, services: Services
     let (tx, mut rx) = mpsc::unbounded_channel();
     let writer = Writer::start(services.store, tx.clone());
     let (source, thumbnails) = (services.source, services.thumbnails);
-    let mut downloads = Downloads { ytdlp: services.ytdlp.clone(), running: HashMap::new() };
+    let mut downloads = Downloads {
+        ytdlp: services.ytdlp.clone(),
+        running: HashMap::new(),
+        captions_language: app.captions_language.clone(),
+        sponsorblock: services.sponsorblock.clone(),
+    };
     let mut playback = Playback {
         ytdlp: services.ytdlp,
         sponsorblock: services.sponsorblock,
@@ -679,7 +719,8 @@ printf 'RT\tdone\t{{"filepath": "{d}/x.f251.webm", "format_id": "251", "vcodec":
             ),
         );
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut downloads = Downloads { ytdlp, running: HashMap::new() };
+        let mut downloads =
+            Downloads { ytdlp, running: HashMap::new(), captions_language: "en".into(), sponsorblock: None };
         downloads.start(request(dir.path()), &tx);
         // One progress line a second at most: the second line is dropped.
         let Some(Message::DownloadProgress { id, progress }) = rx.recv().await else { panic!("no progress") };
@@ -699,7 +740,12 @@ printf 'RT\tdone\t{{"filepath": "{d}/x.f251.webm", "format_id": "251", "vcodec":
         for name in names {
             std::fs::write(dir.path().join(name), b"1").unwrap();
         }
-        let mut downloads = Downloads { ytdlp: YtDlp { program: "yt-dlp".into() }, running: HashMap::new() };
+        let mut downloads = Downloads {
+            ytdlp: YtDlp { program: "yt-dlp".into() },
+            running: HashMap::new(),
+            captions_language: "en".into(),
+            sponsorblock: None,
+        };
         // The video file came before the audio, so the row names no file.
         downloads.delete("x".into(), Vec::new(), temp.clone());
         tokio::time::sleep(Duration::from_millis(800)).await;
@@ -713,7 +759,8 @@ printf 'RT\tdone\t{{"filepath": "{d}/x.f251.webm", "format_id": "251", "vcodec":
         let dir = tempfile::tempdir().unwrap();
         let ytdlp = fake(dir.path(), "printf 'RT\\tdl\\t136\\t1\\t9\\tNA\\tNA\\n'; sleep 30");
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut downloads = Downloads { ytdlp, running: HashMap::new() };
+        let mut downloads =
+            Downloads { ytdlp, running: HashMap::new(), captions_language: "en".into(), sponsorblock: None };
         downloads.start(request(dir.path()), &tx);
         assert!(matches!(rx.recv().await, Some(Message::DownloadProgress { .. })));
         downloads.cancel("x");

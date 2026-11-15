@@ -110,6 +110,8 @@ The Downloads tab (`7`) shows the download that runs, with its size and speed, t
 
 A downloaded video always plays from its files, also when you have a network. It starts at once, with no ads wait. The player says "saved", and it has only the size that was downloaded. If the files are gone, the video streams.
 
+Each download also saves the video's captions in your caption language (the track in that language and the speech recognition track of the video), and its SponsorBlock segments, so `v` and the skips work without a network. When you play a saved video with a network, reeltty gets the newest segments and saves them. If the captions or the segments cannot be saved, the video is saved without them.
+
 Downloads use the same formats as playback, up to `max_quality`. They go in `~/.local/share/reeltty/downloads`, named by the video ID. By default, each video is two files, a video and an audio, as YouTube sends them. Set `format = "mkv"` in `[downloads]` to get one file that any player can open. That needs ffmpeg. Live streams cannot be downloaded. Downloads count toward the same guest limit as playback, about 300 videos an hour. `reeltty doctor` shows the size of your downloads and the free space.
 
 ## Configuration

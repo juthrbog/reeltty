@@ -115,6 +115,91 @@ pub struct Saved {
     pub channel: Option<ChannelRef>,
     pub duration_secs: Option<u32>,
     pub chapters: Vec<Chapter>,
+    /// The caption tracks, from a second run after the download.
+    pub captions: Vec<CaptionFile>,
+    /// The SponsorBlock segments, if reeltty could get them.
+    pub segments: Option<Vec<crate::sponsorblock::Segment>>,
+}
+
+/// A caption track on disk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CaptionFile {
+    /// A language code such as `en` or `en-orig`.
+    pub lang: String,
+    /// The language name, such as "English (Original)".
+    pub name: String,
+    /// Made by speech recognition, not by a person.
+    pub auto: bool,
+    pub path: PathBuf,
+}
+
+/// How long the caption run can take.
+const CAPTIONS_TIMEOUT: Duration = Duration::from_mins(2);
+
+/// The arguments to download only the captions of a video in `lang`: the
+/// track in that language, and the speech recognition track in the
+/// language of the video (`<lang>-orig`). Exact codes, because a pattern
+/// also matches many machine translations, and YouTube then refuses with
+/// HTTP 429.
+pub fn caption_args(id: &str, lang: &str, dir: &std::path::Path) -> Vec<String> {
+    let mut args: Vec<String> = [
+        "--ignore-config",
+        "--no-playlist",
+        "--no-warnings",
+        "--quiet",
+        "--skip-download",
+        "--write-subs",
+        "--write-auto-subs",
+        "--sub-format",
+        "vtt",
+        "--extractor-args",
+        PLAYER_CLIENTS,
+        // `--print` alone would not write the files.
+        "--no-simulate",
+        "--print",
+        "RT\tsubs\t%(.{requested_subtitles,subtitles})j",
+        "-o",
+        "%(id)s.%(ext)s",
+    ]
+    .map(String::from)
+    .into();
+    args.extend(["--sub-langs".into(), format!("{lang},{lang}-orig")]);
+    args.extend(["-P".into(), format!("home:{}", dir.display())]);
+    args.push(format!("https://www.youtube.com/watch?v={id}"));
+    args
+}
+
+/// What the caption run prints: the tracks it downloads, and the tracks
+/// made by a person.
+#[derive(Deserialize)]
+struct SubsLine {
+    requested_subtitles: Option<BTreeMap<String, SubTrack>>,
+    subtitles: Option<BTreeMap<String, serde_json::Value>>,
+}
+
+#[derive(Deserialize)]
+struct SubTrack {
+    name: Option<String>,
+    ext: Option<String>,
+}
+
+/// The caption files that the run wrote, from its output and the folder.
+fn caption_files(stdout: &str, id: &str, dir: &std::path::Path) -> Vec<CaptionFile> {
+    let Some(line) = stdout.lines().find_map(|l| l.strip_prefix("RT\tsubs\t")) else { return Vec::new() };
+    let Ok(subs) = serde_json::from_str::<SubsLine>(line) else { return Vec::new() };
+    let manual = subs.subtitles.unwrap_or_default();
+    subs.requested_subtitles
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(lang, track)| {
+            let ext = track.ext.unwrap_or_else(|| "vtt".into());
+            let path = dir.join(format!("{id}.{lang}.{ext}"));
+            // A track that failed, for example with HTTP 429, has no file.
+            std::fs::metadata(&path).ok().filter(|m| m.is_file() && m.len() > 0)?;
+            let auto = !manual.contains_key(&lang);
+            Some(CaptionFile { name: track.name.unwrap_or_else(|| lang.clone()), auto, path, lang })
+        })
+        .collect()
 }
 
 /// A size as people read it, in powers of 1000 as disks count: "980 KB",
@@ -423,6 +508,8 @@ fn finish(files: &[DoneFile], format: FileFormat) -> std::result::Result<Saved, 
         channel,
         duration_secs,
         chapters,
+        captions: Vec::new(),
+        segments: None,
     })
 }
 
@@ -449,6 +536,32 @@ impl Drop for Group {
 }
 
 impl YtDlp {
+    /// Downloads the captions of a video in `lang` into `dir`. A track that
+    /// fails is left out, so this can give fewer tracks, or none.
+    pub async fn download_captions(&self, id: &str, lang: &str, dir: &std::path::Path) -> Result<Vec<CaptionFile>> {
+        let program = self.program.display().to_string();
+        let child = Command::new(&self.program)
+            .args(caption_args(id, lang, dir))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| self.spawn_error(&e))?;
+        let output = tokio::time::timeout(CAPTIONS_TIMEOUT, child.wait_with_output())
+            .await
+            .map_err(|_| SourceError::Program(format!("{program} did not finish in {} s", CAPTIONS_TIMEOUT.as_secs())))?
+            .map_err(|e| SourceError::Program(format!("{program}: {e}")))?;
+        // yt-dlp exits with 1 when one track fails, and keeps the others.
+        let files = caption_files(&String::from_utf8_lossy(&output.stdout), id, dir);
+        if files.is_empty() && !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let last = stderr.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or("no output");
+            return Err(SourceError::Program(format!("{program} failed: {last}")));
+        }
+        Ok(files)
+    }
+
     /// Downloads a video, and calls `progress` for each progress line. Drop
     /// the future to stop the download: yt-dlp and its children stop, and
     /// the `.part` files stay for the next run.
@@ -563,6 +676,55 @@ mod tests {
         assert_eq!(after("-f"), streams::download_selector(720, true));
         assert_eq!(after("--merge-output-format"), "mkv");
         assert_eq!(after("-o"), "%(id)s.%(ext)s");
+    }
+
+    #[test]
+    fn caption_args_ask_for_exact_languages() {
+        let args = caption_args("x", "de", Path::new("/d"));
+        let after = |flag: &str| args.iter().skip_while(|a| *a != flag).nth(1).cloned().unwrap();
+        assert_eq!(after("--sub-langs"), "de,de-orig");
+        assert_eq!(after("-P"), "home:/d");
+        assert_eq!(after("-o"), "%(id)s.%(ext)s");
+        assert!(args.iter().any(|a| a == "--skip-download") && args.iter().any(|a| a == "--no-simulate"));
+        assert_eq!(args.last().unwrap(), "https://www.youtube.com/watch?v=x");
+    }
+
+    #[test]
+    fn caption_files_are_the_tracks_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("x.en.vtt"), b"WEBVTT").unwrap();
+        std::fs::write(dir.path().join("x.en-orig.vtt"), b"WEBVTT").unwrap();
+        let out = "[youtube] x: Downloading\nRT\tsubs\t{\"requested_subtitles\": {\
+            \"en\": {\"ext\": \"vtt\", \"name\": \"English\"}, \
+            \"en-orig\": {\"ext\": \"vtt\", \"name\": \"English (Original)\"}, \
+            \"fr\": {\"ext\": \"vtt\", \"name\": \"French\"}}, \"subtitles\": {\"en\": []}}\n";
+        let files = caption_files(out, "x", dir.path());
+        let got: Vec<(&str, &str, bool)> = files.iter().map(|f| (f.lang.as_str(), f.name.as_str(), f.auto)).collect();
+        // fr failed, so it has no file.
+        assert_eq!(got, [("en", "English", false), ("en-orig", "English (Original)", true)]);
+        assert_eq!(files[0].path, dir.path().join("x.en.vtt"));
+        assert!(caption_files("nothing", "x", dir.path()).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn captions_that_partly_fail_keep_the_others() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path().display();
+        let y = script(
+            &dir,
+            &format!(
+                r#"printf 'WEBVTT' > '{d}/x.en.vtt'
+printf 'RT\tsubs\t{{"requested_subtitles": {{"en": {{"ext": "vtt", "name": "English"}}, "en-orig": {{"ext": "vtt"}}}}}}\n'
+echo 'ERROR: Unable to download video subtitles for en-orig: HTTP Error 429' >&2; exit 1"#
+            ),
+        );
+        let files = y.download_captions("x", "en", dir.path()).await.unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(files[0].auto, "not in the list of manual tracks");
+        let y = script(&dir, "echo 'ERROR: offline' >&2; exit 1");
+        let err = y.download_captions("x", "en", dir.path()).await.unwrap_err();
+        assert!(err.to_string().ends_with("failed: ERROR: offline"), "{err}");
     }
 
     #[test]
@@ -899,6 +1061,19 @@ printf 'RT\tdone\t{{"filepath": "{f}", "format_id": "137+251", "vcodec": "avc1",
             let left = std::fs::read_dir(&req.temp).map_or_default(Iterator::count);
             assert_eq!(left, 0);
         }
+    }
+
+    /// Downloads the English captions of a video with the real yt-dlp.
+    /// Run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "uses the network"]
+    async fn live_captions() {
+        let y = YtDlp { program: "yt-dlp".into() };
+        let dir = tempfile::tempdir().unwrap();
+        let files = y.download_captions("aircAruvnKk", "en", dir.path()).await.unwrap();
+        let langs: Vec<(&str, bool)> = files.iter().map(|f| (f.lang.as_str(), f.auto)).collect();
+        assert!(langs.contains(&("en", false)), "{files:?}");
+        assert!(files.iter().all(|f| std::fs::read_to_string(&f.path).unwrap().starts_with("WEBVTT")));
     }
 
     #[cfg(unix)]

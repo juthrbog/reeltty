@@ -160,6 +160,7 @@ fn run_tui(paths: &Paths) -> Result<()> {
             dir: paths.downloads.clone(),
             format: config.downloads.format,
             elsewhere,
+            skip: config.sponsorblock.skipped().to_vec(),
             ..Default::default()
         };
         let filter = reeltty::app::feed::FeedFilter { shorts: config.feed.shorts, live: config.feed.live };

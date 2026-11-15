@@ -569,6 +569,12 @@ impl App {
         match saved {
             Some(streams) => {
                 state.local = true;
+                // The saved segments skip at once, also without a network.
+                // The answer of `LoadSegments` takes their place when it comes.
+                if self.sponsorblock {
+                    let d = self.downloads.saved(&state.id);
+                    state.segments = d.and_then(|d| self.downloads.segments(d)).unwrap_or_default();
+                }
                 effects.push(Effect::PlayLocal {
                     session: state.session,
                     id: state.id.clone(),
@@ -646,13 +652,28 @@ impl App {
     }
 
     pub(super) fn on_segments(&mut self, session: u64, result: Result<Vec<Segment>, String>) -> Vec<Effect> {
-        let Some(p) = self.player_of(session) else { return Vec::new() };
+        let now = self.clock;
+        // Not `player_of`: the downloads change too.
+        let Some(p) = self.player.as_mut().filter(|p| p.session == session) else { return Vec::new() };
+        let mut effects = Vec::new();
         match result {
-            Ok(segments) => p.segments = segments,
-            // The video plays anyway.
+            Ok(segments) => {
+                // A saved video keeps the newest segments for the next time
+                // without a network.
+                if p.local
+                    && let Some(d) = self.downloads.rows.iter_mut().find(|d| d.video.id == p.id)
+                    && let Ok(json) = serde_json::to_string(&segments)
+                {
+                    d.segments = Some((json, now));
+                    effects.push(Effect::SaveDownload(Box::new(d.clone())));
+                }
+                p.segments = segments;
+            }
+            // The video plays anyway, with the saved segments if it has them.
             Err(e) => tracing::warn!("no SponsorBlock segments: {e}"),
         }
-        p.segments_command().into_iter().collect()
+        effects.extend(p.segments_command());
+        effects
     }
 
     /// The videos that can play next: the ones that "previous video" went

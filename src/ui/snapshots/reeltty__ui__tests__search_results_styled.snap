@@ -2,7 +2,7 @@
 source: src/ui/mod.rs
 expression: "styled(&draw_only(&app, 70, 16))"
 ---
-{M b} Search {/}{d}· Feed · Subscriptions · Playlists · Queue · History {/}         
+{M b} Search {/}{d}· Feed · Subscriptions · Playlists · Queue · History ›{/}        
 {d}╭{/}{b} Search · 6.19M results {/}{d}────────────────────────────────────────────╮{/}
 {d}│{/} {b}rust{/}                                                               {d}│{/}
 {d}│{/} {M}▌ {/}{M bu}Rust in 100 seconds{/}                                        {d}12:34{/} {d}│{/}

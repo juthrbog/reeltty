@@ -2,7 +2,7 @@
 source: src/ui/mod.rs
 expression: "styled(&draw_only(&app, 60, 24))"
 ---
-{M b} Search {/}{d}· Feed · Subscriptions · Playlists · Queue · History{/}
+{M b} Search {/}{d}· Feed · Subscriptions · Playlists · Queue ›{/}        
 {d}╭{/}{b} 10,645,363 Comments · Top {/}{d}───────────────────────────────╮{/}
 {d}│{/} {M}▌{/} {b}@SanDiegoZoo{/} ✓{d} · 6 years ago{/}{b} [Pinned]{/}{M} ♥{/}                ┃
 {d}│{/} {M}▌{/} We're so honored that the first ever YouTube video was ┃

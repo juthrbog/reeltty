@@ -107,6 +107,7 @@ fn draw_up_next(app: &App, up: &UpNext, f: &mut Frame, area: Rect) {
             let state = super::items::RowState {
                 selected: i == up.selection.min(up.videos.len().saturating_sub(1)),
                 playing: false,
+                download: app.downloads.mark(&v.id),
             };
             super::items::rows(t, &Item::Video(v.clone()), None, width, false, state)
         })

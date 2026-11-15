@@ -180,11 +180,12 @@ pub enum Action {
     TabPlaylists,
     TabQueue,
     TabHistory,
+    TabDownloads,
     Download,
 }
 
 impl Action {
-    pub const ALL: [Self; 33] = [
+    pub const ALL: [Self; 34] = [
         Self::Quit,
         Self::Up,
         Self::Down,
@@ -217,6 +218,7 @@ impl Action {
         Self::TabPlaylists,
         Self::TabQueue,
         Self::TabHistory,
+        Self::TabDownloads,
         Self::Download,
     ];
 
@@ -254,6 +256,7 @@ impl Action {
             Self::TabPlaylists => "Playlists tab",
             Self::TabQueue => "Queue tab",
             Self::TabHistory => "History tab",
+            Self::TabDownloads => "Downloads tab",
             Self::Download => "download or stop",
         }
     }
@@ -293,6 +296,7 @@ impl Action {
             Self::TabPlaylists => &["4"],
             Self::TabQueue => &["5"],
             Self::TabHistory => &["6"],
+            Self::TabDownloads => &["7"],
             Self::Download => &["D"],
         }
     }

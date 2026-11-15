@@ -49,7 +49,7 @@ This document records the design decisions from the design session on 2026-10-26
 | Q28 | SponsorBlock | In v1.1. Skipped categories in the configuration file, `sponsor` by default. Only `skip` segments: `mute`, `full`, `poi`, and `chapter` can come later. See "Playback". |
 | Q29 | Player controls | Speed (`[` and `]`), a manual quality menu, and chapter jumps (`PgUp` and `PgDn`) in v1. |
 | Q30 | Code quality | `cargo fmt`, `cargo clippy -- -D warnings` with pedantic lints, `cargo deny`, `cargo audit`, and `insta` snapshot tests. A GitHub Actions workflow runs all of them. |
-| Q31 | Offline downloads | yt-dlp downloads a video to watch without a network: `D` on a video. One download at a time, in the order added, and the queue goes on after a restart. The formats of playback (Q13), up to `max_quality`. Two files, a video and an audio, by default, which needs no ffmpeg; one mkv with `[downloads] format = "mkv"`, which needs ffmpeg. Files go in the data folder, named by the video ID. A saved video always plays from its files. SponsorBlock segments are kept as data, never cut out of the file. Added on 2026-11-15. |
+| Q31 | Offline downloads | yt-dlp downloads a video to watch without a network: `D` on a video, and a Downloads tab (`7`) to see, delete (with a second press), and retry them. One download at a time, in the order added, and the queue goes on after a restart. The formats of playback (Q13), up to `max_quality`. Two files, a video and an audio, by default, which needs no ffmpeg; one mkv with `[downloads] format = "mkv"`, which needs ffmpeg. Files go in the data folder, named by the video ID. A saved video always plays from its files. SponsorBlock segments are kept as data, never cut out of the file. Added on 2026-11-15. |
 
 ## Features
 

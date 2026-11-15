@@ -290,6 +290,7 @@ fn draw_body(app: &App, f: &mut Frame, area: Rect) {
         Tab::Playlists => screens::draw_saved(app, f, area),
         Tab::Queue => screens::draw_queue(app, f, area),
         Tab::History => screens::draw_history(app, f, area),
+        Tab::Downloads => screens::draw_downloads(app, f, area),
     }
 }
 
@@ -1168,8 +1169,7 @@ mod tests {
     #[test]
     fn empty_states_fit_short_windows() {
         let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
-        press(&mut app, "shift-tab");
-        press(&mut app, "shift-tab");
+        press(&mut app, "5");
         assert_eq!(app.tab, Tab::Queue);
         // 6 rows leave 2 inside the box: one line, cut with "…".
         let text = render(&app, 40, 6);
@@ -1207,7 +1207,7 @@ mod tests {
     #[test]
     fn narrow_tab_rows() {
         let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
-        press(&mut app, "shift-tab");
+        press(&mut app, "6");
         insta::assert_snapshot!("tabs_history_40", render(&app, 40, 10));
         insta::assert_snapshot!("tabs_history_50", render(&app, 50, 8));
     }
@@ -1979,6 +1979,47 @@ mod tests {
         insta::assert_snapshot!("queue_tab", render(&app, 60, 10));
     }
 
+    #[test]
+    fn downloads_tab() {
+        use crate::source::download::{FileFormat, Progress};
+        use crate::source::streams::FormatInfo;
+        use crate::store::{Download, DownloadState};
+        let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
+        press(&mut app, "7");
+        insta::assert_snapshot!("downloads_tab_empty", render(&app, 60, 8));
+        let videos: Vec<_> = sample_results()
+            .into_iter()
+            .filter_map(|i| match i {
+                Item::Video(v) => Some(v),
+                _ => None,
+            })
+            .collect();
+        let now = 1_793_373_867;
+        app.clock = now;
+        let row =
+            |i: usize, state| Download { state, ..Download::queued(videos[i].clone(), 720, FileFormat::Separate, 0) };
+        app.downloads.rows = vec![
+            Download {
+                size_bytes: Some(412_000_000),
+                format: FormatInfo { width: Some(1280), height: Some(720), ..FormatInfo::default() },
+                finished_at: Some(now - 7200),
+                ..row(0, DownloadState::Done)
+            },
+            Download { error: Some("HTTP Error 403: Forbidden".into()), ..row(1, DownloadState::Failed) },
+            row(2, DownloadState::Queued),
+        ];
+        app.downloads.running = Some(videos[2].id.clone());
+        app.downloads.progress = Some(Progress { done: 31_000_000, total: Some(100_000_000), speed: Some(3_100_000) });
+        insta::assert_snapshot!("downloads_tab", render(&app, 70, 12));
+        // Other lists mark the videos too.
+        press(&mut app, "1");
+        app.search.results = videos.into_iter().take(3).map(Item::Video).collect();
+        let text = render(&app, 90, 16);
+        for mark in ["SAVED", "FAILED", "↓ 31%"] {
+            assert!(text.contains(mark), "{mark}: {text}");
+        }
+    }
+
     /// Search results, and a video in the mini-player, on a `width` x `height` screen.
     fn mini_app(width: u16, height: u16, streams: bool) -> App {
         use crate::app::player::PlayerEvent;
@@ -2187,7 +2228,7 @@ mod tests {
     fn history_tab() {
         use crate::store::HistoryEntry;
         let mut app = App::new(KeyMap::default(), Graphics::KittyShm);
-        press(&mut app, "shift-tab");
+        press(&mut app, "6");
         insta::assert_snapshot!("history_tab_empty", render(&app, 60, 8));
         let now = 1_793_373_867;
         app.clock = now;
@@ -2257,7 +2298,7 @@ mod tests {
             finished: false,
             watched_at: 0,
         }];
-        press(&mut app, "shift-tab");
+        press(&mut app, "6");
         assert!(render(&app, 100, 24).contains("▶ Rust in 100 seconds"));
     }
 

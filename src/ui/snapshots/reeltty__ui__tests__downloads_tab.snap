@@ -1,0 +1,16 @@
+---
+source: src/ui/mod.rs
+expression: "render(&app, 70, 12)"
+---
+‹ Feed · Subscriptions · Playlists · Queue · History · Downloads      
+╭ Downloads (3) · 412 MB ────────────────────────────────────────────╮
+│ ▌ ↓ 31% Async Rust with a friend                                   │
+│ ▌ Jon Gjengset · 31 MB of 100 MB · 3 MB/s                          │
+│   FAILED Lofi beats to code to                                     │
+│   Lofi Girl · HTTP Error 403: Forbidden                            │
+│   SAVED Rust in 100 seconds                                        │
+│   Fireship · 720p · 412 MB · saved 2 hours ago                     │
+│                                                                    │
+│                                                                    │
+╰────────────────────────────────────────────────────────────────────╯
+↓ Async Rust with a friend 31%               ? help  / search  q quit

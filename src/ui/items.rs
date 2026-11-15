@@ -11,6 +11,7 @@ use ratatui::widgets::{List, ListItem, ListState};
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr;
 
+use crate::app::downloads::DownloadMark;
 use crate::app::player::clock;
 use crate::app::{App, Selection};
 use crate::source::model::{Channel, ChannelRef, Item, Playlist, PlaylistKind, Video, VideoKind};
@@ -47,7 +48,11 @@ pub fn draw_list(app: &App, items: &[Item], selection: Selection, f: &mut Frame,
             Item::Video(v) => (watched.get(v.id.as_str()).copied(), playing == Some(v.id.as_str())),
             Item::Channel(_) | Item::Playlist(_) => (None, false),
         };
-        let state = RowState { selected: i == selected(selection, items.len()), playing: plays };
+        let download = match item {
+            Item::Video(v) => app.downloads.mark(&v.id),
+            Item::Channel(_) | Item::Playlist(_) => None,
+        };
+        let state = RowState { selected: i == selected(selection, items.len()), playing: plays, download };
         rows(theme, item, entry, width, three, state)
     };
     let offset = draw_rows(theme, items.iter().enumerate().map(rows_of).collect(), selection, app.gap(), f, text);
@@ -142,6 +147,8 @@ pub struct RowState {
     pub selected: bool,
     /// The video plays now.
     pub playing: bool,
+    /// The state of the video's download, if it has one.
+    pub download: Option<DownloadMark>,
 }
 
 /// The style of a row title.
@@ -203,7 +210,7 @@ pub fn rows(
     state: RowState,
 ) -> Vec<Line<'static>> {
     let parts = match item {
-        Item::Video(v) => video_parts(theme, v, watched, state.playing),
+        Item::Video(v) => video_parts(theme, v, watched, state.playing, state.download),
         Item::Channel(c) => channel_parts(theme, c),
         Item::Playlist(p) => playlist_parts(theme, p),
     };
@@ -249,10 +256,29 @@ fn badge(text: &'static str, style: Style) -> [Span<'static>; 2] {
     [Span::styled(text, style), Span::from(" ")]
 }
 
-fn video_parts(theme: &Theme, v: &Video, watched: Option<&HistoryEntry>, playing: bool) -> Parts {
+/// The mark of a download before a row title, such as "SAVED" or "↓ 42%".
+pub fn download_badge(theme: &Theme, mark: DownloadMark) -> [Span<'static>; 2] {
+    let style = match mark {
+        DownloadMark::Saved => theme.saved,
+        DownloadMark::Queued | DownloadMark::Running(_) | DownloadMark::Stopped => theme.status_progress,
+        DownloadMark::Failed => theme.status_error,
+    };
+    [Span::styled(mark.text(), style), Span::from(" ")]
+}
+
+fn video_parts(
+    theme: &Theme,
+    v: &Video,
+    watched: Option<&HistoryEntry>,
+    playing: bool,
+    download: Option<DownloadMark>,
+) -> Parts {
     let mut lead = Vec::new();
     if playing {
         lead.extend(badge("▶", theme.now_playing));
+    }
+    if let Some(mark) = download {
+        lead.extend(download_badge(theme, mark));
     }
     match v.kind {
         VideoKind::Live => lead.extend(badge("LIVE", theme.badge_live)),

@@ -1,0 +1,12 @@
+---
+source: src/ui/mod.rs
+expression: "render(&app, 60, 8)"
+---
+‹ Subscriptions · Playlists · Queue · History · Downloads   
+╭ Downloads (0) ───────────────────────────────────────────╮
+│                    ○ No downloads yet                    │
+│                                                          │
+│  Press D on a video to download it, and watch it without │
+│                        a network.                        │
+╰──────────────────────────────────────────────────────────╯
+                                   ? help  / search  q quit

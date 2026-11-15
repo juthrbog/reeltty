@@ -72,6 +72,7 @@ const MIGRATIONS: &[&str] = &[
     "CREATE TABLE downloads (
         video_id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
+        kind TEXT NOT NULL,
         channel_id TEXT,
         channel_name TEXT,
         channel_handle TEXT,
@@ -497,7 +498,8 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT video_id, title, channel_id, channel_name, channel_handle, duration_secs, thumbnails, state,
                  error, max_height, file_format, video_file, audio_file, size_bytes, format_id, width, height, fps,
-                 vcodec, acodec, chapters, captions, segments, segments_at, thumbnail_file, added_at, finished_at
+                 vcodec, acodec, chapters, captions, segments, segments_at, thumbnail_file, added_at, finished_at,
+                 kind
              FROM downloads ORDER BY added_at, rowid",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -510,7 +512,7 @@ impl Store {
                 video: Video {
                     id: r.get(0)?,
                     title: r.get(1)?,
-                    kind: VideoKind::Normal,
+                    kind: kind_of(&r.get::<_, String>(27)?),
                     channels: channel_name
                         .map(|name| ChannelRef { id: r.get(2).ok().flatten(), name, handle: r.get(4).ok().flatten() })
                         .into_iter()
@@ -565,10 +567,11 @@ impl Store {
             "INSERT INTO downloads (video_id, title, channel_id, channel_name, channel_handle, duration_secs,
                  thumbnails, state, error, max_height, file_format, video_file, audio_file, size_bytes, format_id,
                  width, height, fps, vcodec, acodec, chapters, captions, segments, segments_at, thumbnail_file,
-                 added_at, finished_at)
+                 added_at, finished_at, kind)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
-                 ?21, ?22, ?23, ?24, ?25, ?26, ?27)
-             ON CONFLICT (video_id) DO UPDATE SET title = excluded.title, channel_id = excluded.channel_id,
+                 ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)
+             ON CONFLICT (video_id) DO UPDATE SET title = excluded.title, kind = excluded.kind,
+                 channel_id = excluded.channel_id,
                  channel_name = excluded.channel_name, channel_handle = excluded.channel_handle,
                  duration_secs = excluded.duration_secs, thumbnails = excluded.thumbnails, state = excluded.state,
                  error = excluded.error, max_height = excluded.max_height, file_format = excluded.file_format,
@@ -606,6 +609,7 @@ impl Store {
                 d.thumbnail_file,
                 d.added_at,
                 d.finished_at,
+                kind_name(v.kind),
             ],
         )?;
         Ok(())
@@ -799,8 +803,9 @@ mod tests {
         let s = Store::open_in_memory().unwrap();
         let queued = Download::queued(video("b"), 1080, FileFormat::Separate, 1);
         s.save_download(&queued).unwrap();
-        s.save_download(&Download::queued(video("a"), 720, FileFormat::Mkv, 2)).unwrap();
-        assert_eq!(s.downloads().unwrap(), [queued.clone(), Download::queued(video("a"), 720, FileFormat::Mkv, 2)]);
+        let short = Download::queued(Video { kind: VideoKind::Short, ..video("a") }, 720, FileFormat::Mkv, 2);
+        s.save_download(&short).unwrap();
+        assert_eq!(s.downloads().unwrap(), [queued.clone(), short]);
 
         // Done, with all the details. The time it was added stays.
         let done = Download {

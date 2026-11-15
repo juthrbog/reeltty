@@ -160,12 +160,13 @@ fn check_downloads(dir: &Path, saved: Option<(usize, u64)>, free: Option<u64>) -
     checks
 }
 
-/// Whether this user can write to `path`.
+/// Whether this user can make files in the folder `path`, which needs the
+/// right to write and to search.
 fn writable(path: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt as _;
     let Ok(c) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return false };
     // SAFETY: `c` is a valid C string for the length of the call.
-    unsafe { libc::access(c.as_ptr(), libc::W_OK) == 0 }
+    unsafe { libc::access(c.as_ptr(), libc::W_OK | libc::X_OK) == 0 }
 }
 
 /// The free space for this user on the disk of `path`, or of its nearest
@@ -366,6 +367,8 @@ mod tests {
 
     #[test]
     fn downloads_folder_checks() {
+        use std::os::unix::fs::PermissionsExt as _;
+
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("downloads");
         let c = check_downloads(&missing, Some((0, 0)), Some(5_000_000_000));
@@ -385,6 +388,18 @@ mod tests {
         std::fs::write(&file, b"").unwrap();
         let c = check_downloads(&file, None, None);
         assert_eq!((c[0].status, c[0].detail.ends_with("(not a folder)")), (Status::Fail, true), "{}", c[0].detail);
+
+        // Without the right to search, no file can be made in it.
+        let closed = dir.path().join("closed");
+        std::fs::create_dir(&closed).unwrap();
+        std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let c = check_downloads(&closed, None, None);
+        // The superuser can make files anyway.
+        if unsafe { libc::geteuid() } != 0 {
+            assert_eq!(c[0].status, Status::Fail, "{}", c[0].detail);
+            assert!(c[0].detail.ends_with("(reeltty cannot write to it)"), "{}", c[0].detail);
+        }
+        std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o700)).unwrap();
 
         assert!(free_bytes(&missing.join("not/yet")).is_some());
     }

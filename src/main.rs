@@ -88,14 +88,21 @@ fn run_tui(paths: &Paths) -> Result<()> {
     let history = store.history()?;
     let (feed, fetched) = store.feed()?;
     let downloads = store.downloads()?;
-    // Unfinished files of downloads that will not go on: the ones that were
-    // removed, or that are done.
-    let temp = paths.downloads.join(".part");
-    let removed = reeltty::source::download::sweep(&temp, |id| {
-        downloads.iter().any(|d| d.video.id == id && d.state != reeltty::store::DownloadState::Done)
-    });
-    if removed > 0 {
-        tracing::info!("removed {removed} unfinished download files");
+    // One reeltty at a time runs the downloads, so two never write the same
+    // files. The lock lasts until this one stops.
+    let (_downloads_lock, elsewhere) = lock_downloads(&paths.downloads);
+    if elsewhere {
+        tracing::info!("another reeltty runs the downloads");
+    } else {
+        // Unfinished files of downloads that will not go on: the ones that
+        // were removed, or that are done.
+        let temp = paths.downloads.join(".part");
+        let removed = reeltty::source::download::sweep(&temp, |id| {
+            downloads.iter().any(|d| d.video.id == id && d.state != reeltty::store::DownloadState::Done)
+        });
+        if removed > 0 {
+            tracing::info!("removed {removed} unfinished download files");
+        }
     }
 
     let ytdlp = YtDlp { program: config.yt_dlp_program() };
@@ -152,6 +159,7 @@ fn run_tui(paths: &Paths) -> Result<()> {
             rows: downloads,
             dir: paths.downloads.clone(),
             format: config.downloads.format,
+            elsewhere,
             ..Default::default()
         };
         let filter = reeltty::app::feed::FeedFilter { shorts: config.feed.shorts, live: config.feed.live };
@@ -163,6 +171,19 @@ fn run_tui(paths: &Paths) -> Result<()> {
         let services = Services { source, store, thumbnails, ytdlp, sponsorblock };
         reeltty::runtime::run(&mut app, &mut frontend, services).await
     })
+}
+
+/// Locks the downloads folder for this reeltty. Gives the lock, and whether
+/// another reeltty has it. If the folder or the lock file cannot be made,
+/// this one runs the downloads, and they fail with the reason.
+fn lock_downloads(dir: &std::path::Path) -> (Option<std::fs::File>, bool) {
+    use std::os::fd::AsRawFd as _;
+    let file = std::fs::create_dir_all(dir)
+        .and_then(|()| std::fs::File::options().create(true).truncate(false).write(true).open(dir.join(".lock")));
+    let Ok(file) = file else { return (None, false) };
+    // SAFETY: `flock` only reads the file descriptor, which `file` keeps open.
+    let locked = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
+    if locked { (Some(file), false) } else { (None, true) }
 }
 
 /// The SponsorBlock client, or `None` when no category is skipped.

@@ -104,7 +104,7 @@ Some videos, such as videos made for kids, make you wait a few seconds before th
 The video size follows the size of the picture: a small window gets a small stream. By default it goes up to 1080p. Set `max_quality` to go higher or lower. Larger sizes use more CPU, mostly to scale the picture and for the terminal to draw it. Above 1080p, a laptop can play at less than 60 frames a second. On one 16-core laptop, a 60 fps video played at 57–60 fps at 1440p, and at about 50–58 fps with `"best"` (2160p).
 ## Downloads
 
-Press `D` on a video to download it, so that you can watch it without a network. One video downloads at a time, and the others wait. The status bar shows the download that runs, such as "↓ Title 42% · 2 queued". Press `D` again to stop a download. Its unfinished files stay, so the next `D` goes on from there. `D` on a video whose download failed tries again. Downloads that wait or run when you quit go on the next time reeltty starts.
+Press `D` on a video to download it, so that you can watch it without a network. One video downloads at a time, and the others wait. The status bar shows the download that runs, such as "↓ Title 42% · 2 queued". Press `D` again to stop a download. Its unfinished files stay, so the next `D` goes on from there. `D` on a video whose download failed tries again. Downloads that wait or run when you quit go on the next time reeltty starts. Only one reeltty runs downloads: if you start a second one, it plays saved videos but downloads nothing.
 
 A downloaded video always plays from its files, also when you have a network. It starts at once, with no ads wait. The player says "saved", and it has only the size that was downloaded. If the files are gone, the video streams.
 

@@ -27,6 +27,8 @@ pub struct Downloads {
     pub dir: PathBuf,
     /// How new downloads are kept, from the configuration.
     pub format: FileFormat,
+    /// Another reeltty runs the downloads, so this one starts none.
+    pub elsewhere: bool,
 }
 
 impl Downloads {
@@ -96,6 +98,10 @@ impl App {
     pub(super) fn toggle_download(&mut self, v: &Video) -> Vec<Effect> {
         let now = self.clock;
         let running = self.downloads.running.as_deref() == Some(v.id.as_str());
+        if self.downloads.elsewhere && self.downloads.saved(&v.id).is_none() {
+            self.status = Some(StatusMessage::warn("Another reeltty runs the downloads. Download in that one."));
+            return Vec::new();
+        }
         let mut effects = Vec::new();
         match self.downloads.get_mut(&v.id) {
             Some(d) if d.state == DownloadState::Done => {
@@ -123,7 +129,7 @@ impl App {
                 d.state = DownloadState::Queued;
                 d.error = None;
                 effects.push(Effect::SaveDownload(Box::new(d.clone())));
-                self.status = Some(self.queued_message(&v.title));
+                self.status = Some(self.queued_message(&v.id, &v.title));
             }
             None if matches!(v.kind, VideoKind::Live) => {
                 self.status = Some(StatusMessage::warn("Live streams cannot be downloaded."));
@@ -133,7 +139,7 @@ impl App {
                 let d = Download::queued(v.clone(), self.max_quality, self.downloads.format, now);
                 effects.push(Effect::SaveDownload(Box::new(d.clone())));
                 self.downloads.rows.push(d);
-                self.status = Some(self.queued_message(&v.title));
+                self.status = Some(self.queued_message(&v.id, &v.title));
             }
         }
         effects.extend(self.next_download());
@@ -141,18 +147,26 @@ impl App {
     }
 
     /// "Downloading …" when nothing else downloads, or the place in the queue.
-    fn queued_message(&self, title: &str) -> StatusMessage {
-        if self.downloads.running.is_none() {
+    fn queued_message(&self, id: &str, title: &str) -> StatusMessage {
+        let running = self.downloads.running.as_deref();
+        if running.is_none() {
             return StatusMessage::success(format!("Downloading {title}."));
         }
-        // The waiting ones count this one, not the one that runs.
-        let ahead = self.downloads.waiting();
-        StatusMessage::success(format!("Added {title} to the downloads, {ahead} ahead."))
+        // The one that runs, and the queued ones before this one: rows keep
+        // the order they were added, also when a stopped one goes on.
+        let before = self
+            .downloads
+            .rows
+            .iter()
+            .take_while(|d| d.video.id != id)
+            .filter(|d| d.state == DownloadState::Queued && Some(d.video.id.as_str()) != running)
+            .count();
+        StatusMessage::success(format!("Added {title} to the downloads, {} ahead.", before + 1))
     }
 
     /// Starts the oldest queued download, if none runs.
     pub(super) fn next_download(&mut self) -> Vec<Effect> {
-        if self.downloads.running.is_some() {
+        if self.downloads.running.is_some() || self.downloads.elsewhere {
             return Vec::new();
         }
         let Some(d) = self.downloads.rows.iter().find(|d| d.state == DownloadState::Queued) else { return Vec::new() };
@@ -390,6 +404,35 @@ mod tests {
         finish(&mut a, "a", Ok(Box::new(done("a"))));
         assert!(key(&mut a, "D").is_empty());
         assert_eq!(a.status.as_deref(), Some("Video a is downloaded (412 MB)."));
+    }
+
+    #[test]
+    fn a_download_that_goes_on_counts_the_ones_before_it() {
+        let mut a = app();
+        a.queue.push(video("c"));
+        for _ in 0..3 {
+            key(&mut a, "D");
+            key(&mut a, "j");
+        }
+        // a runs, b and c wait. Stop b, and go on with it: it keeps its place.
+        key(&mut a, "k");
+        key(&mut a, "D");
+        key(&mut a, "D");
+        assert_eq!(a.status.as_deref(), Some("Added Video b to the downloads, 1 ahead."));
+        key(&mut a, "j");
+        key(&mut a, "D");
+        key(&mut a, "D");
+        assert_eq!(a.status.as_deref(), Some("Added Video c to the downloads, 2 ahead."));
+    }
+
+    #[test]
+    fn another_reeltty_runs_the_downloads() {
+        let mut a = app();
+        a.downloads.elsewhere = true;
+        a.downloads.rows = vec![Download::queued(video("y"), 720, FileFormat::Mkv, 2)];
+        assert!(a.start().iter().all(|e| !matches!(e, Effect::StartDownload(_))));
+        assert!(key(&mut a, "D").is_empty());
+        assert_eq!(a.status.as_deref(), Some("Another reeltty runs the downloads. Download in that one."));
     }
 
     #[test]

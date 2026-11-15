@@ -117,7 +117,9 @@ Stream URLs expire after about 6 hours and are tied to the IP address. reeltty d
 
 Stopping a download aborts its task. yt-dlp runs in its own process group, and the whole group gets SIGTERM, so ffmpeg stops too. The `.part` files stay, and the next run continues from them. A download that prints nothing for 5 minutes stops; when both formats are on disk, the limit is 1 hour, because ffmpeg prints nothing while it merges. At start, reeltty removes the `.part` files of videos that have no queued or failed row.
 
-A running download is stored as queued, so after a crash it simply starts again. A saved video plays from its files: the app checks that they are there, then sends them to mpv as the video URL and the audio file, with no headers and no ads wait. If a file is missing, the video streams, and its row becomes failed.
+A running download is stored as queued, so after a crash it simply starts again. Only one reeltty runs downloads: it holds a lock on `<downloads>/.lock` (`flock`). Another reeltty that starts while it runs plays saved videos but starts no download, and does not clean the `.part` folder.
+
+A saved video plays from its files: the app sends `Effect::PlayLocal`, the runtime checks that the files are there, and then mpv gets them as the video URL and the audio file, with no headers and no ads wait. If a file is missing, the runtime sends `Message::LocalMissing`, the video streams, and its row becomes failed.
 
 ### Playback
 

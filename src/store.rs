@@ -10,7 +10,9 @@ use std::collections::HashMap;
 use anyhow::{Context as _, Result, bail};
 use rusqlite::Connection;
 
-use crate::source::model::{ChannelRef, Thumbnail, Video, VideoKind};
+use crate::source::download::FileFormat;
+use crate::source::model::{ChannelRef, Chapter, Thumbnail, Video, VideoKind};
+use crate::source::streams::FormatInfo;
 
 /// Migration `i` takes the schema from version `i` to version `i + 1`.
 const MIGRATIONS: &[&str] = &[
@@ -63,6 +65,40 @@ const MIGRATIONS: &[&str] = &[
         thumbnails TEXT NOT NULL,
         PRIMARY KEY (channel_id, video_id)
     );",
+    // 4: downloaded videos, and videos waiting to download. Files are names
+    // in the downloads folder. Chapters, captions, and thumbnails are JSON.
+    // `segments` is the SponsorBlock answer as JSON, or NULL before reeltty
+    // asked for it.
+    "CREATE TABLE downloads (
+        video_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        channel_id TEXT,
+        channel_name TEXT,
+        channel_handle TEXT,
+        duration_secs INTEGER,
+        thumbnails TEXT NOT NULL DEFAULT '[]',
+        state TEXT NOT NULL,
+        error TEXT,
+        max_height INTEGER NOT NULL,
+        file_format TEXT NOT NULL,
+        video_file TEXT,
+        audio_file TEXT,
+        size_bytes INTEGER,
+        format_id TEXT,
+        width INTEGER,
+        height INTEGER,
+        fps INTEGER,
+        vcodec TEXT,
+        acodec TEXT,
+        chapters TEXT NOT NULL DEFAULT '[]',
+        captions TEXT NOT NULL DEFAULT '[]',
+        segments TEXT,
+        segments_at INTEGER,
+        thumbnail_file TEXT,
+        added_at INTEGER NOT NULL,
+        finished_at INTEGER
+    );",
 ];
 
 /// The most history entries that the app loads.
@@ -113,6 +149,100 @@ pub struct FeedVideo {
     /// Unix seconds, from the relative date.
     pub published_at: i64,
     pub video: Video,
+}
+
+/// Where a download is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownloadState {
+    /// Waiting to download, or downloading. A download that runs when
+    /// reeltty stops goes on at the next start.
+    Queued,
+    /// The last try failed. `Download::error` says why.
+    Failed,
+    /// The files are on disk.
+    Done,
+}
+
+impl DownloadState {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Failed => "failed",
+            Self::Done => "done",
+        }
+    }
+
+    fn from_name(name: &str) -> Self {
+        match name {
+            "done" => Self::Done,
+            "failed" => Self::Failed,
+            _ => Self::Queued,
+        }
+    }
+}
+
+/// A caption track on disk.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SavedCaption {
+    /// A language code such as `en` or `en-orig`.
+    pub lang: String,
+    /// The language name, such as "English".
+    pub name: String,
+    /// Made by speech recognition, not by a person.
+    pub auto: bool,
+    /// A `WebVTT` file in the downloads folder.
+    pub file: String,
+}
+
+/// A video that is downloaded, or waits to download.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Download {
+    pub video: Video,
+    pub state: DownloadState,
+    /// Why the last try failed.
+    pub error: Option<String>,
+    /// At most this many pixels on the short side.
+    pub max_height: u32,
+    pub file_format: FileFormat,
+    /// The video file, a name in the downloads folder. In the `Mkv` format
+    /// it has the audio too.
+    pub video_file: Option<String>,
+    /// The audio file, in the `Separate` format.
+    pub audio_file: Option<String>,
+    pub size_bytes: Option<u64>,
+    /// The format that was downloaded. Empty before it is done.
+    pub format: FormatInfo,
+    pub chapters: Vec<Chapter>,
+    pub captions: Vec<SavedCaption>,
+    /// The SponsorBlock segments as JSON, and when reeltty got them.
+    pub segments: Option<(String, i64)>,
+    /// The thumbnail, a name in the downloads folder.
+    pub thumbnail_file: Option<String>,
+    pub added_at: i64,
+    pub finished_at: Option<i64>,
+}
+
+impl Download {
+    /// A new download that waits in the queue.
+    pub fn queued(video: Video, max_height: u32, file_format: FileFormat, now: i64) -> Self {
+        Self {
+            video,
+            state: DownloadState::Queued,
+            error: None,
+            max_height,
+            file_format,
+            video_file: None,
+            audio_file: None,
+            size_bytes: None,
+            format: FormatInfo::default(),
+            chapters: Vec::new(),
+            captions: Vec::new(),
+            segments: None,
+            thumbnail_file: None,
+            added_at: now,
+            finished_at: None,
+        }
+    }
 }
 
 fn kind_name(kind: VideoKind) -> &'static str {
@@ -362,6 +492,133 @@ impl Store {
         self.conn.execute("DELETE FROM history WHERE video_id = ?1", [video_id])?;
         Ok(())
     }
+
+    /// All downloads, in the order they were added.
+    pub fn downloads(&self) -> Result<Vec<Download>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT video_id, title, channel_id, channel_name, channel_handle, duration_secs, thumbnails, state,
+                 error, max_height, file_format, video_file, audio_file, size_bytes, format_id, width, height, fps,
+                 vcodec, acodec, chapters, captions, segments, segments_at, thumbnail_file, added_at, finished_at,
+                 kind
+             FROM downloads ORDER BY added_at, rowid",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let json = |i: usize| -> rusqlite::Result<String> { r.get(i) };
+            let thumbnails: Vec<(String, u32, u32)> = serde_json::from_str(&json(6)?).unwrap_or_default();
+            let channel_name: Option<String> = r.get(3)?;
+            let segments: Option<String> = r.get(22)?;
+            let segments_at: Option<i64> = r.get(23)?;
+            Ok(Download {
+                video: Video {
+                    id: r.get(0)?,
+                    title: r.get(1)?,
+                    kind: kind_of(&r.get::<_, String>(27)?),
+                    channels: channel_name
+                        .map(|name| ChannelRef { id: r.get(2).ok().flatten(), name, handle: r.get(4).ok().flatten() })
+                        .into_iter()
+                        .collect(),
+                    duration_secs: r.get(5)?,
+                    duration_text: None,
+                    views_text: None,
+                    published_text: None,
+                    thumbnails: thumbnails
+                        .into_iter()
+                        .map(|(url, width, height)| Thumbnail { url, width, height })
+                        .collect(),
+                    members_only: false,
+                    badges: Vec::new(),
+                    description_snippet: None,
+                },
+                state: DownloadState::from_name(&r.get::<_, String>(7)?),
+                error: r.get(8)?,
+                max_height: r.get(9)?,
+                file_format: FileFormat::from_name(&r.get::<_, String>(10)?),
+                video_file: r.get(11)?,
+                audio_file: r.get(12)?,
+                size_bytes: r.get::<_, Option<i64>>(13)?.and_then(|n| u64::try_from(n).ok()),
+                format: FormatInfo {
+                    id: r.get::<_, Option<String>>(14)?.unwrap_or_default(),
+                    width: r.get(15)?,
+                    height: r.get(16)?,
+                    fps: r.get(17)?,
+                    vcodec: r.get::<_, Option<String>>(18)?.unwrap_or_default(),
+                    acodec: r.get::<_, Option<String>>(19)?.unwrap_or_default(),
+                },
+                chapters: serde_json::from_str(&json(20)?).unwrap_or_default(),
+                captions: serde_json::from_str(&json(21)?).unwrap_or_default(),
+                segments: segments.zip(segments_at),
+                thumbnail_file: r.get(24)?,
+                added_at: r.get(25)?,
+                finished_at: r.get(26)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Adds a download, or replaces all that is known about it but the time
+    /// it was added.
+    pub fn save_download(&self, d: &Download) -> Result<()> {
+        let v = &d.video;
+        let channel = v.channels.first();
+        let thumbnails: Vec<(&str, u32, u32)> =
+            v.thumbnails.iter().map(|t| (t.url.as_str(), t.width, t.height)).collect();
+        let empty = |s: &str| (!s.is_empty()).then(|| s.to_string());
+        self.conn.execute(
+            "INSERT INTO downloads (video_id, title, channel_id, channel_name, channel_handle, duration_secs,
+                 thumbnails, state, error, max_height, file_format, video_file, audio_file, size_bytes, format_id,
+                 width, height, fps, vcodec, acodec, chapters, captions, segments, segments_at, thumbnail_file,
+                 added_at, finished_at, kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
+                 ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)
+             ON CONFLICT (video_id) DO UPDATE SET title = excluded.title, kind = excluded.kind,
+                 channel_id = excluded.channel_id,
+                 channel_name = excluded.channel_name, channel_handle = excluded.channel_handle,
+                 duration_secs = excluded.duration_secs, thumbnails = excluded.thumbnails, state = excluded.state,
+                 error = excluded.error, max_height = excluded.max_height, file_format = excluded.file_format,
+                 video_file = excluded.video_file, audio_file = excluded.audio_file,
+                 size_bytes = excluded.size_bytes, format_id = excluded.format_id, width = excluded.width,
+                 height = excluded.height, fps = excluded.fps, vcodec = excluded.vcodec, acodec = excluded.acodec,
+                 chapters = excluded.chapters, captions = excluded.captions, segments = excluded.segments,
+                 segments_at = excluded.segments_at, thumbnail_file = excluded.thumbnail_file,
+                 finished_at = excluded.finished_at",
+            rusqlite::params![
+                v.id,
+                v.title,
+                channel.and_then(|c| c.id.as_deref()),
+                channel.map(|c| c.name.as_str()),
+                channel.and_then(|c| c.handle.as_deref()),
+                v.duration_secs,
+                serde_json::to_string(&thumbnails)?,
+                d.state.as_str(),
+                d.error,
+                d.max_height,
+                d.file_format.as_str(),
+                d.video_file,
+                d.audio_file,
+                d.size_bytes.and_then(|n| i64::try_from(n).ok()),
+                empty(&d.format.id),
+                d.format.width,
+                d.format.height,
+                d.format.fps,
+                empty(&d.format.vcodec),
+                empty(&d.format.acodec),
+                serde_json::to_string(&d.chapters)?,
+                serde_json::to_string(&d.captions)?,
+                d.segments.as_ref().map(|(json, _)| json),
+                d.segments.as_ref().map(|(_, at)| at),
+                d.thumbnail_file,
+                d.added_at,
+                d.finished_at,
+                kind_name(v.kind),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn forget_download(&self, video_id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM downloads WHERE video_id = ?1", [video_id])?;
+        Ok(())
+    }
 }
 
 fn schema_version(conn: &Connection) -> Result<usize> {
@@ -522,6 +779,71 @@ mod tests {
         s.forget_channel_feed("UC1").unwrap();
         let (videos, fetched) = s.feed().unwrap();
         assert!(videos.is_empty() && fetched.is_empty());
+    }
+
+    fn video(id: &str) -> Video {
+        Video {
+            id: id.into(),
+            title: format!("T{id}"),
+            kind: VideoKind::Normal,
+            channels: vec![ChannelRef { id: Some("UC1".into()), name: "C".into(), handle: Some("@c".into()) }],
+            duration_secs: Some(60),
+            duration_text: None,
+            views_text: None,
+            published_text: None,
+            thumbnails: vec![Thumbnail { url: "https://i.ytimg.com/vi/x/a.jpg".into(), width: 336, height: 188 }],
+            members_only: false,
+            badges: Vec::new(),
+            description_snippet: None,
+        }
+    }
+
+    #[test]
+    fn downloads_round_trip() {
+        let s = Store::open_in_memory().unwrap();
+        let queued = Download::queued(video("b"), 1080, FileFormat::Separate, 1);
+        s.save_download(&queued).unwrap();
+        let short = Download::queued(Video { kind: VideoKind::Short, ..video("a") }, 720, FileFormat::Mkv, 2);
+        s.save_download(&short).unwrap();
+        assert_eq!(s.downloads().unwrap(), [queued.clone(), short]);
+
+        // Done, with all the details. The time it was added stays.
+        let done = Download {
+            state: DownloadState::Done,
+            video_file: Some("b.f136.mp4".into()),
+            audio_file: Some("b.f251.webm".into()),
+            size_bytes: Some(412_000_000),
+            format: FormatInfo {
+                id: "136+251".into(),
+                width: Some(1280),
+                height: Some(720),
+                fps: Some(30),
+                vcodec: "avc1.4d401f".into(),
+                acodec: "opus".into(),
+            },
+            chapters: vec![Chapter { title: "Start".into(), start_secs: 0 }],
+            captions: vec![SavedCaption {
+                lang: "en".into(),
+                name: "English".into(),
+                auto: true,
+                file: "b.en.vtt".into(),
+            }],
+            segments: Some(("[]".into(), 50)),
+            thumbnail_file: Some("b.jpg".into()),
+            finished_at: Some(60),
+            ..Download { added_at: 99, ..queued.clone() }
+        };
+        s.save_download(&done).unwrap();
+        let all = s.downloads().unwrap();
+        assert_eq!(all[0], Download { added_at: 1, ..done });
+
+        // Failed, then forgotten.
+        let failed = Download { state: DownloadState::Failed, error: Some("HTTP 403".into()), ..queued };
+        s.save_download(&failed).unwrap();
+        assert_eq!(s.downloads().unwrap()[0], failed);
+        s.forget_download("b").unwrap();
+        s.forget_download("missing").unwrap();
+        assert_eq!(s.downloads().unwrap().len(), 1);
     }
 
     #[test]

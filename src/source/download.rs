@@ -52,6 +52,21 @@ pub enum FileFormat {
     Mkv,
 }
 
+impl FileFormat {
+    /// The name in the configuration file and the database.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Separate => "separate",
+            Self::Mkv => "mkv",
+        }
+    }
+
+    /// The format with this name. An unknown name gives `Separate`.
+    pub fn from_name(name: &str) -> Self {
+        if name == "mkv" { Self::Mkv } else { Self::Separate }
+    }
+}
+
 /// What to download, and where to.
 #[derive(Debug, Clone)]
 pub struct Request {
@@ -100,6 +115,20 @@ pub struct Saved {
     pub channel: Option<ChannelRef>,
     pub duration_secs: Option<u32>,
     pub chapters: Vec<Chapter>,
+}
+
+/// A size as people read it, in powers of 1000 as disks count: "980 KB",
+/// "412 MB", "3.4 GB", or "12 GB".
+pub fn size_text(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    #[expect(clippy::cast_precision_loss, reason = "a size for people")]
+    let mut n = bytes as f64;
+    let mut unit = 0;
+    while n >= 999.5 && unit < UNITS.len() - 1 {
+        n /= 1000.0;
+        unit += 1;
+    }
+    if unit >= 3 && n < 9.95 { format!("{n:.1} {}", UNITS[unit]) } else { format!("{n:.0} {}", UNITS[unit]) }
 }
 
 /// The arguments for yt-dlp.
@@ -517,6 +546,25 @@ mod tests {
         assert_eq!(after("-f"), streams::download_selector(720, true));
         assert_eq!(after("--merge-output-format"), "mkv");
         assert_eq!(after("-o"), "%(id)s.%(ext)s");
+    }
+
+    #[test]
+    fn sizes_as_people_read_them() {
+        let cases = [
+            (0, "0 B"),
+            (999, "999 B"),
+            (1000, "1 KB"),
+            (980_400, "980 KB"),
+            (999_600, "1 MB"),
+            (412_000_000, "412 MB"),
+            (3_420_000_000, "3.4 GB"),
+            (9_960_000_000, "10 GB"),
+            (12_400_000_000, "12 GB"),
+            (2_500_000_000_000, "2.5 TB"),
+        ];
+        for (bytes, text) in cases {
+            assert_eq!(size_text(bytes), text, "{bytes}");
+        }
     }
 
     #[test]

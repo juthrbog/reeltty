@@ -130,13 +130,18 @@ impl Downloads {
                         }
                     };
                     let saved = ytdlp.download(&request, progress).await.map(Box::new).map_err(|e| e.to_string());
-                    match saved {
-                        Ok(mut saved) => {
-                            extras(&ytdlp, sponsorblock.as_ref(), &request, &language, &mut saved).await;
-                            Ok(saved)
-                        }
-                        Err(e) => Err(e),
+                    // The video is saved now, also if the user stops it or
+                    // quits while the extras load. They come later, in a task
+                    // that a stop does not end.
+                    if let Ok(saved) = &saved {
+                        let (tx, manual) = (tx.clone(), saved.manual_captions.clone());
+                        let request = request.clone();
+                        tokio::spawn(async move {
+                            let msg = extras(&ytdlp, sponsorblock.as_ref(), &request, &language, &manual).await;
+                            let _ = tx.send(msg);
+                        });
                     }
+                    saved
                 }
                 Err(e) => Err(e),
             };
@@ -192,18 +197,22 @@ async fn extras(
     sponsorblock: Option<&sponsorblock::Client>,
     request: &Request,
     language: &str,
-    saved: &mut crate::source::download::Saved,
-) {
-    match ytdlp.download_captions(&request.id, language, &request.dir).await {
-        Ok(captions) => saved.captions = captions,
-        Err(e) => tracing::warn!("no captions saved for {}: {e}", request.id),
-    }
+    manual: &[String],
+) -> Message {
+    let langs = crate::source::download::caption_langs(language, manual);
+    let captions = ytdlp.download_captions(&request.id, &langs, &request.dir, &request.temp).await;
+    let captions = captions.unwrap_or_else(|e| {
+        tracing::warn!("no captions saved for {}: {e}", request.id);
+        Vec::new()
+    });
+    let mut segments = None;
     if let Some(client) = sponsorblock {
         match client.segments(&request.id).await {
-            Ok(segments) => saved.segments = Some(segments),
+            Ok(s) => segments = Some(s),
             Err(e) => tracing::warn!("no SponsorBlock segments saved for {}: {e:#}", request.id),
         }
     }
+    Message::DownloadExtras { id: request.id.clone(), now: now(), captions, segments }
 }
 
 impl Drop for Downloads {

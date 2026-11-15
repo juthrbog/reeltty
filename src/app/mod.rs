@@ -196,6 +196,14 @@ pub enum Message {
         now: i64,
         result: Result<Box<Saved>, String>,
     },
+    /// The captions and the SponsorBlock segments of a video that downloaded,
+    /// after its `DownloadFinished`. Either can be missing.
+    DownloadExtras {
+        id: String,
+        now: i64,
+        captions: Vec<crate::source::download::CaptionFile>,
+        segments: Option<Vec<Segment>>,
+    },
     /// The reply to `Effect::PlayLocal` when a file of the video is missing.
     LocalMissing {
         session: u64,
@@ -700,6 +708,12 @@ impl App {
         effects
     }
 
+    /// Shows an error in the status bar.
+    fn fail(&mut self, text: String) -> Vec<Effect> {
+        self.status = Some(StatusMessage::error(text));
+        Vec::new()
+    }
+
     fn handle(&mut self, msg: Message) -> Vec<Effect> {
         match msg {
             Message::Input(input) => self.on_input(input),
@@ -779,14 +793,8 @@ impl App {
             Message::CommentsLoaded { request, generation, slot, result } => {
                 self.on_comments_loaded(request, generation, slot, result)
             }
-            Message::StoreFailed(e) => {
-                self.status = Some(StatusMessage::error(format!("Could not save: {e}")));
-                Vec::new()
-            }
-            Message::OpenFailed(e) => {
-                self.status = Some(StatusMessage::error(format!("Could not open the link: {e}")));
-                Vec::new()
-            }
+            Message::StoreFailed(e) => self.fail(format!("Could not save: {e}")),
+            Message::OpenFailed(e) => self.fail(format!("Could not open the link: {e}")),
             Message::ThumbnailLoaded { url, slot, result } => self.on_thumbnail(&url, slot, result),
             Message::StreamsResolved { session, now, result } => self.on_streams(session, now, result),
             Message::Tick { session, now } => self.on_tick(session, now),
@@ -794,9 +802,10 @@ impl App {
             Message::RelatedLoaded { session, result } => self.on_related(session, result),
             Message::VideoTitle { session, title } => self.on_video_title(session, title),
             Message::SegmentsLoaded { session, result } => self.on_segments(session, result),
-            Message::DownloadProgress { id, progress } => self.on_download_progress(&id, progress),
-            Message::DownloadFinished { id, now, result } => self.on_download_finished(&id, now, result),
-            Message::LocalMissing { session, id } => self.on_local_missing(session, &id),
+            msg @ (Message::DownloadProgress { .. }
+            | Message::DownloadFinished { .. }
+            | Message::DownloadExtras { .. }
+            | Message::LocalMissing { .. }) => self.on_download_message(msg),
             Message::FeedLoading { count } => self.on_feed_loading(count),
             Message::FeedChannelLoaded { channel_id, fetched_at, result } => {
                 self.on_feed_channel(channel_id, fetched_at, result)

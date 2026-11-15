@@ -46,6 +46,9 @@ const OPTIONS: &[(&str, &str)] = &[
     ("hwdec", "auto-copy-safe"),
     ("sws-fast", "yes"),
     ("ytdl", "no"),
+    // Captions come only from the app. A saved mkv has its caption files
+    // next to it, and mpv would load and show them by itself.
+    ("sub-auto", "no"),
     ("terminal", "no"),
     ("config", "no"),
     ("load-scripts", "no"),

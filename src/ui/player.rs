@@ -420,7 +420,8 @@ fn draw_status(app: &App, p: &PlayerState, f: &mut Frame, area: Rect) {
         ])
     };
     // The quality menu has its own hints, and takes the keys.
-    let menu = p.quality_menu.is_some();
+    // The help takes the keys too, and has its own hints.
+    let menu = p.quality_menu.is_some() || app.show_help;
     let mut pause = (p.is_running() && !menu).then(|| hint(PlayerAction::TogglePause, " pause")).flatten();
     let mut mini = (!menu).then(|| hint(PlayerAction::Minimize, " mini")).flatten();
     let mut help = (!menu).then(|| hint(PlayerAction::Help, " help")).flatten();

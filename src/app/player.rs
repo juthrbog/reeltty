@@ -2182,13 +2182,27 @@ mod tests {
         assert!(key(&mut a, "esc").is_empty());
         assert!(!a.show_help);
         assert!(!a.player.as_ref().unwrap().mini);
+        // Keys in the help show the status line again.
+        key(&mut a, "?");
+        a.clock += 100;
+        key(&mut a, "j");
+        assert_eq!(a.player.as_ref().unwrap().status_until, a.clock + STATUS_SHOW_SECS);
         // From the mini-player too.
         let mut a = mini();
         assert!(key(&mut a, "?").is_empty());
         assert!(a.show_help);
         assert!(key(&mut a, "space").is_empty());
         assert!(key(&mut a, "q").is_empty());
+        assert!(!a.show_help);
         assert!(a.player.is_some());
+        // A player help key that browse does not use opens and closes it.
+        let mut a = mini();
+        let browse = KeyOverrides::from([(Action::Help, vec!["H".to_string()])]);
+        a.keymap = KeyMap::new(&browse, &PlayerKeyOverrides::new()).unwrap();
+        key(&mut a, "?");
+        assert!(a.show_help);
+        key(&mut a, "?");
+        assert!(!a.show_help);
     }
 
     #[test]

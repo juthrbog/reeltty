@@ -864,7 +864,16 @@ impl App {
     /// back and quit, as in a pager. The browse keys scroll it.
     fn on_help_key(&mut self, key: KeyPress) {
         let full = self.player.as_ref().is_some_and(|p| !p.mini);
-        let player = if full { self.keymap.player.action(key) } else { None };
+        let player = match &mut self.player {
+            Some(p) if full => {
+                // Any key shows the player's status line again, as without the help.
+                p.status_until = self.clock + player::STATUS_SHOW_SECS;
+                self.keymap.player.action(key)
+            }
+            // The mini-player's help key opens the help, so it closes it too.
+            Some(_) => self.keymap.mini_player_action(key).filter(|a| *a == PlayerAction::Help),
+            None => None,
+        };
         if matches!(player, Some(PlayerAction::Help | PlayerAction::Back | PlayerAction::Minimize)) {
             self.show_help = false;
             return;

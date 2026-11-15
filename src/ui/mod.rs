@@ -311,7 +311,10 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect, no_dock: bool) {
         });
     wanted.push((Action::Quit, if stops { "stop" } else { "quit" }));
     let typing = app.tab == Tab::Search && app.screens.is_empty();
-    let mut hints = if typing && app.search.input.is_some() {
+    let mut hints = if app.show_help {
+        // The help takes the keys.
+        hint_spans(t, [(app.keymap.first_key(Action::Help), "close")])
+    } else if typing && app.search.input.is_some() {
         // The query line takes the keys. Its keys are fixed.
         hint_spans(t, [(Some("enter"), "search"), (Some("esc"), "cancel"), (Some("ctrl-u"), "clear")])
     } else if typing && app.search.filter_menu.is_some() {
@@ -2123,8 +2126,11 @@ mod tests {
         let text = render(&app, 120, 30);
         assert!(text.contains(" Keys "), "{text}");
         assert!(text.contains("show or hide help"), "{text}");
-        // The progress bar and the status line stay under it.
-        assert!(text.lines().last().unwrap().contains("Big Buck Bunny"), "{text}");
+        // The progress bar and the status line stay under it, without the
+        // player's key hints: the help takes the keys.
+        let status = text.lines().last().unwrap();
+        assert!(status.contains("Big Buck Bunny"), "{text}");
+        assert!(!status.contains("q stop"), "{status}");
         press(&mut app, "q");
         assert!(!render(&app, 120, 30).contains(" Keys "));
         assert!(app.player.is_some());

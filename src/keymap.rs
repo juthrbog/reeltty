@@ -481,7 +481,11 @@ fn taken_by<A: Actions>(defaults: &[KeyPress], written: &HashMap<A, Vec<KeyPress
     let parts: Vec<String> = defaults
         .iter()
         .filter_map(|k| {
-            written.iter().find(|(_, keys)| keys.contains(k)).map(|(a, _)| format!("{k} is bound to {}", name(*a)))
+            // In the fixed order of the actions, so the message is the same each time.
+            A::all()
+                .iter()
+                .find(|a| written.get(*a).is_some_and(|keys| keys.contains(k)))
+                .map(|a| format!("{k} is bound to {}", name(*a)))
         })
         .collect();
     if parts.is_empty() { String::new() } else { format!(": {}", parts.join(", ")) }

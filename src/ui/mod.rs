@@ -15,7 +15,7 @@ use unicode_width::UnicodeWidthStr as _;
 
 use crate::app::player::{Phase, dock};
 use crate::app::{App, StatusKind, StatusMessage, Tab};
-use crate::keymap::Action;
+use crate::keymap::{Action, KeyPress};
 use crate::theme::Theme;
 
 pub fn view(app: &App, f: &mut Frame) {
@@ -297,7 +297,13 @@ fn draw_status(app: &App, f: &mut Frame, area: Rect, no_dock: bool) {
     } else if app.tab == Tab::Search {
         wanted.push((Action::Filters, "filters"));
     }
-    wanted.push((Action::Quit, "quit"));
+    // While the mini-player plays, the quit key stops it first.
+    let quit = app.keymap.first_key(Action::Quit);
+    let stops = app.player.is_some()
+        && quit.is_some_and(|k| {
+            k != KeyPress::ctrl('c') && app.keymap.mini_player_action(k) == Some(crate::keymap::PlayerAction::Back)
+        });
+    wanted.push((Action::Quit, if stops { "stop" } else { "quit" }));
     let mut hints = hint_spans(t, wanted.into_iter().map(|(a, l)| (app.keymap.first_key(a), l)));
     if !hints.is_empty() {
         hints.push(Span::from(" "));
@@ -368,16 +374,8 @@ fn draw_help(app: &App, f: &mut Frame, area: Rect) {
         }),
     );
     lines.extend([HelpLine::Blank, HelpLine::Heading("Player".into())]);
-    let mut full_only = false;
     lines.extend(app.keymap.player.bindings().iter().map(|(a, k)| {
-        let keys = k
-            .iter()
-            .map(|k| {
-                let dim = app.keymap.mini_player_action(*k) != Some(*a);
-                full_only |= dim;
-                (k.to_string(), dim)
-            })
-            .collect();
+        let keys = k.iter().map(|k| (k.to_string(), app.keymap.mini_player_action(*k) != Some(*a))).collect();
         HelpLine::Key(a.description().to_string(), keys)
     }));
     let cells = |n: Option<usize>| u16::try_from(n.unwrap_or(0)).unwrap_or(u16::MAX);
@@ -405,11 +403,21 @@ fn draw_help(app: &App, f: &mut Frame, area: Rect) {
     let popup = centered(area, width, height);
     let t = &app.theme;
     let mut block = bordered(t, " Keys ");
-    if full_only {
-        block = block.title_bottom(Line::styled(" Dim keys: full-size player only ", t.muted));
+    // The note on dim keys, only when one shows.
+    let dim_shown = columns
+        .iter()
+        .flat_map(|c| c.iter().take(fit))
+        .any(|l| matches!(l, HelpLine::Key(_, keys) if keys.iter().any(|(_, dim)| *dim)));
+    const DIM_NOTE: &str = " Dim keys: full size only ";
+    const CUT_NOTE: &str = " More keys in a larger window ";
+    // Both notes need room on the bottom border, or the cut note wins.
+    let room = usize::from(popup.width.saturating_sub(2));
+    let both = DIM_NOTE.width() + 1 + CUT_NOTE.width() <= room;
+    if dim_shown && (!cut || both) {
+        block = block.title_bottom(Line::styled(DIM_NOTE, t.muted));
     }
     if cut {
-        block = block.title_bottom(Line::styled(" More keys in a larger window ", t.muted).right_aligned());
+        block = block.title_bottom(Line::styled(CUT_NOTE, t.muted).right_aligned());
     }
     let inner = block.inner(popup);
     f.render_widget(Clear, popup);
@@ -629,6 +637,12 @@ mod tests {
         // Smaller windows say that keys are missing.
         assert!(render(&app, 80, 24).contains("More keys in a larger window"));
         assert!(!render(&app, 120, 24).contains("More keys"));
+        // With one column, only Browse keys show: no dim keys, and no
+        // dim-key note to cover the cut note.
+        let narrow = render(&app, 50, 24);
+        assert!(narrow.contains("More keys in a larger window"), "{narrow}");
+        assert!(!narrow.contains("Dim"), "{narrow}");
+        assert!(render(&app, 120, 24).contains("Dim keys: full size only"));
     }
 
     #[test]

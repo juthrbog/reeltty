@@ -45,7 +45,7 @@ This document records the design decisions from the design session on 2026-10-26
 | Q22 | Frontend trait | Terminal input and graphics output sit behind a `Frontend` trait from the start. |
 | Q25 | Thumbnails | Shown beside each row in lists, only where video works (Kitty graphics with shared memory). Drawn with reeltty's own Kitty code, the same as video uses: shared memory and Unicode placeholders. `ratatui-image` is not used, because it turns on shared memory only after its own terminal query, and it always builds its sixel code. Loaded lazily, cached on disk (100 MB at most). One configuration switch turns them off. |
 | Q26 | Milestone 0 | A throwaway spike with a pass bar. See "Milestones". |
-| Q27 | Captions | In v1. The `c` key toggles captions. A preferred language in the configuration file. |
+| Q27 | Captions | In v1. The `v` key toggles captions, as in mpv, and `Q` opens the quality menu. A preferred language in the configuration file. |
 | Q28 | SponsorBlock | In v1.1. Skipped categories in the configuration file, `sponsor` by default. Only `skip` segments: `mute`, `full`, `poi`, and `chapter` can come later. See "Playback". |
 | Q29 | Player controls | Speed (`[` and `]`), a manual quality menu, and chapter jumps (`PgUp` and `PgDn`) in v1. |
 | Q30 | Code quality | `cargo fmt`, `cargo clippy -- -D warnings` with pedantic lints, `cargo deny`, `cargo audit`, and `insta` snapshot tests. A GitHub Actions workflow runs all of them. |
@@ -132,7 +132,7 @@ SponsorBlock segments come from the privacy endpoint `/api/skipSegments/<hash pr
 
 The mini-player is the same player at another size. The app sends `Resize` with a smaller geometry, and the frame writer renders at that size. Nothing in the player or the Kitty code changes. The dock is the right third of the browse body (24 to 64 columns). The video sits in a box at the bottom of the dock, with the title, the progress bar, and the state under it. A dock column, not a box drawn over the list, keeps the list selection visible, and wide characters in the list cannot hide placeholder cells. The rules:
 
-- Keys: typing and the help come first, then the browse keys, then the player keys that browse does not use. `v` shows the player full size, and `x` stops it.
+- Keys: typing and the help come first, then the browse keys, then the player keys that browse does not use. `v` shows the player full size. `q` (quit) and `x` stop it, as `q` stops the full player. With nothing playing, `q` quits, and `ctrl-c` always quits.
 - The next video (autoplay, `>`, `<`) stays in the mini-player. Opening a video from the list plays it full size. Opening the video that plays shows it full size, with no restart.
 - Thumbnails load while the mini-player plays.
 - The streams are still resolved for the full-size pane, so the full size stays sharp, with no new resolve.

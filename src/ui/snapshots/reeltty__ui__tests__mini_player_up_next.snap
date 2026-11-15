@@ -17,4 +17,4 @@ expression: "render(&app, 80, 16)"
 │   Jon Gjengset                                     │╰━━╾─────────────────────╯
 │                                                    │ Big Buck Bunny           
 ╰────────────────────────────────────────────────────╯ Ended  v full  q stop    
-                                            ? help  / search  f filters  q quit
+                                            ? help  / search  f filters  q stop

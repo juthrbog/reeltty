@@ -22,7 +22,7 @@ expression: "render(&app, 120, 24)"
 │       │ previous tab       shift-tab     stop and go back   q             video quality      Q              │        │
 │       │ refresh            r             mini-player        esc           next video         >              │        │
 │       │ video details      i             pause or play      space, p      previous video     <              │        │
-│       ╰ Dim keys: full-size player only ────────────────────────────────────────────────────────────────────╯        │
+│       ╰ Dim keys: full size only ───────────────────────────────────────────────────────────────────────────╯        │
 │                                                                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
                                                                                     ? help  / search  f filters  q quit

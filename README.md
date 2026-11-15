@@ -63,6 +63,8 @@ You can also give the path of `subscriptions.csv`. Channels you follow already s
 
 The Feed tab shows the newest videos of the channels you follow, newest first. reeltty loads each channel at most every 30 minutes, four at a time, and keeps the feed on your computer, so it shows at once when reeltty starts. Press `r` on the Feed tab to load all channels again. Shorts, live streams, and members-only videos are hidden.
 
+`tab` and `shift-tab` go to the next or previous tab. Each tab keeps the screens you opened in it, such as a channel or a video's comments, so when you come back, the same screen shows. A new search (`/`) starts from the results.
+
 To play a video, select it and press `enter`. `i` shows its details. `a` adds a video to the queue, or takes it out. `s` subscribes to a channel or saves a playlist, and `s` again undoes it. On a video, `c` opens its channel; on the details screen, `s` subscribes to the video's channel. The Queue tab shows the queue, and `enter` there plays a video from it.
 
 On the details screen, `C` shows the comments, and `C` again shows the details. In the comments, `j` and `k` move, `enter` shows or hides the replies of a comment, `o` switches between the Top and Newest order, `c` opens the channel of the comment's author, and `r` loads the comments again. A long comment shows in full when you select it. The comments work well with the mini-player: the video plays on while you read.

@@ -303,7 +303,7 @@ pub enum Effect {
     OpenUrl(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Tab {
     Search,
     Feed,
@@ -414,6 +414,9 @@ pub struct App {
     pub search: SearchState,
     /// Screens opened on top of the tabs. The last one is shown.
     pub screens: Vec<Screen>,
+    /// The screens of the other tabs, kept while another tab shows. Their
+    /// pages go on loading.
+    parked: HashMap<Tab, Vec<Screen>>,
     pub subscriptions: Vec<Subscription>,
     pub subscriptions_selection: Selection,
     pub saved_playlists: Vec<SavedPlaylist>,
@@ -488,6 +491,7 @@ impl App {
             help_rows: Cell::new(0),
             search: SearchState::default(),
             screens: Vec::new(),
+            parked: HashMap::new(),
             subscriptions: Vec::new(),
             subscriptions_selection: Selection::default(),
             saved_playlists: Vec::new(),
@@ -753,7 +757,21 @@ impl App {
     }
 
     fn screen_mut(&mut self, request: u64) -> Option<&mut Screen> {
-        self.screens.iter_mut().find(|s| s.request() == request)
+        self.screens.iter_mut().chain(self.parked.values_mut().flatten()).find(|s| s.request() == request)
+    }
+
+    /// Shows another tab. Each tab keeps its own screens, so going back to
+    /// a tab shows the screen it showed.
+    pub(super) fn switch_tab(&mut self, tab: Tab) {
+        if tab == self.tab {
+            return;
+        }
+        let screens = std::mem::take(&mut self.screens);
+        if !screens.is_empty() {
+            self.parked.insert(self.tab, screens);
+        }
+        self.screens = self.parked.remove(&tab).unwrap_or_default();
+        self.tab = tab;
     }
 
     fn clamp_all(&mut self) {
@@ -765,7 +783,7 @@ impl App {
         self.history_selection.clamp(self.history.len(), plain);
         let feed = self.rows(FEED_HEADER_ROWS);
         self.feed.selection.clamp(self.feed.items.len(), feed);
-        for screen in &mut self.screens {
+        for screen in self.screens.iter_mut().chain(self.parked.values_mut().flatten()) {
             if let Some(list) = screen.list_mut() {
                 list.selection.clamp(list.items.len(), header);
             }
@@ -846,8 +864,8 @@ impl App {
         match action {
             Some(Action::Quit) => return vec![Effect::Quit],
             Some(Action::Help) => self.open_help(),
-            Some(Action::NextTab) => self.tab = self.tab.offset(1),
-            Some(Action::PrevTab) => self.tab = self.tab.offset(-1),
+            Some(Action::NextTab) => self.switch_tab(self.tab.offset(1)),
+            Some(Action::PrevTab) => self.switch_tab(self.tab.offset(-1)),
             Some(Action::Search) => return self.start_search_input(),
             _ => {}
         }
@@ -896,10 +914,12 @@ impl App {
         };
     }
 
-    /// Goes to the Search tab and opens the query line.
+    /// Goes to the Search tab and opens the query line. A new search starts
+    /// from the results, so the Search tab's screens close. The other tabs
+    /// keep theirs.
     fn start_search_input(&mut self) -> Vec<Effect> {
+        self.switch_tab(Tab::Search);
         self.screens.clear();
-        self.tab = Tab::Search;
         // The key is only read while typing, and the query line is not open yet.
         let key = KeyPress::plain(crate::keymap::KeyCode::Char('/'));
         match self.search.on_key(key, Some(Action::Search), self.page()) {
@@ -931,8 +951,7 @@ impl App {
             }
             Action::Search => return self.start_search_input(),
             Action::NextTab | Action::PrevTab => {
-                self.screens.clear();
-                self.tab = self.tab.offset(if action == Action::NextTab { 1 } else { -1 });
+                self.switch_tab(self.tab.offset(if action == Action::NextTab { 1 } else { -1 }));
             }
             Action::Refresh if matches!(self.screens.last(), Some(Screen::Video(s)) if s.pane == VideoPane::Comments) =>
             {
@@ -2201,6 +2220,39 @@ pub(crate) mod tests {
         key(&mut a, "/");
         assert!(a.screens.is_empty());
         assert_eq!(a.search.input.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn each_tab_keeps_its_screens() {
+        let mut a = app();
+        // Search > channel > video, with the comments open.
+        a.open(Target::Channel { id: "UC1".into(), name: "Chan".into() });
+        a.open(Target::Video { id: "v".into(), title: "t".into() });
+        a.update(Message::VideoLoaded { request: 2, result: Ok(details("v", Some("tok"))) });
+        key(&mut a, "C");
+        // To the Feed and its own screen, and back.
+        key(&mut a, "tab");
+        assert_eq!(a.tab, Tab::Feed);
+        assert!(a.screens.is_empty());
+        a.open(Target::Channel { id: "UC2".into(), name: "Other".into() });
+        key(&mut a, "shift-tab");
+        assert_eq!(a.tab, Tab::Search);
+        assert_eq!(a.screens.len(), 2);
+        assert_eq!(pane(&a), VideoPane::Comments);
+        key(&mut a, "tab");
+        assert!(matches!(a.screens.as_slice(), [Screen::Channel(s)] if s.id == "UC2"));
+        // A page that loads while its tab is away is kept.
+        a.update(Message::ChannelLoaded { request: 1, result: Ok(channel_page(vec![video("c1")], false)) });
+        key(&mut a, "shift-tab");
+        key(&mut a, "esc");
+        key(&mut a, "esc");
+        assert!(matches!(a.screens.as_slice(), [Screen::Channel(s)] if s.list.items.len() == 1));
+        // A new search closes the Search tab's screens, but not the Feed's.
+        key(&mut a, "/");
+        assert!(a.screens.is_empty());
+        key(&mut a, "esc");
+        key(&mut a, "tab");
+        assert_eq!(a.screens.len(), 1);
     }
 
     #[test]

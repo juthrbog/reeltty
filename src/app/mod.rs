@@ -2253,6 +2253,17 @@ pub(crate) mod tests {
         key(&mut a, "esc");
         key(&mut a, "tab");
         assert_eq!(a.screens.len(), 1);
+        // From the Feed too: / goes to Search with no screens, and the Feed
+        // keeps its channel.
+        key(&mut a, "shift-tab");
+        a.open(Target::Video { id: "v".into(), title: "t".into() });
+        key(&mut a, "tab");
+        key(&mut a, "/");
+        assert_eq!(a.tab, Tab::Search);
+        assert!(a.screens.is_empty());
+        key(&mut a, "esc");
+        key(&mut a, "tab");
+        assert!(matches!(a.screens.as_slice(), [Screen::Channel(s)] if s.id == "UC2"));
     }
 
     #[test]

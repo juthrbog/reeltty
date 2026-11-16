@@ -1993,6 +1993,7 @@ dependencies = [
  "image",
  "insta",
  "libc",
+ "pkg-config",
  "ratatui",
  "reqwest",
  "ring",

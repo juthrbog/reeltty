@@ -2,22 +2,31 @@
 
 use std::ffi::CString;
 use std::fs::File;
+#[cfg(target_os = "linux")]
 use std::io::Write as _;
 use std::ptr;
+#[cfg(target_os = "linux")]
 use std::sync::OnceLock;
+#[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context as _, Result};
 
 /// The size of a huge page. Smaller objects are written with write(2),
 /// because a huge page for them would waste most of its memory.
+#[cfg(target_os = "linux")]
 const HUGE_PAGE: usize = 2 << 20;
+
+/// The longest name that macOS accepts (`PSHMNAMLEN`), with the `/`. Linux
+/// accepts longer names, but reeltty keeps to this limit everywhere.
+pub const MAX_NAME: usize = 31;
 
 /// Creates the object `name` (it must start with `/`) with `bytes` in it.
 /// The terminal unlinks it after it reads it.
 pub fn write(name: &str, bytes: &[u8]) -> Result<()> {
     use std::os::fd::FromRawFd as _;
 
+    debug_assert!(name.len() <= MAX_NAME, "shared memory name longer than {MAX_NAME} bytes: {name}");
     let c = CString::new(name)?;
     // SAFETY: c is a valid C string.
     let fd = unsafe { libc::shm_open(c.as_ptr(), libc::O_CREAT | libc::O_EXCL | libc::O_RDWR, 0o600) };
@@ -25,18 +34,52 @@ pub fn write(name: &str, bytes: &[u8]) -> Result<()> {
         return Err(std::io::Error::last_os_error()).with_context(|| format!("shm_open {name}"));
     }
     // SAFETY: fd is a new descriptor that nothing else owns.
-    let mut f = unsafe { File::from_raw_fd(fd) };
+    let f = unsafe { File::from_raw_fd(fd) };
+    if let Err(e) = fill(&f, bytes) {
+        unlink(name);
+        return Err(e).with_context(|| format!("write {name}"));
+    }
+    Ok(())
+}
+
+/// Puts `bytes` in the new, empty object `f`.
+#[cfg(target_os = "linux")]
+fn fill(mut f: &File, bytes: &[u8]) -> Result<()> {
     let huge = bytes.len() >= HUGE_PAGE && huge_pages() && !NO_POPULATE.load(Ordering::Relaxed);
-    let written = match if huge { write_huge(&f, bytes) } else { Ok(false) } {
+    match if huge { write_huge(f, bytes) } else { Ok(false) } {
         Ok(true) => Ok(()),
         // On Linux, write(2) sets the size, so no ftruncate or mmap is necessary.
         Ok(false) => f.write_all(bytes).map_err(Into::into),
         Err(e) => Err(e),
-    };
-    if let Err(e) = written {
-        unlink(name);
-        return Err(e).with_context(|| format!("write {name}"));
     }
+}
+
+/// Puts `bytes` in the new, empty object `f`. macOS refuses write(2) on a
+/// shared memory object, and lets ftruncate set its size only once, so the
+/// object gets its size first and the bytes go in through a mapping. macOS
+/// rounds the size up to a whole page, and Ghostty and kitty accept that.
+#[cfg(target_os = "macos")]
+fn fill(f: &File, bytes: &[u8]) -> Result<()> {
+    use std::os::fd::AsRawFd as _;
+
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    f.set_len(u64::try_from(bytes.len())?).context("ftruncate")?;
+    // SAFETY: a new shared mapping of the whole object, which is at least
+    // `bytes.len()` bytes long. Only this function uses it, and it unmaps it
+    // before it returns.
+    let ptr = unsafe {
+        libc::mmap(ptr::null_mut(), bytes.len(), libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED, f.as_raw_fd(), 0)
+    };
+    if ptr == libc::MAP_FAILED {
+        return Err(std::io::Error::last_os_error()).context("mmap");
+    }
+    // SAFETY: the mapping from above is `bytes.len()` bytes long and does not
+    // overlap `bytes`.
+    unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), ptr.cast::<u8>(), bytes.len()) };
+    // SAFETY: the mapping from above, which nothing uses after this.
+    unsafe { libc::munmap(ptr, bytes.len()) };
     Ok(())
 }
 
@@ -47,6 +90,7 @@ pub fn write(name: &str, bytes: &[u8]) -> Result<()> {
 ///
 /// Returns false, with nothing written, when the kernel is older than 5.14
 /// and has no `MADV_POPULATE_WRITE`. Then the caller writes with write(2).
+#[cfg(target_os = "linux")]
 fn write_huge(f: &File, bytes: &[u8]) -> Result<bool> {
     use std::os::fd::AsRawFd as _;
 
@@ -90,10 +134,12 @@ fn write_huge(f: &File, bytes: &[u8]) -> Result<bool> {
 
 /// Set when the kernel has no `MADV_POPULATE_WRITE`, so `write_huge` is not
 /// tried again.
+#[cfg(target_os = "linux")]
 static NO_POPULATE: AtomicBool = AtomicBool::new(false);
 
 /// Whether new objects in /dev/shm can get huge pages when asked. Without
 /// them, a mapping is slower than write(2).
+#[cfg(target_os = "linux")]
 fn huge_pages() -> bool {
     static HUGE: OnceLock<bool> = OnceLock::new();
     *HUGE.get_or_init(|| {
@@ -108,6 +154,7 @@ fn huge_pages() -> bool {
 /// Whether /dev/shm gives huge pages to a mapping that asks for them, from
 /// /proc/mounts and the system setting `shmem_enabled`, where brackets mark
 /// the current value.
+#[cfg(target_os = "linux")]
 fn huge_pages_from(mounts: &str, shmem_enabled: &str) -> bool {
     if shmem_enabled.contains("[deny]") {
         return false;
@@ -135,8 +182,25 @@ pub fn unlink(name: &str) {
 }
 
 /// True if the object `name` still exists, so the terminal did not read it yet.
+#[cfg(target_os = "linux")]
 pub fn exists(name: &str) -> bool {
     std::path::Path::new("/dev/shm").join(name.trim_start_matches('/')).exists()
+}
+
+/// True if the object `name` still exists, so the terminal did not read it
+/// yet. macOS has no folder of the objects, so this opens it. An object that
+/// this user may not open still exists.
+#[cfg(target_os = "macos")]
+pub fn exists(name: &str) -> bool {
+    let Ok(c) = CString::new(name) else { return false };
+    // SAFETY: c is a valid C string. Without O_CREAT, shm_open takes no mode.
+    let fd = unsafe { libc::shm_open(c.as_ptr(), libc::O_RDONLY) };
+    if fd >= 0 {
+        // SAFETY: fd is the new descriptor from above, which nothing else uses.
+        unsafe { libc::close(fd) };
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() != Some(libc::ENOENT)
 }
 
 /// An object that is unlinked on drop, unless the terminal already unlinked it.
@@ -159,12 +223,44 @@ impl Drop for ShmObject {
 mod tests {
     use super::*;
 
+    /// The bytes of the object `name`, as the terminal reads them.
+    #[cfg(target_os = "linux")]
+    fn read(name: &str, _len: usize) -> Vec<u8> {
+        std::fs::read(format!("/dev/shm{name}")).unwrap()
+    }
+
+    /// The first `len` bytes of the object `name`, as the terminal reads
+    /// them. macOS rounds the size up to a whole page, so the object must be
+    /// at least `len` bytes long.
+    #[cfg(target_os = "macos")]
+    fn read(name: &str, len: usize) -> Vec<u8> {
+        use std::os::fd::{AsRawFd as _, FromRawFd as _};
+
+        let c = CString::new(name).unwrap();
+        // SAFETY: c is a valid C string. Without O_CREAT, shm_open takes no mode.
+        let fd = unsafe { libc::shm_open(c.as_ptr(), libc::O_RDONLY) };
+        assert!(fd >= 0, "shm_open {name}: {}", std::io::Error::last_os_error());
+        // SAFETY: fd is a new descriptor that nothing else owns.
+        let f = unsafe { File::from_raw_fd(fd) };
+        let size = usize::try_from(f.metadata().unwrap().len()).unwrap();
+        assert!(size >= len, "{name} is {size} bytes, not at least {len}");
+        // SAFETY: a new shared mapping of `len` bytes of the object, which is
+        // at least that long. It is unmapped below.
+        let ptr = unsafe { libc::mmap(ptr::null_mut(), len, libc::PROT_READ, libc::MAP_SHARED, f.as_raw_fd(), 0) };
+        assert_ne!(ptr, libc::MAP_FAILED, "mmap {name}");
+        // SAFETY: the mapping from above is `len` bytes long.
+        let bytes = unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), len) }.to_vec();
+        // SAFETY: the mapping from above, which nothing uses after this.
+        unsafe { libc::munmap(ptr, len) };
+        bytes
+    }
+
     #[test]
     fn writes_and_unlinks() {
         let name = format!("/reeltty-test-{}", std::process::id());
         let obj = ShmObject::create(&name, b"abc").unwrap();
         assert!(exists(&name));
-        assert_eq!(std::fs::read(format!("/dev/shm{name}")).unwrap(), b"abc");
+        assert_eq!(read(&name, 3), b"abc");
         assert!(write(&name, b"x").is_err(), "O_EXCL refuses an object that exists");
         drop(obj);
         assert!(!exists(&name));
@@ -172,16 +268,44 @@ mod tests {
 
     #[test]
     fn writes_large_objects() {
-        // Larger than a huge page and not a whole number of them, so it goes
-        // through `write_huge` on systems with huge pages.
-        let bytes: Vec<u8> = (0..HUGE_PAGE * 3 + 4100).map(|i| u8::try_from(i % 251).unwrap()).collect();
+        // Larger than a 2 MiB huge page and not a whole number of them, so it
+        // goes through `write_huge` on Linux systems with huge pages. On
+        // macOS, it is not a whole number of pages.
+        let bytes: Vec<u8> = (0..(2 << 20) * 3 + 4100).map(|i| u8::try_from(i % 251).unwrap()).collect();
         let name = format!("/reeltty-test-large-{}", std::process::id());
         let obj = ShmObject::create(&name, &bytes).unwrap();
-        assert_eq!(std::fs::read(format!("/dev/shm{name}")).unwrap(), bytes);
+        assert_eq!(read(&name, bytes.len()), bytes);
         drop(obj);
         assert!(!exists(&name));
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn keeps_to_the_name_limit() {
+        // The longest name that macOS accepts works. One byte more does not,
+        // so MAX_NAME is right.
+        let name = format!("/reeltty-limit-{:0>16}", std::process::id());
+        assert_eq!(name.len(), MAX_NAME);
+        let obj = ShmObject::create(&name, b"abc").unwrap();
+        assert!(exists(&name));
+        drop(obj);
+        let long = format!("{name}x");
+        let c = CString::new(long.as_str()).unwrap();
+        // SAFETY: c is a valid C string.
+        let fd = unsafe { libc::shm_open(c.as_ptr(), libc::O_CREAT | libc::O_EXCL | libc::O_RDWR, 0o600) };
+        let err = std::io::Error::last_os_error();
+        if fd >= 0 {
+            unlink(&long);
+        }
+        assert_eq!((fd, err.raw_os_error()), (-1, Some(libc::ENAMETOOLONG)));
+    }
+
+    #[test]
+    fn exists_is_false_for_unknown_objects() {
+        assert!(!exists(&format!("/reeltty-none-{}", std::process::id())));
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn writes_large_objects_through_a_mapping() {
         use std::os::fd::FromRawFd as _;
@@ -203,6 +327,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn finds_huge_pages() {
         let mounts = |o: &str| format!("proc /proc proc rw 0 0\ntmpfs /dev/shm tmpfs {o} 0 0\n");

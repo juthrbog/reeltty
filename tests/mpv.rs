@@ -197,15 +197,17 @@ mod player {
     use reeltty::source::streams::{FormatInfo, Streams};
     use reeltty::sponsorblock::{Category, Segment};
     use reeltty::terminal::kitty::VideoSink;
+    use reeltty::terminal::shm;
 
     const OPTIONS: &[(&str, &str)] = &[("ao", "null"), ("hwdec", "no")];
     const DELETE: &str = "\x1b_Ga=d,d=I,i=1,q=2\x1b\\";
 
     /// The terminal: it keeps what the player writes, and reads and removes
     /// each frame's shared memory object, as Ghostty and kitty do. A slow
-    /// screen reads the objects only when the test says so.
+    /// screen reads the objects only when the test says so. It also keeps
+    /// the name of each object it was sent.
     #[derive(Clone, Default)]
-    struct Screen(Arc<Mutex<Vec<u8>>>, Option<Arc<Mutex<Vec<String>>>>);
+    struct Screen(Arc<Mutex<Vec<u8>>>, Option<Arc<Mutex<Vec<String>>>>, Arc<Mutex<Vec<String>>>);
 
     impl Write for Screen {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -215,10 +217,11 @@ mod player {
                 && let Some(b64) = rest.split_once(';').and_then(|(_, r)| r.split_once('\x1b')).map(|(n, _)| n)
             {
                 let name = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
-                let path = format!("/dev/shm{}", String::from_utf8(name).unwrap());
+                let name = String::from_utf8(name).unwrap();
+                self.2.lock().unwrap().push(name.clone());
                 match &self.1 {
-                    Some(unread) => unread.lock().unwrap().push(path),
-                    None => std::fs::remove_file(path).unwrap(),
+                    Some(unread) => unread.lock().unwrap().push(name),
+                    None => take(&name),
                 }
             }
             self.0.lock().unwrap().extend_from_slice(buf);
@@ -231,14 +234,15 @@ mod player {
 
     impl Screen {
         fn slow() -> Self {
-            Self(Arc::default(), Some(Arc::default()))
+            Self(Arc::default(), Some(Arc::default()), Arc::default())
         }
 
         /// A slow screen reads the frames it has.
         fn read(&self) {
-            for path in self.1.as_ref().unwrap().lock().unwrap().drain(..) {
-                // After a stop, the sink removes the frames that were not read.
-                let _ = std::fs::remove_file(path);
+            for name in self.1.as_ref().unwrap().lock().unwrap().drain(..) {
+                // After a stop, the sink removes the frames that were not
+                // read, and unlink ignores an object that is gone.
+                shm::unlink(&name);
             }
         }
 
@@ -294,11 +298,36 @@ mod player {
         panic!("no such event in 5 s");
     }
 
+    /// Reads and removes the object `name`, as the terminal does. It must
+    /// exist.
+    #[cfg(target_os = "linux")]
+    fn take(name: &str) {
+        std::fs::remove_file(format!("/dev/shm{name}")).unwrap();
+    }
+
+    /// Reads and removes the object `name`, as the terminal does. It must
+    /// exist.
+    #[cfg(target_os = "macos")]
+    fn take(name: &str) {
+        assert!(shm::exists(name), "{name} does not exist");
+        shm::unlink(name);
+    }
+
     /// The shared memory objects of one session of this process.
-    fn objects(session: u64) -> Vec<String> {
+    #[cfg(target_os = "linux")]
+    fn objects(_screen: &Screen, session: u64) -> Vec<String> {
         let prefix = format!("reeltty-v-{}-{session}-", std::process::id());
         let names = std::fs::read_dir("/dev/shm").unwrap().filter_map(|e| e.ok()?.file_name().into_string().ok());
         names.filter(|n| n.starts_with(&prefix)).collect()
+    }
+
+    /// The shared memory objects of one session of this process that
+    /// `screen` was sent. macOS has no folder of the objects to list.
+    #[cfg(target_os = "macos")]
+    fn objects(screen: &Screen, session: u64) -> Vec<String> {
+        let prefix = format!("/reeltty-v-{}-{session}-", std::process::id());
+        let names = screen.2.lock().unwrap();
+        names.iter().filter(|n| n.starts_with(&prefix) && shm::exists(n)).cloned().collect()
     }
 
     #[test]
@@ -324,7 +353,7 @@ mod player {
         reaper.join().unwrap();
         assert!(stopped.elapsed() < Duration::from_secs(2));
         assert!(screen.text().ends_with(DELETE), "no frame after the delete");
-        assert_eq!(objects(7), Vec::<String>::new());
+        assert_eq!(objects(&screen, 7), Vec::<String>::new());
     }
 
     #[test]

@@ -41,6 +41,10 @@ tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-segmentation = "1.13.3"
 
+[build-dependencies]
+# Finds libmpv outside the system folders, for example in Homebrew.
+pkg-config = "0.3.34"
+
 [dev-dependencies]
 insta = "1.49.0"
 tempfile = "3"

@@ -1054,7 +1054,7 @@ printf 'RT\tdone\t{{"filepath": "{f}", "format_id": "137+251", "vcodec": "avc1",
     }
 
     /// Whether a process is still there, and not a zombie.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn alive(pid: i32) -> bool {
         let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
         !stat.is_empty() && !stat.rsplit(')').next().unwrap_or_default().trim_start().starts_with('Z')

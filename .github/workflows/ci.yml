@@ -34,6 +34,31 @@ jobs:
         env:
           INSTA_UPDATE: "no"
 
+  # Apple silicon with the newest mpv of Homebrew. Format, deny and audit do
+  # not depend on the platform, so only the Linux jobs run them.
+  check-macos:
+    runs-on: macos-15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      - uses: actions/checkout@v7
+      # build.rs finds Homebrew's libmpv with pkg-config.
+      - name: Install libmpv
+        run: brew install mpv pkgconf
+      # Keep this version the same as rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --locked
+        env:
+          INSTA_UPDATE: "no"
+
   deny:
     runs-on: ubuntu-latest
     steps:

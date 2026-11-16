@@ -51,11 +51,15 @@ The release has these files:
 
 ## Platforms
 
-Only Linux. reeltty links the system libmpv, and the video frames use Linux shared memory (`/dev/shm`). macOS and Windows builds can come when they are tested.
+- **Release archives:** Linux only (x86_64 and aarch64). They link the system libmpv.
+- **Homebrew formula:** Linux, and macOS on Apple silicon (macOS 15 or later). It builds from source, so a macOS binary needs no signing. A Mac with Intel is not blocked, but it is not tested.
+- **Windows:** no. No terminal on Windows has the Kitty graphics protocol with shared memory.
+
+CI runs clippy and all tests on Linux and on macOS (`macos-15`).
 
 ## The Homebrew formula
 
-The formula builds from the source archive with Homebrew's Rust, so it links Homebrew's libmpv. It depends on `mpv`, `yt-dlp`, and `deno`, and it is for Linux only (`depends_on :linux`). Homebrew's Rust must be at least the `rust-version` in `Cargo.toml`.
+The formula builds from the source archive with Homebrew's Rust, so it links Homebrew's libmpv. It depends on `mpv`, `yt-dlp`, and `deno`. On macOS, it also needs `pkgconf` to build, because `build.rs` finds Homebrew's libmpv with pkg-config. Homebrew's Rust must be at least the `rust-version` in `Cargo.toml`.
 
 yt-dlp also needs the yt-dlp-ejs scripts for full YouTube support. Homebrew's yt-dlp includes them, and it depends on `deno` too. `reeltty doctor` checks both.
 
@@ -71,7 +75,7 @@ The release has a PKGBUILD and its `.SRCINFO` (as `SRCINFO`). They build from th
 
 A pull request that changes `.github/release.yml`, `.github/workflows/release.yml`, `scripts/formula.sh` or `scripts/pkgbuild.sh` runs every job except `publish`. You can also start them by hand on the Actions tab (`workflow_dispatch`). It publishes nothing. One more job runs then:
 
-- `homebrew` installs the formula with Linuxbrew from the source archive of the run, in a local tap, and runs `brew test`.
+- `homebrew` installs the formula with Homebrew on Linux and on macOS, from the source archive of the run, in a local tap, and runs `brew test`.
 
 On your computer:
 

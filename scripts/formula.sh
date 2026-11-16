@@ -31,13 +31,16 @@ class Reeltty < Formula
   sha256 "${sum}"
   license any_of: ["MIT", "Apache-2.0"]
 
-  # Video frames use Linux shared memory (/dev/shm).
-  depends_on :linux
   depends_on "rust" => :build
   depends_on "mpv"
   depends_on "yt-dlp"
   # yt-dlp needs a JavaScript runtime for full YouTube support.
   depends_on "deno"
+
+  on_macos do
+    # build.rs finds Homebrew's libmpv with pkg-config.
+    depends_on "pkgconf" => :build
+  end
 
   def install
     system "cargo", "install", *std_cargo_args

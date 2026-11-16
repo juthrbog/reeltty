@@ -197,14 +197,19 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # The formula builds from source with Homebrew's Rust and libmpv. A
-  # snapshot installs it from the source archive of this run, in a local tap.
-  # The tap's own workflow tests the published formula after a release.
+  # The formula builds from source with Homebrew's Rust and libmpv, on Linux
+  # and on macOS (Apple silicon). A snapshot installs it from the source
+  # archive of this run, in a local tap. The tap's own workflow tests the
+  # published formula after a release.
   homebrew:
-    name: Homebrew formula
+    name: Homebrew formula (${{ matrix.os }})
     if: github.event_name != 'push'
     needs: recipes
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
@@ -216,7 +221,10 @@ jobs:
 
       - name: Install and test the formula
         run: |
-          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          # macOS runners have brew on PATH already.
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          fi
           brew tap-new --no-git juthrbog/snapshot
           tap="$(brew --repository juthrbog/snapshot)"
           source="$(ls "$PWD"/reeltty_*_source.tar.gz)"

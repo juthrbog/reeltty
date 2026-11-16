@@ -1,5 +1,6 @@
 //! The configuration file and the standard file locations.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
@@ -9,7 +10,7 @@ use crate::keymap::{KeyMap, KeyOverrides, PlayerKeyOverrides};
 use crate::source::download::FileFormat;
 use crate::sponsorblock::Category;
 
-/// File locations from the XDG base directories.
+/// File locations from the XDG base directories, on Linux and on macOS.
 #[derive(Debug, Clone)]
 pub struct Paths {
     pub config_file: PathBuf,
@@ -25,16 +26,30 @@ impl Paths {
     /// `$XDG_CONFIG_HOME/reeltty/config.toml`, `$XDG_DATA_HOME/reeltty/reeltty.db`,
     /// `$XDG_STATE_HOME/reeltty/reeltty.log`, `$XDG_CACHE_HOME/reeltty/thumbnails`, and
     /// `$XDG_DATA_HOME/reeltty/downloads`.
+    ///
+    /// macOS uses the same folders, not `~/Library`, as Ghostty, kitty, mpv
+    /// and yt-dlp do there.
     pub fn from_env() -> Result<Self> {
-        let dirs = directories::ProjectDirs::from("", "", "reeltty").context("no home directory")?;
-        let state = dirs.state_dir().unwrap_or_else(|| dirs.data_local_dir());
-        Ok(Self {
-            config_file: dirs.config_dir().join("config.toml"),
-            database: dirs.data_dir().join("reeltty.db"),
-            log_file: state.join("reeltty.log"),
-            thumbnail_cache: dirs.cache_dir().join("thumbnails"),
-            downloads: dirs.data_dir().join("downloads"),
-        })
+        let home = std::env::home_dir().filter(|h| !h.as_os_str().is_empty()).context("no home directory")?;
+        Ok(Self::from_vars(&home, |name| std::env::var_os(name)))
+    }
+
+    /// The paths in `home`, with the XDG variables that `var` gives. A
+    /// variable that is not set, is empty or is not an absolute path is
+    /// ignored, as the XDG Base Directory Specification says.
+    fn from_vars(home: &Path, var: impl Fn(&str) -> Option<OsString>) -> Self {
+        let dir = |name: &str, default: &str| {
+            let base = var(name).map(PathBuf::from).filter(|p| p.is_absolute());
+            base.unwrap_or_else(|| home.join(default)).join("reeltty")
+        };
+        let data = dir("XDG_DATA_HOME", ".local/share");
+        Self {
+            config_file: dir("XDG_CONFIG_HOME", ".config").join("config.toml"),
+            database: data.join("reeltty.db"),
+            log_file: dir("XDG_STATE_HOME", ".local/state").join("reeltty.log"),
+            thumbnail_cache: dir("XDG_CACHE_HOME", ".cache").join("thumbnails"),
+            downloads: data.join("downloads"),
+        }
     }
 }
 
@@ -271,6 +286,38 @@ impl Config {
 mod tests {
     use super::*;
     use crate::keymap::{Action, KeyPress, PlayerAction};
+
+    #[test]
+    fn paths_default_to_the_home_folder() {
+        let p = Paths::from_vars(Path::new("/home/me"), |_| None);
+        assert_eq!(p.config_file, Path::new("/home/me/.config/reeltty/config.toml"));
+        assert_eq!(p.database, Path::new("/home/me/.local/share/reeltty/reeltty.db"));
+        assert_eq!(p.log_file, Path::new("/home/me/.local/state/reeltty/reeltty.log"));
+        assert_eq!(p.thumbnail_cache, Path::new("/home/me/.cache/reeltty/thumbnails"));
+        assert_eq!(p.downloads, Path::new("/home/me/.local/share/reeltty/downloads"));
+    }
+
+    #[test]
+    fn paths_follow_the_xdg_variables() {
+        let p = Paths::from_vars(Path::new("/home/me"), |name| Some(format!("/x/{name}").into()));
+        assert_eq!(p.config_file, Path::new("/x/XDG_CONFIG_HOME/reeltty/config.toml"));
+        assert_eq!(p.database, Path::new("/x/XDG_DATA_HOME/reeltty/reeltty.db"));
+        assert_eq!(p.log_file, Path::new("/x/XDG_STATE_HOME/reeltty/reeltty.log"));
+        assert_eq!(p.thumbnail_cache, Path::new("/x/XDG_CACHE_HOME/reeltty/thumbnails"));
+        assert_eq!(p.downloads, Path::new("/x/XDG_DATA_HOME/reeltty/downloads"));
+    }
+
+    #[test]
+    fn paths_ignore_empty_and_relative_variables() {
+        let var = |name: &str| match name {
+            "XDG_CONFIG_HOME" => Some("".into()),
+            "XDG_DATA_HOME" => Some("relative/data".into()),
+            _ => None,
+        };
+        let p = Paths::from_vars(Path::new("/home/me"), var);
+        assert_eq!(p.config_file, Path::new("/home/me/.config/reeltty/config.toml"));
+        assert_eq!(p.database, Path::new("/home/me/.local/share/reeltty/reeltty.db"));
+    }
 
     #[test]
     fn empty_file_gives_defaults() {
